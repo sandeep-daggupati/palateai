@@ -14,7 +14,11 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: '#0f172a',
+  colorScheme: 'light dark',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#F6F4EF' },
+    { media: '(prefers-color-scheme: dark)', color: '#0F1412' },
+  ],
 };
 
 const themeInitScript = `
@@ -33,7 +37,10 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="min-h-screen bg-bg-light text-brand-primary transition-colors duration-200 dark:bg-bg-dark dark:text-slate-100">
+      <head>
+        <meta name="color-scheme" content="light dark" />
+      </head>
+      <body className="min-h-screen bg-app-bg text-app-text transition-colors duration-200">
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         {children}
       </body>

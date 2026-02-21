@@ -177,7 +177,7 @@ export default function HomePage() {
   return (
     <div className="space-y-6 pb-8">
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Needs review</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-app-muted">Needs review</h2>
         {uploads.length === 0 ? (
           <p className="empty-surface">No uploads waiting for review.</p>
         ) : (
@@ -187,14 +187,14 @@ export default function HomePage() {
                 <p className="font-medium">Upload {upload.id.slice(0, 8)}</p>
                 <StatusChip status={upload.status} />
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">{formatDate(upload.created_at)}</p>
+              <p className="text-xs text-app-muted">{formatDate(upload.created_at)}</p>
             </Link>
           ))
         )}
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Recent dishes</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-app-muted">Recent dishes</h2>
         {entries.length === 0 ? (
           <p className="empty-surface">No dishes logged yet.</p>
         ) : (
@@ -205,9 +205,9 @@ export default function HomePage() {
             return (
               <Link key={entry.id} href={`/dishes/${entry.dish_key}`} className="card-surface block">
                 <p className="font-medium">{entry.dish_name}</p>
-                <p className="text-sm text-slate-600 dark:text-slate-300">{restaurant?.name ?? 'Unknown restaurant'}</p>
-                <p className="text-sm text-slate-600 dark:text-slate-300">{formatPrice(entry)}</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">{formatDate(eatenAt)}</p>
+                <p className="text-sm text-app-muted">{restaurant?.name ?? 'Unknown restaurant'}</p>
+                <p className="text-sm text-app-muted">{formatPrice(entry)}</p>
+                <p className="text-xs text-app-muted">{formatDate(eatenAt)}</p>
               </Link>
             );
           })
@@ -215,7 +215,7 @@ export default function HomePage() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Recent restaurant visits</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-app-muted">Recent restaurant visits</h2>
         {visitsSorted.length === 0 ? (
           <p className="empty-surface">No visits recorded yet.</p>
         ) : (
@@ -229,9 +229,9 @@ export default function HomePage() {
                   <p className="font-medium">{restaurant?.name ?? 'Unknown restaurant'}</p>
                   <StatusChip status={upload.status} />
                 </div>
-                {restaurant?.address && <p className="text-xs text-slate-500 dark:text-slate-400">{restaurant.address}</p>}
-                <p className="text-sm text-slate-600 dark:text-slate-300">{formatDate(visitDate)}</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">{itemCount} extracted item{itemCount === 1 ? '' : 's'}</p>
+                {restaurant?.address && <p className="text-xs text-app-muted">{restaurant.address}</p>}
+                <p className="text-sm text-app-muted">{formatDate(visitDate)}</p>
+                <p className="text-xs text-app-muted">{itemCount} extracted item{itemCount === 1 ? '' : 's'}</p>
               </Link>
             );
           })
@@ -240,3 +240,4 @@ export default function HomePage() {
     </div>
   );
 }
+

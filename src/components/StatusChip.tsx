@@ -11,17 +11,17 @@ const LABELS: Record<ReceiptUploadStatus, string> = {
 };
 
 const COLORS: Record<ReceiptUploadStatus, string> = {
-  uploaded: 'bg-slate-100 text-slate-800',
-  processing: 'bg-blue-100 text-blue-800',
-  needs_review: 'bg-amber-100 text-amber-800',
-  approved: 'bg-emerald-100 text-emerald-800',
-  rejected: 'bg-red-100 text-red-800',
-  failed: 'bg-gray-100 text-gray-800',
+  uploaded: 'bg-slate-200 text-slate-900 dark:bg-slate-700 dark:text-slate-100',
+  processing: 'bg-sky-200 text-sky-900 dark:bg-sky-900/60 dark:text-sky-100',
+  needs_review: 'bg-amber-200 text-amber-900 dark:bg-amber-800/60 dark:text-amber-100',
+  approved: 'bg-emerald-200 text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-100',
+  rejected: 'bg-rose-200 text-rose-900 dark:bg-rose-900/60 dark:text-rose-100',
+  failed: 'bg-zinc-300 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100',
 };
 
 export function StatusChip({ status }: { status: ReceiptUploadStatus }) {
   return (
-    <span className={cn('rounded-full px-2 py-1 text-xs font-medium', COLORS[status])}>
+    <span className={cn('rounded-full px-2 py-1 text-xs font-semibold', COLORS[status])}>
       {LABELS[status]}
     </span>
   );

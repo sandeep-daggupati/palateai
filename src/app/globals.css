@@ -4,22 +4,78 @@
 
 :root {
   color-scheme: light;
+  --color-bg: #f6f4ef;
+  --color-card: #ffffff;
+  --color-text: #1e2c23;
+  --color-muted: #4b5a50;
+  --color-border: #cfd6cf;
+  --color-primary: #1f3d2b;
+  --color-primary-text: #ffffff;
+  --color-accent: #c9a227;
+  --color-link: #254c35;
+  --color-selection-bg: #c9a227;
+  --color-selection-text: #1e2c23;
 }
 
 .dark {
   color-scheme: dark;
+  --color-bg: #0f1412;
+  --color-card: #161b18;
+  --color-text: #ecf1ed;
+  --color-muted: #aab7af;
+  --color-border: #2a342e;
+  --color-primary: #3e6b4e;
+  --color-primary-text: #f7faf8;
+  --color-accent: #d4af37;
+  --color-link: #d4af37;
+  --color-selection-bg: #3e6b4e;
+  --color-selection-text: #f7faf8;
+}
+
+html,
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
 }
 
 body {
-  @apply bg-bg-light text-brand-primary transition-colors duration-200 dark:bg-bg-dark dark:text-slate-100;
+  @apply transition-colors duration-200;
+}
+
+::selection {
+  background: var(--color-selection-bg);
+  color: var(--color-selection-text);
+}
+
+a {
+  color: var(--color-link);
+}
+
+.dark a {
+  color: var(--color-link);
+}
+
+input,
+textarea,
+select {
+  color: var(--color-text);
+  background-color: var(--color-card);
+  border-color: var(--color-border);
+  -webkit-text-fill-color: currentColor;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-muted);
+  opacity: 1;
 }
 
 @layer components {
   .card-surface {
-    @apply rounded-xl bg-white p-5 shadow-sm transition-colors duration-200 dark:border dark:border-slate-800 dark:bg-card-dark dark:shadow-none;
+    @apply rounded-xl bg-app-card p-5 shadow-sm transition-colors duration-200 dark:border dark:border-app-border dark:shadow-none;
   }
 
   .empty-surface {
-    @apply rounded-xl bg-white p-6 text-center text-sm text-slate-500 transition-colors duration-200 dark:border dark:border-slate-800 dark:bg-card-dark dark:text-slate-400;
+    @apply rounded-xl bg-app-card p-6 text-center text-sm text-app-muted transition-colors duration-200 dark:border dark:border-app-border;
   }
 }

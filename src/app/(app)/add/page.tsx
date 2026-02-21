@@ -310,13 +310,13 @@ export default function AddPage() {
           </Button>
           <Button
             type="button"
-            className="w-auto bg-slate-200 px-4 py-3 text-slate-900 hover:bg-slate-300"
+            className="w-auto border border-app-border bg-app-card px-4 py-3 text-app-text hover:bg-slate-100 dark:hover:bg-slate-800"
             onClick={() => receiptCameraRef.current?.click()}
           >
             Take photo
           </Button>
         </div>
-        <p className="text-xs text-slate-500">{receiptFile ? `Selected: ${receiptFile.name}` : 'No file selected.'}</p>
+        <p className="text-xs text-app-muted">{receiptFile ? `Selected: ${receiptFile.name}` : 'No file selected.'}</p>
 
         <label className="text-sm font-medium">Optional Dish Photo</label>
         <input
@@ -335,26 +335,22 @@ export default function AddPage() {
           onChange={(e) => setDishFile(e.target.files?.[0] ?? null)}
         />
         <div className="flex gap-2">
-          <Button
-            type="button"
-            className="w-auto bg-slate-700 px-4 py-3 text-white hover:bg-slate-600"
-            onClick={() => dishPickerRef.current?.click()}
-          >
+          <Button type="button" className="w-auto" onClick={() => dishPickerRef.current?.click()}>
             Upload dish photo
           </Button>
           <Button
             type="button"
-            className="w-auto bg-slate-200 px-4 py-3 text-slate-900 hover:bg-slate-300"
+            className="w-auto border border-app-border bg-app-card px-4 py-3 text-app-text hover:bg-slate-100 dark:hover:bg-slate-800"
             onClick={() => dishCameraRef.current?.click()}
           >
             Take dish photo
           </Button>
         </div>
-        <p className="text-xs text-slate-500">{dishFile ? `Selected: ${dishFile.name}` : 'No dish photo selected.'}</p>
+        <p className="text-xs text-app-muted">{dishFile ? `Selected: ${dishFile.name}` : 'No dish photo selected.'}</p>
 
         <label className="text-sm font-medium">Upload Type</label>
         <select
-          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2"
+          className="w-full rounded-xl border border-app-border bg-app-card px-3 py-2 text-app-text"
           value={uploadType}
           onChange={(e) => setUploadType(e.target.value as 'receipt' | 'menu')}
         >
@@ -380,10 +376,10 @@ export default function AddPage() {
             />
 
             {isRestaurantFocused && restaurantQuery.trim().length >= 2 && (
-              <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
-                {autocompleteLoading && <p className="p-3 text-sm text-slate-500">Searching nearby places...</p>}
+              <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-app-border bg-app-card shadow-sm">
+                {autocompleteLoading && <p className="p-3 text-sm text-app-muted">Searching nearby places...</p>}
                 {!autocompleteLoading && suggestions.length === 0 && (
-                  <p className="p-3 text-sm text-slate-500">No matching places found.</p>
+                  <p className="p-3 text-sm text-app-muted">No matching places found.</p>
                 )}
                 {!autocompleteLoading && suggestions.map((suggestion) => (
                   <button
@@ -391,25 +387,23 @@ export default function AddPage() {
                     type="button"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => void selectSuggestion(suggestion)}
-                    className="w-full border-b border-slate-100 px-3 py-3 text-left last:border-b-0"
+                    className="w-full border-b border-app-border px-3 py-3 text-left last:border-b-0"
                   >
-                    <p className="text-sm font-medium text-slate-900">{suggestion.primaryText}</p>
-                    {suggestion.secondaryText && <p className="text-xs text-slate-500">{suggestion.secondaryText}</p>}
+                    <p className="text-sm font-medium text-app-text">{suggestion.primaryText}</p>
+                    {suggestion.secondaryText && <p className="text-xs text-app-muted">{suggestion.secondaryText}</p>}
                   </button>
                 ))}
               </div>
             )}
           </div>
 
-          {selectedPlace?.address && (
-            <p className="text-xs text-slate-600">Selected: {selectedPlace.address}</p>
-          )}
+          {selectedPlace?.address && <p className="text-xs text-app-muted">Selected: {selectedPlace.address}</p>}
 
-          {autocompleteError && <p className="text-xs text-red-600">{autocompleteError}</p>}
+          {autocompleteError && <p className="text-xs text-red-700">{autocompleteError}</p>}
 
           <Button
             type="button"
-            className="w-auto bg-slate-200 px-3 py-2 text-sm text-slate-900 hover:bg-slate-300"
+            className="w-auto border border-app-border bg-app-card px-3 py-2 text-sm text-app-text hover:bg-slate-100 dark:hover:bg-slate-800"
             onClick={useMyLocation}
             disabled={locationLoading}
           >
@@ -417,19 +411,19 @@ export default function AddPage() {
           </Button>
 
           {userLocation && (
-            <p className="text-xs text-emerald-700">
+            <p className="text-xs text-app-muted">
               Using location bias: {userLocation.lat.toFixed(4)}, {userLocation.lng.toFixed(4)}
             </p>
           )}
-          {locationError && <p className="text-xs text-red-600">{locationError}</p>}
+          {locationError && <p className="text-xs text-red-700">{locationError}</p>}
         </div>
 
-        <Button type="button" className="bg-indigo-600 hover:bg-indigo-500" onClick={toggleRecording}>
+        <Button type="button" className="bg-app-primary" onClick={toggleRecording}>
           {recording ? 'Stop recording' : audioBlob ? 'Re-record audio note' : 'Record audio note'}
         </Button>
-        {audioBlob && <p className="text-xs text-emerald-700">Audio note attached.</p>}
+        {audioBlob && <p className="text-xs text-app-muted">Audio note attached.</p>}
 
-        {loading && <p className="text-xs text-slate-500">Uploading... {Math.round(progress)}%</p>}
+        {loading && <p className="text-xs text-app-muted">Uploading... {Math.round(progress)}%</p>}
         <Button type="button" onClick={onSubmit} disabled={!receiptFile || loading}>
           Save upload
         </Button>
@@ -437,4 +431,3 @@ export default function AddPage() {
     </div>
   );
 }
-

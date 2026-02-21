@@ -22,7 +22,7 @@ function RatingPicker({
 }) {
   return (
     <div className="space-y-1">
-      <p className="text-xs font-medium text-slate-600">{label}</p>
+      <p className="text-xs font-medium text-app-muted">{label}</p>
       <div className="flex gap-2">
         {[1, 2, 3, 4, 5].map((score) => {
           const active = value === score;
@@ -33,8 +33,8 @@ function RatingPicker({
               onClick={() => onChange(active ? null : score)}
               className={`h-9 min-w-9 rounded-full border px-3 text-sm font-semibold transition ${
                 active
-                  ? 'border-slate-900 bg-slate-900 text-white'
-                  : 'border-slate-300 bg-white text-slate-700 hover:border-slate-500'
+                  ? 'border-app-primary bg-app-primary text-app-primary-text'
+                  : 'border-app-border bg-app-card text-app-text hover:border-app-primary'
               }`}
               aria-label={`${score} out of 5`}
             >
@@ -196,7 +196,7 @@ export default function UploadDetailPage() {
   };
 
   if (!upload) {
-    return <div className="text-sm text-slate-500">Loading upload...</div>;
+    return <div className="text-sm text-app-muted">Loading upload...</div>;
   }
 
   return (
@@ -206,9 +206,9 @@ export default function UploadDetailPage() {
           <h1 className="text-lg font-bold">Upload details</h1>
           <StatusChip status={upload.status} />
         </div>
-        <p className="text-xs text-slate-500">ID: {upload.id}</p>
+        <p className="text-xs text-app-muted">ID: {upload.id}</p>
         {upload.image_paths.map((path) => (
-          <p key={path} className="text-xs break-all text-slate-600">
+          <p key={path} className="text-xs break-all text-app-muted">
             {path}
           </p>
         ))}
@@ -221,24 +221,24 @@ export default function UploadDetailPage() {
         <div className="card-surface space-y-4">
           <h2 className="font-semibold">Review and feedback</h2>
 
-          <div className="rounded-lg border border-slate-200 p-3 space-y-3">
+          <div className="rounded-lg border border-app-border p-3 space-y-3">
             <RatingPicker value={visitRating} onChange={setVisitRating} label="Overall visit" />
             <div className="space-y-2">
-              <label className="text-xs font-medium text-slate-600">Quick note (optional)</label>
+              <label className="text-xs font-medium text-app-muted">Quick note (optional)</label>
               <Input
                 value={visitNote}
                 maxLength={VISIT_NOTE_MAX}
                 onChange={(e) => setVisitNote(e.target.value.slice(0, VISIT_NOTE_MAX))}
                 placeholder="e.g., great vibe, too spicy, slow service"
               />
-              <p className="text-[11px] text-slate-500">{visitNote.length}/{VISIT_NOTE_MAX}</p>
+              <p className="text-[11px] text-app-muted">{visitNote.length}/{VISIT_NOTE_MAX}</p>
               <div className="flex flex-wrap gap-2">
                 {QUICK_NOTE_CHIPS.map((chip) => (
                   <button
                     key={chip}
                     type="button"
                     onClick={() => appendVisitNoteChip(chip)}
-                    className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700"
+                    className="rounded-full border border-app-border bg-app-card px-3 py-1 text-xs text-app-text"
                   >
                     {chip}
                   </button>
@@ -247,9 +247,9 @@ export default function UploadDetailPage() {
             </div>
           </div>
 
-          <h3 className="text-sm font-semibold text-slate-700">Line items</h3>
+          <h3 className="text-sm font-semibold text-app-text">Line items</h3>
           {items.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-slate-300 p-3 text-sm text-slate-500">
+            <p className="rounded-lg border border-dashed border-app-border p-3 text-sm text-app-muted">
               No extracted dishes yet. You can still save visit rating and note, then approve.
             </p>
           ) : (
@@ -258,7 +258,7 @@ export default function UploadDetailPage() {
                 const noteOpen = openItemNotes[item.id] || Boolean(item.comment);
 
                 return (
-                  <div key={item.id} className="rounded-lg border border-slate-200 p-3 space-y-3">
+                  <div key={item.id} className="rounded-lg border border-app-border p-3 space-y-3">
                     <div className="grid grid-cols-[1fr,100px,72px] gap-2 items-center">
                       <Input
                         value={item.name_final ?? ''}
@@ -320,7 +320,7 @@ export default function UploadDetailPage() {
                             [item.id]: !noteOpen,
                           }))
                         }
-                        className="text-xs font-medium text-slate-700 underline underline-offset-2"
+                        className="text-xs font-medium text-app-text underline underline-offset-2"
                       >
                         {noteOpen ? 'Hide dish note' : 'Add note'}
                       </button>
@@ -362,4 +362,6 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
+
 
