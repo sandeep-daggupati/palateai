@@ -59,7 +59,7 @@ export async function POST(req: Request) {
 
     const { data: upload, error: uploadError } = await supabase
       .from("receipt_uploads")
-      .select("id,user_id,image_paths,dish_image_path,currency_detected")
+      .select("id,user_id,image_paths,currency_detected")
       .eq("id", uploadIdValue)
       .single();
 
@@ -68,10 +68,9 @@ export async function POST(req: Request) {
       throw uploadError;
     }
 
-    const imagePath = firstNonEmptyPath(upload.image_paths) ?? firstNonEmptyPath(upload.dish_image_path);
+    const imagePath = firstNonEmptyPath(upload.image_paths);
     console.info(`[extract:${traceId}] uploadResolved`, {
       hasImagePaths: Array.isArray(upload.image_paths) && upload.image_paths.length > 0,
-      hasDishImagePath: typeof upload.dish_image_path === "string" && upload.dish_image_path.length > 0,
       selectedImagePath: imagePath ? sanitizePath(imagePath) : null,
     });
 
@@ -169,3 +168,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: message, traceId }, { status: 500 });
   }
 }
+
+
+
