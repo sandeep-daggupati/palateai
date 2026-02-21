@@ -29,7 +29,8 @@ Dish Tracker is a mobile-first Next.js PWA for personal dish logging using recei
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_SECRET_KEY`
+- `OPENAI_API_KEY`
 
 ## Supabase auth notes
 
@@ -43,11 +44,11 @@ Dish Tracker is a mobile-first Next.js PWA for personal dish logging using recei
 - `src/app/(auth)/login` - OAuth login screen
 - `src/app/(auth)/auth/callback` - session finalization redirect
 - `src/app/(app)` - authenticated app pages (`/`, `/add`, `/uploads/[id]`, `/dishes/[dishKey]`)
-- `src/app/api/extract` - extraction API route (stubbed architecture)
+- `src/app/api/extract` - extraction API route
 - `src/app/api/approve` - approve API route
 - `src/lib/supabase` - browser and server clients
 - `src/lib/storage` - image/audio upload helpers
-- `src/lib/extraction` - deterministic extraction stub service
+- `src/lib/extraction` - OpenAI vision extraction helpers
 
 ## Database expectations
 
@@ -61,3 +62,31 @@ This MVP expects these tables in Supabase:
 And one storage bucket:
 
 - `uploads`
+
+## Migration for Visit + Analytics Support
+
+Run the SQL in `supabase/migrations/20260221_analytics_support.sql` in your Supabase SQL editor.
+
+It adds and backfills:
+
+- `receipt_uploads.visited_at`
+- `dish_entries.eaten_at`
+- `dish_entries.dish_key` (if missing)
+
+And indexes for analytics:
+
+- `dish_entries(user_id, eaten_at desc)`
+- `dish_entries(user_id, restaurant_id)`
+- `dish_entries(user_id, dish_key)`
+- `receipt_uploads(user_id, visited_at desc)`
+
+## Visit Definition
+
+A restaurant visit is the latest `receipt_uploads` row for a user where `restaurant_id` is not null.
+
+For Home page recency, visits are ordered by:
+
+1. `visited_at` descending
+2. `created_at` descending fallback
+
+The "Recent Restaurant Visits" list links each visit to `/uploads/[id]` and shows status plus extracted item count.

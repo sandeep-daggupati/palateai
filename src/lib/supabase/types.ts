@@ -36,6 +36,7 @@ export type Database = {
           image_paths: string[];
           audio_path: string | null;
           currency_detected: string | null;
+          visited_at: string | null;
           created_at: string;
           processed_at: string | null;
         };
@@ -48,6 +49,7 @@ export type Database = {
           image_paths?: string[];
           audio_path?: string | null;
           currency_detected?: string | null;
+          visited_at?: string | null;
           created_at?: string;
           processed_at?: string | null;
         };
@@ -60,6 +62,7 @@ export type Database = {
           image_paths?: string[];
           audio_path?: string | null;
           currency_detected?: string | null;
+          visited_at?: string | null;
           created_at?: string;
           processed_at?: string | null;
         };
@@ -110,6 +113,7 @@ export type Database = {
           price_original: number | null;
           currency_original: string;
           price_usd: number | null;
+          eaten_at: string | null;
           source_upload_id: string;
           dish_key: string;
           created_at: string;
@@ -122,6 +126,7 @@ export type Database = {
           price_original?: number | null;
           currency_original: string;
           price_usd?: number | null;
+          eaten_at?: string | null;
           source_upload_id: string;
           dish_key: string;
           created_at?: string;
@@ -134,6 +139,7 @@ export type Database = {
           price_original?: number | null;
           currency_original?: string;
           price_usd?: number | null;
+          eaten_at?: string | null;
           source_upload_id?: string;
           dish_key?: string;
           created_at?: string;
@@ -156,4 +162,3 @@ export type DishEntry = Database['public']['Tables']['dish_entries']['Row'];
 export type TableRow<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
 export type TableInsert<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Insert'];
 export type TableUpdate<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Update'];
-

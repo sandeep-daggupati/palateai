@@ -87,6 +87,7 @@ export default function AddPage() {
           status: 'uploaded',
           type: uploadType,
           image_paths: [],
+          visited_at: new Date().toISOString(),
         })
         .select('id')
         .single();
@@ -181,6 +182,7 @@ export default function AddPage() {
     </div>
   );
 }
+
 
 
 

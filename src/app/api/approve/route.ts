@@ -42,6 +42,7 @@ export async function POST(request: Request) {
         price_original: item.price_final,
         currency_original: upload.currency_detected || 'USD',
         price_usd: item.price_final,
+        eaten_at: upload.visited_at ?? upload.created_at,
         source_upload_id: upload.id,
         dish_key: toDishKey(`${restaurantName} ${finalName}`),
       };
