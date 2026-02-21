@@ -1,6 +1,6 @@
 export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
 
-export type ReceiptUploadStatus = 'uploaded' | 'processing' | 'needs_review' | 'approved';
+export type ReceiptUploadStatus = 'uploaded' | 'processing' | 'needs_review' | 'approved' | 'rejected' | 'failed';
 
 export type Database = {
   public: {

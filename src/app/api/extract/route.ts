@@ -1,9 +1,10 @@
 // src/app/api/extract/route.ts
 import { NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
+import { getServiceSupabaseClient } from "@/lib/supabase/server";
 import { extractLineItemsFromImage } from "@/lib/extraction/openaiVision";
 
 export async function POST(req: Request) {
+  const supabase = getServiceSupabaseClient();
   try {
     const { uploadId } = await req.json();
     if (!uploadId) {
@@ -12,7 +13,7 @@ export async function POST(req: Request) {
 
     // mark processing
     {
-      const { error } = await supabaseServer
+      const { error } = await supabase
         .from("receipt_uploads")
         .update({ status: "processing" })
         .eq("id", uploadId);
@@ -21,7 +22,7 @@ export async function POST(req: Request) {
     }
 
     // fetch upload row
-    const { data: upload, error: uploadError } = await supabaseServer
+    const { data: upload, error: uploadError } = await supabase
       .from("receipt_uploads")
       .select("id,user_id,image_paths,currency_detected")
       .eq("id", uploadId)
@@ -35,7 +36,7 @@ export async function POST(req: Request) {
     }
 
     // Create signed URL for private bucket download
-    const { data: signed, error: signedErr } = await supabaseServer
+    const { data: signed, error: signedErr } = await supabase
       .storage
       .from("uploads")
       .createSignedUrl(imagePath, 60);
@@ -47,13 +48,13 @@ export async function POST(req: Request) {
     const extracted = await extractLineItemsFromImage({ imageUrl: signed.signedUrl });
 
     // Clear any previous extracted line items (so reruns don't duplicate)
-    await supabaseServer.from("extracted_line_items").delete().eq("upload_id", uploadId);
+    await supabase.from("extracted_line_items").delete().eq("upload_id", uploadId);
 
     // Insert extracted line items
     const rows = extracted.items.map((it) => ({
       upload_id: uploadId,
       name_raw: it.name,
-      price_raw: it.price.toFixed(2),
+      price_raw: it.price,
       currency: extracted.currency ?? upload.currency_detected ?? null,
       name_final: it.name,
       price_final: it.price,
@@ -63,12 +64,12 @@ export async function POST(req: Request) {
     }));
 
     if (rows.length > 0) {
-      const { error: insErr } = await supabaseServer.from("extracted_line_items").insert(rows);
+      const { error: insErr } = await supabase.from("extracted_line_items").insert(rows);
       if (insErr) throw insErr;
     }
 
     // Mark needs_review
-    const { error: doneErr } = await supabaseServer
+    const { error: doneErr } = await supabase
       .from("receipt_uploads")
       .update({ status: "needs_review", processed_at: new Date().toISOString() })
       .eq("id", uploadId);
@@ -82,7 +83,7 @@ export async function POST(req: Request) {
       const body = await req.json().catch(() => null);
       const uploadId = body?.uploadId;
       if (uploadId) {
-        await supabaseServer.from("receipt_uploads").update({ status: "failed" }).eq("id", uploadId);
+        await supabase.from("receipt_uploads").update({ status: "failed" }).eq("id", uploadId);
       }
     } catch {}
 
