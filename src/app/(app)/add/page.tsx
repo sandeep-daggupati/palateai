@@ -112,7 +112,7 @@ export default function AddPage() {
         audioPath = await uploadAudio({ blob: audioBlob, userId: user.id, uploadId });
       }
 
-      await supabase
+      const { error: finalizeError } = await supabase
         .from('receipt_uploads')
         .update({
           image_paths: [receiptPath],
@@ -120,6 +120,8 @@ export default function AddPage() {
           audio_path: audioPath,
         })
         .eq('id', uploadId);
+
+      if (finalizeError) throw finalizeError;
 
       router.push(`/uploads/${uploadId}`);
     } finally {
@@ -181,3 +183,4 @@ export default function AddPage() {
     </div>
   );
 }
+

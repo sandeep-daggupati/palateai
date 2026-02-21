@@ -16,19 +16,83 @@ type ParsedResponse = {
   notes?: unknown;
 };
 
+type ResponsesOutput = {
+  output_text?: unknown;
+  output?: Array<{
+    content?: Array<{
+      type?: unknown;
+      text?: unknown;
+      json?: unknown;
+    }>;
+  }>;
+};
+
 function isFiniteNumber(n: unknown): n is number {
   return typeof n === "number" && Number.isFinite(n);
 }
 
+function getResponseText(data: ResponsesOutput): string | null {
+  if (typeof data.output_text === "string" && data.output_text.trim().length > 0) {
+    return data.output_text;
+  }
+
+  const content = data.output?.flatMap((entry) => entry.content ?? []) ?? [];
+  for (const part of content) {
+    if (typeof part.text === "string" && part.text.trim().length > 0) {
+      return part.text;
+    }
+
+    if (part.json && typeof part.json === "object") {
+      return JSON.stringify(part.json);
+    }
+  }
+
+  return null;
+}
+
+function parseModelJson(modelText: string): ParsedResponse {
+  try {
+    return JSON.parse(modelText) as ParsedResponse;
+  } catch {
+    const start = modelText.indexOf("{");
+    const end = modelText.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      return JSON.parse(modelText.slice(start, end + 1)) as ParsedResponse;
+    }
+
+    throw new Error("OpenAI response did not contain valid JSON output");
+  }
+}
+
+function truncate(value: string, max = 220): string {
+  return value.length <= max ? value : `${value.slice(0, max)}...`;
+}
+
+function redactImageUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return "invalid-url";
+  }
+}
+
 export async function extractLineItemsFromImage(params: {
   imageUrl: string; // signed URL
+  traceId?: string;
 }): Promise<Extracted> {
+  const traceId = params.traceId ?? "no-trace";
   const apiKey = process.env.OPENAI_API_KEY;
+
+  console.info(`[extract:${traceId}] openaiVision.start`, {
+    hasApiKey: Boolean(apiKey),
+    imageUrl: redactImageUrl(params.imageUrl),
+  });
+
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is not set");
   }
 
-  // Responses API with image input; ask for strict JSON
   const instructions = `
 You extract restaurant menu/receipt LINE ITEMS and PRICES.
 
@@ -53,7 +117,7 @@ Rules:
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini", // good MVP cost/perf; you can switch to "gpt-4o" if needed
+      model: "gpt-4o-mini",
       input: [
         {
           role: "user",
@@ -63,40 +127,39 @@ Rules:
           ],
         },
       ],
-      // Encourage JSON-only output
       text: { format: { type: "json_object" } },
     }),
   });
 
+  console.info(`[extract:${traceId}] openaiVision.response`, {
+    status: resp.status,
+    ok: resp.ok,
+  });
+
   if (!resp.ok) {
     const msg = await resp.text();
+    console.error(`[extract:${traceId}] openaiVision.httpError`, {
+      status: resp.status,
+      body: truncate(msg),
+    });
     throw new Error(`OpenAI error ${resp.status}: ${msg}`);
   }
 
-  const data = (await resp.json()) as { output_text?: unknown };
+  const data = (await resp.json()) as ResponsesOutput;
+  const modelText = getResponseText(data);
 
-  // Responses API returns text in output[].content[].text; but with json_object format,
-  // the "output_text" field is commonly present.
-  const outputText: string | undefined =
-    typeof data.output_text === "string" ? data.output_text : undefined;
+  console.info(`[extract:${traceId}] openaiVision.payload`, {
+    hasOutputText: typeof data.output_text === "string",
+    outputGroups: Array.isArray(data.output) ? data.output.length : 0,
+    hasModelText: Boolean(modelText),
+    modelTextPreview: modelText ? truncate(modelText, 180) : null,
+  });
 
-  const raw = outputText ?? JSON.stringify(data); // fallback for debugging; should not happen in normal flow
-
-  let parsed: ParsedResponse;
-  try {
-    parsed = JSON.parse(outputText ?? "") as ParsedResponse;
-  } catch {
-    // Try to locate JSON in output if output_text isn't present
-    // Conservative fallback: attempt to extract first JSON object substring.
-    const s = raw;
-    const start = s.indexOf("{");
-    const end = s.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      parsed = JSON.parse(s.slice(start, end + 1)) as ParsedResponse;
-    } else {
-      throw new Error("Failed to parse JSON from OpenAI response");
-    }
+  if (!modelText) {
+    throw new Error("OpenAI returned no parseable text output");
   }
+
+  const parsed = parseModelJson(modelText);
 
   const items = Array.isArray(parsed.items) ? parsed.items : [];
   const cleaned: Extracted["items"] = [];
@@ -107,11 +170,16 @@ Rules:
 
     if (!name || name.length > 120) continue;
     if (!isFiniteNumber(price)) continue;
-    // sanity range (avoid totals like 1234.56)
     if (price <= 0 || price > 500) continue;
 
     cleaned.push({ name, price: Math.round(price * 100) / 100 });
   }
+
+  console.info(`[extract:${traceId}] openaiVision.cleaned`, {
+    parsedItems: items.length,
+    keptItems: cleaned.length,
+    currency: typeof parsed.currency === "string" ? parsed.currency : null,
+  });
 
   return {
     items: cleaned,
