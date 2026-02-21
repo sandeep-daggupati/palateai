@@ -46,6 +46,11 @@ export default function AddPage() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
 
+  const receiptPickerRef = useRef<HTMLInputElement | null>(null);
+  const receiptCameraRef = useRef<HTMLInputElement | null>(null);
+  const dishPickerRef = useRef<HTMLInputElement | null>(null);
+  const dishCameraRef = useRef<HTMLInputElement | null>(null);
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
@@ -284,10 +289,68 @@ export default function AddPage() {
       <h1 className="text-xl font-bold">Add upload</h1>
       <div className="rounded-xl bg-white p-4 shadow-sm space-y-3">
         <label className="text-sm font-medium">Receipt/Menu Image</label>
-        <Input type="file" accept="image/*" capture="environment" onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)} />
+        <input
+          ref={receiptPickerRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+        />
+        <input
+          ref={receiptCameraRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+        />
+        <div className="flex gap-2">
+          <Button type="button" className="w-auto" onClick={() => receiptPickerRef.current?.click()}>
+            Upload photo
+          </Button>
+          <Button
+            type="button"
+            className="w-auto bg-slate-200 px-4 py-3 text-slate-900 hover:bg-slate-300"
+            onClick={() => receiptCameraRef.current?.click()}
+          >
+            Take photo
+          </Button>
+        </div>
+        <p className="text-xs text-slate-500">{receiptFile ? `Selected: ${receiptFile.name}` : 'No file selected.'}</p>
 
         <label className="text-sm font-medium">Optional Dish Photo</label>
-        <Input type="file" accept="image/*" capture="environment" onChange={(e) => setDishFile(e.target.files?.[0] ?? null)} />
+        <input
+          ref={dishPickerRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => setDishFile(e.target.files?.[0] ?? null)}
+        />
+        <input
+          ref={dishCameraRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => setDishFile(e.target.files?.[0] ?? null)}
+        />
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            className="w-auto bg-slate-700 px-4 py-3 text-white hover:bg-slate-600"
+            onClick={() => dishPickerRef.current?.click()}
+          >
+            Upload dish photo
+          </Button>
+          <Button
+            type="button"
+            className="w-auto bg-slate-200 px-4 py-3 text-slate-900 hover:bg-slate-300"
+            onClick={() => dishCameraRef.current?.click()}
+          >
+            Take dish photo
+          </Button>
+        </div>
+        <p className="text-xs text-slate-500">{dishFile ? `Selected: ${dishFile.name}` : 'No dish photo selected.'}</p>
 
         <label className="text-sm font-medium">Upload Type</label>
         <select
