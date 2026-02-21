@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
@@ -15,17 +15,17 @@ export default function UploadDetailPage() {
   const [upload, setUpload] = useState<ReceiptUpload | null>(null);
   const [items, setItems] = useState<ExtractedLineItem[]>([]);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const supabase = getBrowserSupabaseClient();
     const { data: uploadData } = await supabase.from('receipt_uploads').select('*').eq('id', uploadId).single();
     const { data: itemData } = await supabase.from('extracted_line_items').select('*').eq('upload_id', uploadId);
     setUpload(uploadData as ReceiptUpload | null);
     setItems((itemData ?? []) as ExtractedLineItem[]);
-  };
+  }, [uploadId]);
 
   useEffect(() => {
-    load();
-  }, [uploadId]);
+    void load();
+  }, [load]);
 
   const runExtraction = async () => {
     await fetch('/api/extract', {
@@ -179,6 +179,3 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
-
-

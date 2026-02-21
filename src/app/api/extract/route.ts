@@ -5,18 +5,24 @@ import { extractLineItemsFromImage } from "@/lib/extraction/openaiVision";
 
 export async function POST(req: Request) {
   const supabase = getServiceSupabaseClient();
+  let uploadId: string | undefined;
+
   try {
-    const { uploadId } = await req.json();
+    const body = (await req.json()) as { uploadId?: string };
+    uploadId = body.uploadId;
+
     if (!uploadId) {
       return NextResponse.json({ ok: false, error: "Missing uploadId" }, { status: 400 });
     }
+
+    const uploadIdValue = uploadId;
 
     // mark processing
     {
       const { error } = await supabase
         .from("receipt_uploads")
         .update({ status: "processing" })
-        .eq("id", uploadId);
+        .eq("id", uploadIdValue);
 
       if (error) throw error;
     }
@@ -25,7 +31,7 @@ export async function POST(req: Request) {
     const { data: upload, error: uploadError } = await supabase
       .from("receipt_uploads")
       .select("id,user_id,image_paths,currency_detected")
-      .eq("id", uploadId)
+      .eq("id", uploadIdValue)
       .single();
 
     if (uploadError) throw uploadError;
@@ -36,8 +42,7 @@ export async function POST(req: Request) {
     }
 
     // Create signed URL for private bucket download
-    const { data: signed, error: signedErr } = await supabase
-      .storage
+    const { data: signed, error: signedErr } = await supabase.storage
       .from("uploads")
       .createSignedUrl(imagePath, 60);
 
@@ -48,18 +53,16 @@ export async function POST(req: Request) {
     const extracted = await extractLineItemsFromImage({ imageUrl: signed.signedUrl });
 
     // Clear any previous extracted line items (so reruns don't duplicate)
-    await supabase.from("extracted_line_items").delete().eq("upload_id", uploadId);
+    await supabase.from("extracted_line_items").delete().eq("upload_id", uploadIdValue);
 
     // Insert extracted line items
     const rows = extracted.items.map((it) => ({
-      upload_id: uploadId,
+      upload_id: uploadIdValue,
       name_raw: it.name,
       price_raw: it.price,
-      currency: extracted.currency ?? upload.currency_detected ?? null,
       name_final: it.name,
       price_final: it.price,
       confidence: 0.75, // heuristic for MVP; you can compute later
-      user_edited: false,
       included: true,
     }));
 
@@ -72,24 +75,18 @@ export async function POST(req: Request) {
     const { error: doneErr } = await supabase
       .from("receipt_uploads")
       .update({ status: "needs_review", processed_at: new Date().toISOString() })
-      .eq("id", uploadId);
+      .eq("id", uploadIdValue);
 
     if (doneErr) throw doneErr;
 
     return NextResponse.json({ ok: true, count: rows.length });
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Best-effort set failed status
-    try {
-      const body = await req.json().catch(() => null);
-      const uploadId = body?.uploadId;
-      if (uploadId) {
-        await supabase.from("receipt_uploads").update({ status: "failed" }).eq("id", uploadId);
-      }
-    } catch {}
+    if (uploadId) {
+      await supabase.from("receipt_uploads").update({ status: "failed" }).eq("id", uploadId);
+    }
 
-    return NextResponse.json(
-      { ok: false, error: err?.message ?? "Extraction failed" },
-      { status: 500 }
-    );
+    const message = err instanceof Error ? err.message : "Extraction failed";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

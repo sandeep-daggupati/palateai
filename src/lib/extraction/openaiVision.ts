@@ -5,6 +5,17 @@ type Extracted = {
   notes: string | null;
 };
 
+type ParsedItem = {
+  name?: unknown;
+  price?: unknown;
+};
+
+type ParsedResponse = {
+  items?: ParsedItem[];
+  currency?: unknown;
+  notes?: unknown;
+};
+
 function isFiniteNumber(n: unknown): n is number {
   return typeof n === "number" && Number.isFinite(n);
 }
@@ -62,22 +73,18 @@ Rules:
     throw new Error(`OpenAI error ${resp.status}: ${msg}`);
   }
 
-  const data = await resp.json();
+  const data = (await resp.json()) as { output_text?: unknown };
 
   // Responses API returns text in output[].content[].text; but with json_object format,
   // the "output_text" field is commonly present.
   const outputText: string | undefined =
-    typeof data.output_text === "string"
-      ? data.output_text
-      : undefined;
+    typeof data.output_text === "string" ? data.output_text : undefined;
 
-  const raw =
-    outputText ??
-    JSON.stringify(data); // fallback for debugging; should not happen in normal flow
+  const raw = outputText ?? JSON.stringify(data); // fallback for debugging; should not happen in normal flow
 
-  let parsed: any;
+  let parsed: ParsedResponse;
   try {
-    parsed = JSON.parse(outputText ?? "");
+    parsed = JSON.parse(outputText ?? "") as ParsedResponse;
   } catch {
     // Try to locate JSON in output if output_text isn't present
     // Conservative fallback: attempt to extract first JSON object substring.
@@ -85,7 +92,7 @@ Rules:
     const start = s.indexOf("{");
     const end = s.lastIndexOf("}");
     if (start >= 0 && end > start) {
-      parsed = JSON.parse(s.slice(start, end + 1));
+      parsed = JSON.parse(s.slice(start, end + 1)) as ParsedResponse;
     } else {
       throw new Error("Failed to parse JSON from OpenAI response");
     }
@@ -95,8 +102,8 @@ Rules:
   const cleaned: Extracted["items"] = [];
 
   for (const it of items) {
-    const name = typeof it?.name === "string" ? it.name.trim() : "";
-    const price = it?.price;
+    const name = typeof it.name === "string" ? it.name.trim() : "";
+    const price = it.price;
 
     if (!name || name.length > 120) continue;
     if (!isFiniteNumber(price)) continue;
