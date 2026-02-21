@@ -45,6 +45,8 @@ export async function POST(request: Request) {
         eaten_at: upload.visited_at ?? upload.created_at,
         source_upload_id: upload.id,
         dish_key: toDishKey(`${restaurantName} ${finalName}`),
+        rating: item.rating,
+        comment: item.comment,
       };
     });
 

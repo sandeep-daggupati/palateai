@@ -37,6 +37,8 @@ export type Database = {
           audio_path: string | null;
           currency_detected: string | null;
           visited_at: string | null;
+          visit_rating: number | null;
+          visit_note: string | null;
           created_at: string;
           processed_at: string | null;
         };
@@ -50,6 +52,8 @@ export type Database = {
           audio_path?: string | null;
           currency_detected?: string | null;
           visited_at?: string | null;
+          visit_rating?: number | null;
+          visit_note?: string | null;
           created_at?: string;
           processed_at?: string | null;
         };
@@ -63,6 +67,8 @@ export type Database = {
           audio_path?: string | null;
           currency_detected?: string | null;
           visited_at?: string | null;
+          visit_rating?: number | null;
+          visit_note?: string | null;
           created_at?: string;
           processed_at?: string | null;
         };
@@ -78,6 +84,8 @@ export type Database = {
           price_final: number | null;
           confidence: number | null;
           included: boolean;
+          rating: number | null;
+          comment: string | null;
           created_at: string;
         };
         Insert: {
@@ -89,6 +97,8 @@ export type Database = {
           price_final?: number | null;
           confidence?: number | null;
           included?: boolean;
+          rating?: number | null;
+          comment?: string | null;
           created_at?: string;
         };
         Update: {
@@ -100,6 +110,8 @@ export type Database = {
           price_final?: number | null;
           confidence?: number | null;
           included?: boolean;
+          rating?: number | null;
+          comment?: string | null;
           created_at?: string;
         };
         Relationships: [];
@@ -116,6 +128,8 @@ export type Database = {
           eaten_at: string | null;
           source_upload_id: string;
           dish_key: string;
+          rating: number | null;
+          comment: string | null;
           created_at: string;
         };
         Insert: {
@@ -129,6 +143,8 @@ export type Database = {
           eaten_at?: string | null;
           source_upload_id: string;
           dish_key: string;
+          rating?: number | null;
+          comment?: string | null;
           created_at?: string;
         };
         Update: {
@@ -142,6 +158,8 @@ export type Database = {
           eaten_at?: string | null;
           source_upload_id?: string;
           dish_key?: string;
+          rating?: number | null;
+          comment?: string | null;
           created_at?: string;
         };
         Relationships: [];

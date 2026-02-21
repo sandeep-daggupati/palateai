@@ -8,19 +8,66 @@ import { StatusChip } from '@/components/StatusChip';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { ExtractedLineItem, ReceiptUpload } from '@/lib/supabase/types';
 
+const QUICK_NOTE_CHIPS = ['Great value', 'Would repeat', 'Too salty', 'Spicy', 'Slow service', 'Amazing dessert'];
+const VISIT_NOTE_MAX = 140;
+
+function RatingPicker({
+  value,
+  onChange,
+  label,
+}: {
+  value: number | null;
+  onChange: (value: number | null) => void;
+  label: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-medium text-slate-600">{label}</p>
+      <div className="flex gap-2">
+        {[1, 2, 3, 4, 5].map((score) => {
+          const active = value === score;
+          return (
+            <button
+              key={score}
+              type="button"
+              onClick={() => onChange(active ? null : score)}
+              className={`h-9 min-w-9 rounded-full border px-3 text-sm font-semibold transition ${
+                active
+                  ? 'border-slate-900 bg-slate-900 text-white'
+                  : 'border-slate-300 bg-white text-slate-700 hover:border-slate-500'
+              }`}
+              aria-label={`${score} out of 5`}
+            >
+              {score}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function UploadDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const uploadId = params.id;
   const [upload, setUpload] = useState<ReceiptUpload | null>(null);
   const [items, setItems] = useState<ExtractedLineItem[]>([]);
+  const [visitRating, setVisitRating] = useState<number | null>(null);
+  const [visitNote, setVisitNote] = useState('');
+  const [openItemNotes, setOpenItemNotes] = useState<Record<string, boolean>>({});
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     const supabase = getBrowserSupabaseClient();
     const { data: uploadData } = await supabase.from('receipt_uploads').select('*').eq('id', uploadId).single();
     const { data: itemData } = await supabase.from('extracted_line_items').select('*').eq('upload_id', uploadId);
-    setUpload(uploadData as ReceiptUpload | null);
+
+    const typedUpload = uploadData as ReceiptUpload | null;
+    setUpload(typedUpload);
     setItems((itemData ?? []) as ExtractedLineItem[]);
+    setVisitRating(typedUpload?.visit_rating ?? null);
+    setVisitNote(typedUpload?.visit_note ?? '');
   }, [uploadId]);
 
   useEffect(() => {
@@ -36,29 +83,6 @@ export default function UploadDetailPage() {
     await load();
   };
 
-  const approve = async () => {
-    await Promise.all(
-      items.map((item) =>
-        getBrowserSupabaseClient()
-          .from('extracted_line_items')
-          .update({
-            name_final: item.name_final,
-            price_final: item.price_final,
-            included: item.included,
-          })
-          .eq('id', item.id),
-      ),
-    );
-
-    await fetch('/api/approve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uploadId }),
-    });
-    router.push('/');
-    router.refresh();
-  };
-
   const addRow = () => {
     setItems((prev) => [
       ...prev,
@@ -71,6 +95,8 @@ export default function UploadDetailPage() {
         price_final: null,
         confidence: 1,
         included: true,
+        rating: null,
+        comment: null,
         created_at: new Date().toISOString(),
       },
     ]);
@@ -91,14 +117,86 @@ export default function UploadDetailPage() {
         price_final: item.price_final,
         confidence: item.confidence,
         included: item.included,
+        rating: item.rating,
+        comment: item.comment,
       })),
     );
 
     await load();
   };
 
+  const approve = async () => {
+    if (saving) return;
+    setSaving(true);
+
+    try {
+      const supabase = getBrowserSupabaseClient();
+      const persisted = items.filter((item) => !item.id.startsWith('tmp-'));
+      const unsaved = items.filter((item) => item.id.startsWith('tmp-'));
+
+      await supabase
+        .from('receipt_uploads')
+        .update({
+          visit_rating: visitRating,
+          visit_note: visitNote.trim() ? visitNote.trim() : null,
+        })
+        .eq('id', uploadId);
+
+      if (unsaved.length) {
+        await supabase.from('extracted_line_items').insert(
+          unsaved.map((item) => ({
+            upload_id: uploadId,
+            name_raw: item.name_final ?? item.name_raw,
+            name_final: item.name_final,
+            price_raw: item.price_final,
+            price_final: item.price_final,
+            confidence: item.confidence,
+            included: item.included,
+            rating: item.rating,
+            comment: item.comment,
+          })),
+        );
+      }
+
+      await Promise.all(
+        persisted.map((item) =>
+          supabase
+            .from('extracted_line_items')
+            .update({
+              name_final: item.name_final,
+              price_final: item.price_final,
+              included: item.included,
+              rating: item.rating,
+              comment: item.comment,
+            })
+            .eq('id', item.id),
+        ),
+      );
+
+      await fetch('/api/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uploadId }),
+      });
+
+      router.push('/');
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const appendVisitNoteChip = (chip: string) => {
+    setVisitNote((prev) => {
+      const trimmed = prev.trim();
+      if (!trimmed) return chip.slice(0, VISIT_NOTE_MAX);
+      const next = `${trimmed}, ${chip}`;
+      return next.slice(0, VISIT_NOTE_MAX);
+    });
+  };
+
   if (!upload) {
-    return <div className="text-sm text-slate-500">Loading upload…</div>;
+    return <div className="text-sm text-slate-500">Loading upload...</div>;
   }
 
   return (
@@ -110,7 +208,9 @@ export default function UploadDetailPage() {
         </div>
         <p className="text-xs text-slate-500">ID: {upload.id}</p>
         {upload.image_paths.map((path) => (
-          <p key={path} className="text-xs break-all text-slate-600">{path}</p>
+          <p key={path} className="text-xs break-all text-slate-600">
+            {path}
+          </p>
         ))}
         <Button type="button" onClick={runExtraction} className="bg-blue-600 hover:bg-blue-500">
           Run extraction
@@ -118,62 +218,145 @@ export default function UploadDetailPage() {
       </div>
 
       {upload.status === 'needs_review' && (
-        <div className="rounded-xl bg-white p-4 shadow-sm space-y-3">
-          <h2 className="font-semibold">Review line items</h2>
-          <div className="space-y-3">
-            {items.map((item, index) => (
-              <div key={item.id} className="grid grid-cols-[1fr,110px,72px] gap-2 items-center">
-                <Input
-                  value={item.name_final ?? ''}
-                  onChange={(e) =>
-                    setItems((prev) =>
-                      prev.map((entry, itemIndex) =>
-                        itemIndex === index ? { ...entry, name_final: e.target.value } : entry,
-                      ),
-                    )
-                  }
-                  placeholder="Dish name"
-                />
-                <Input
-                  type="number"
-                  value={item.price_final ?? ''}
-                  onChange={(e) =>
-                    setItems((prev) =>
-                      prev.map((entry, itemIndex) =>
-                        itemIndex === index
-                          ? { ...entry, price_final: Number.parseFloat(e.target.value) || null }
-                          : entry,
-                      ),
-                    )
-                  }
-                  placeholder="Price"
-                />
-                <label className="text-xs flex items-center gap-1">
-                  <input
-                    type="checkbox"
-                    checked={item.included}
-                    onChange={(e) =>
-                      setItems((prev) =>
-                        prev.map((entry, itemIndex) =>
-                          itemIndex === index ? { ...entry, included: e.target.checked } : entry,
-                        ),
-                      )
-                    }
-                  />
-                  Include
-                </label>
+        <div className="rounded-xl bg-white p-4 shadow-sm space-y-4">
+          <h2 className="font-semibold">Review and feedback</h2>
+
+          <div className="rounded-lg border border-slate-200 p-3 space-y-3">
+            <RatingPicker value={visitRating} onChange={setVisitRating} label="Overall visit" />
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-slate-600">Quick note (optional)</label>
+              <Input
+                value={visitNote}
+                maxLength={VISIT_NOTE_MAX}
+                onChange={(e) => setVisitNote(e.target.value.slice(0, VISIT_NOTE_MAX))}
+                placeholder="e.g., great vibe, too spicy, slow service"
+              />
+              <p className="text-[11px] text-slate-500">{visitNote.length}/{VISIT_NOTE_MAX}</p>
+              <div className="flex flex-wrap gap-2">
+                {QUICK_NOTE_CHIPS.map((chip) => (
+                  <button
+                    key={chip}
+                    type="button"
+                    onClick={() => appendVisitNoteChip(chip)}
+                    className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700"
+                  >
+                    {chip}
+                  </button>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
-          <Button type="button" onClick={addRow} className="bg-slate-600 hover:bg-slate-500">
-            Add row
-          </Button>
-          <Button type="button" onClick={saveNewRows} className="bg-indigo-600 hover:bg-indigo-500">
-            Save added rows
-          </Button>
-          <Button type="button" onClick={approve}>
-            Approve & Save
-          </Button>
+
+          <h3 className="text-sm font-semibold text-slate-700">Line items</h3>
+          {items.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-slate-300 p-3 text-sm text-slate-500">
+              No extracted dishes yet. You can still save visit rating and note, then approve.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {items.map((item, index) => {
+                const noteOpen = openItemNotes[item.id] || Boolean(item.comment);
+
+                return (
+                  <div key={item.id} className="rounded-lg border border-slate-200 p-3 space-y-3">
+                    <div className="grid grid-cols-[1fr,100px,72px] gap-2 items-center">
+                      <Input
+                        value={item.name_final ?? ''}
+                        onChange={(e) =>
+                          setItems((prev) =>
+                            prev.map((entry, itemIndex) =>
+                              itemIndex === index ? { ...entry, name_final: e.target.value } : entry,
+                            ),
+                          )
+                        }
+                        placeholder="Dish name"
+                      />
+                      <Input
+                        type="number"
+                        value={item.price_final ?? ''}
+                        onChange={(e) =>
+                          setItems((prev) =>
+                            prev.map((entry, itemIndex) =>
+                              itemIndex === index
+                                ? { ...entry, price_final: Number.parseFloat(e.target.value) || null }
+                                : entry,
+                            ),
+                          )
+                        }
+                        placeholder="Price"
+                      />
+                      <label className="text-xs flex items-center gap-1">
+                        <input
+                          type="checkbox"
+                          checked={item.included}
+                          onChange={(e) =>
+                            setItems((prev) =>
+                              prev.map((entry, itemIndex) =>
+                                itemIndex === index ? { ...entry, included: e.target.checked } : entry,
+                              ),
+                            )
+                          }
+                        />
+                        Include
+                      </label>
+                    </div>
+
+                    <RatingPicker
+                      value={item.rating}
+                      onChange={(value) =>
+                        setItems((prev) =>
+                          prev.map((entry, itemIndex) => (itemIndex === index ? { ...entry, rating: value } : entry)),
+                        )
+                      }
+                      label="Dish rating"
+                    />
+
+                    <div className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOpenItemNotes((prev) => ({
+                            ...prev,
+                            [item.id]: !noteOpen,
+                          }))
+                        }
+                        className="text-xs font-medium text-slate-700 underline underline-offset-2"
+                      >
+                        {noteOpen ? 'Hide dish note' : 'Add note'}
+                      </button>
+
+                      {noteOpen && (
+                        <Input
+                          value={item.comment ?? ''}
+                          maxLength={140}
+                          onChange={(e) =>
+                            setItems((prev) =>
+                              prev.map((entry, itemIndex) =>
+                                itemIndex === index ? { ...entry, comment: e.target.value } : entry,
+                              ),
+                            )
+                          }
+                          placeholder="Optional dish note"
+                        />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="flex flex-col gap-2">
+            <Button type="button" onClick={addRow} className="bg-slate-600 hover:bg-slate-500">
+              Add row
+            </Button>
+            <Button type="button" onClick={saveNewRows} className="bg-indigo-600 hover:bg-indigo-500">
+              Save added rows
+            </Button>
+            <Button type="button" onClick={approve} disabled={saving}>
+              {saving ? 'Saving...' : 'Approve & Save'}
+            </Button>
+          </div>
         </div>
       )}
     </div>

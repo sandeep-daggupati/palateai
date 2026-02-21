@@ -90,3 +90,20 @@ For Home page recency, visits are ordered by:
 2. `created_at` descending fallback
 
 The "Recent Restaurant Visits" list links each visit to `/uploads/[id]` and shows status plus extracted item count.
+
+## Migration for Ratings + Visit Notes
+
+Run the SQL in `supabase/migrations/20260221_ratings_visit_notes.sql` in your Supabase SQL editor.
+
+It adds:
+
+- `extracted_line_items.rating` (1-5) and `extracted_line_items.comment`
+- `receipt_uploads.visit_rating` (1-5) and `receipt_uploads.visit_note`
+- `dish_entries.rating` (1-5) and `dish_entries.comment`
+
+Approval flow behavior:
+
+1. User edits line items + ratings + notes on `/uploads/[id]`
+2. `Approve & Save` writes visit feedback to `receipt_uploads`
+3. `Approve & Save` writes dish feedback to `extracted_line_items`
+4. `/api/approve` creates `dish_entries` and copies rating/comment per dish
