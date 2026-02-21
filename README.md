@@ -31,6 +31,7 @@ Dish Tracker is a mobile-first Next.js PWA for personal dish logging using recei
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SECRET_KEY`
 - `OPENAI_API_KEY`
+- `GOOGLE_MAPS_API_KEY` (server-only; do not prefix with `NEXT_PUBLIC`)
 
 ## Supabase auth notes
 
@@ -46,6 +47,8 @@ Dish Tracker is a mobile-first Next.js PWA for personal dish logging using recei
 - `src/app/(app)` - authenticated app pages (`/`, `/add`, `/uploads/[id]`, `/dishes/[dishKey]`)
 - `src/app/api/extract` - extraction API route
 - `src/app/api/approve` - approve API route
+- `src/app/api/places/autocomplete` - server-side Places autocomplete
+- `src/app/api/places/details` - server-side Place details
 - `src/lib/supabase` - browser and server clients
 - `src/lib/storage` - image/audio upload helpers
 - `src/lib/extraction` - OpenAI vision extraction helpers
@@ -62,6 +65,23 @@ This MVP expects these tables in Supabase:
 And one storage bucket:
 
 - `uploads`
+
+## Google Places Setup
+
+1. In Google Cloud, enable Places API (Web Service).
+2. Create an API key restricted for server usage.
+3. Add `GOOGLE_MAPS_API_KEY` in local `.env.local` and Vercel env vars.
+4. All Places calls are server-side routes so the key is not exposed in the browser.
+
+## Migration for Places + Visit Location
+
+Run the SQL in `supabase/migrations/20260221_places_location.sql` in your Supabase SQL editor.
+
+It adds:
+
+- `restaurants.place_id` + `restaurants.address` + `restaurants.lat` + `restaurants.lng`
+- unique index on `(user_id, place_id)` for stable place identity
+- `receipt_uploads.visit_lat` + `receipt_uploads.visit_lng`
 
 ## Migration for Visit + Analytics Support
 

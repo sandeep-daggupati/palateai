@@ -15,6 +15,11 @@ type VisitSummary = {
   itemCount: number;
 };
 
+type RestaurantLookup = {
+  name: string;
+  address: string | null;
+};
+
 function formatPrice(entry: DishEntry): string {
   if (entry.price_usd !== null) {
     return `$${entry.price_usd.toFixed(2)} USD`;
@@ -36,7 +41,7 @@ export default function HomePage() {
   const [uploads, setUploads] = useState<ReceiptUpload[]>([]);
   const [entries, setEntries] = useState<DishEntry[]>([]);
   const [visits, setVisits] = useState<VisitSummary[]>([]);
-  const [restaurantsById, setRestaurantsById] = useState<Record<string, string>>({});
+  const [restaurantsById, setRestaurantsById] = useState<Record<string, RestaurantLookup>>({});
 
   useEffect(() => {
     const load = async () => {
@@ -129,28 +134,31 @@ export default function HomePage() {
         ),
       );
 
-      let restaurantNameMap: Record<string, string> = {};
+      let restaurantLookup: Record<string, RestaurantLookup> = {};
 
       if (restaurantIds.length) {
         const { data: restaurantRows } = await supabase
           .from('restaurants')
-          .select('id,name')
+          .select('id,name,address')
           .eq('user_id', user.id)
           .in('id', restaurantIds);
 
-        restaurantNameMap = ((restaurantRows ?? []) as Pick<Restaurant, 'id' | 'name'>[]).reduce(
+        restaurantLookup = ((restaurantRows ?? []) as Pick<Restaurant, 'id' | 'name' | 'address'>[]).reduce(
           (acc, restaurant) => {
-            acc[restaurant.id] = restaurant.name;
+            acc[restaurant.id] = {
+              name: restaurant.name,
+              address: restaurant.address,
+            };
             return acc;
           },
-          {} as Record<string, string>,
+          {} as Record<string, RestaurantLookup>,
         );
       }
 
       setUploads(uploadRows);
       setEntries(entryRows);
       setVisits(visitSummaries);
-      setRestaurantsById(restaurantNameMap);
+      setRestaurantsById(restaurantLookup);
     };
 
     void load();
@@ -196,7 +204,7 @@ export default function HomePage() {
         ) : (
           entries.map((entry) => {
             const eatenAt = entry.eaten_at ?? entry.created_at;
-            const restaurantName = entry.restaurant_id ? restaurantsById[entry.restaurant_id] ?? 'Unknown restaurant' : 'Unknown restaurant';
+            const restaurant = entry.restaurant_id ? restaurantsById[entry.restaurant_id] : null;
 
             return (
               <Link
@@ -205,7 +213,7 @@ export default function HomePage() {
                 className="block rounded-xl bg-white p-4 shadow-sm"
               >
                 <p className="font-medium">{entry.dish_name}</p>
-                <p className="text-sm text-slate-600">{restaurantName}</p>
+                <p className="text-sm text-slate-600">{restaurant?.name ?? 'Unknown restaurant'}</p>
                 <p className="text-sm text-slate-600">{formatPrice(entry)}</p>
                 <p className="text-xs text-slate-500">{formatDate(eatenAt)}</p>
               </Link>
@@ -220,9 +228,7 @@ export default function HomePage() {
           <p className="rounded-xl bg-white p-4 text-sm text-slate-500">No visits yet.</p>
         ) : (
           visitsSorted.map(({ upload, itemCount }) => {
-            const restaurantName = upload.restaurant_id
-              ? restaurantsById[upload.restaurant_id] ?? 'Unknown restaurant'
-              : 'Unknown restaurant';
+            const restaurant = upload.restaurant_id ? restaurantsById[upload.restaurant_id] : null;
             const visitDate = upload.visited_at ?? upload.created_at;
 
             return (
@@ -232,9 +238,10 @@ export default function HomePage() {
                 className="block rounded-xl bg-white p-4 shadow-sm"
               >
                 <div className="mb-2 flex items-center justify-between">
-                  <p className="font-medium">{restaurantName}</p>
+                  <p className="font-medium">{restaurant?.name ?? 'Unknown restaurant'}</p>
                   <StatusChip status={upload.status} />
                 </div>
+                {restaurant?.address && <p className="text-xs text-slate-500">{restaurant.address}</p>}
                 <p className="text-sm text-slate-600">{formatDate(visitDate)}</p>
                 <p className="text-xs text-slate-500">{itemCount} extracted item{itemCount === 1 ? '' : 's'}</p>
               </Link>

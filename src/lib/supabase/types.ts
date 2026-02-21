@@ -10,18 +10,30 @@ export type Database = {
           id: string;
           user_id: string;
           name: string;
+          place_id: string | null;
+          address: string | null;
+          lat: number | null;
+          lng: number | null;
           created_at: string;
         };
         Insert: {
           id?: string;
           user_id: string;
           name: string;
+          place_id?: string | null;
+          address?: string | null;
+          lat?: number | null;
+          lng?: number | null;
           created_at?: string;
         };
         Update: {
           id?: string;
           user_id?: string;
           name?: string;
+          place_id?: string | null;
+          address?: string | null;
+          lat?: number | null;
+          lng?: number | null;
           created_at?: string;
         };
         Relationships: [];
@@ -37,6 +49,8 @@ export type Database = {
           audio_path: string | null;
           currency_detected: string | null;
           visited_at: string | null;
+          visit_lat: number | null;
+          visit_lng: number | null;
           visit_rating: number | null;
           visit_note: string | null;
           created_at: string;
@@ -52,6 +66,8 @@ export type Database = {
           audio_path?: string | null;
           currency_detected?: string | null;
           visited_at?: string | null;
+          visit_lat?: number | null;
+          visit_lng?: number | null;
           visit_rating?: number | null;
           visit_note?: string | null;
           created_at?: string;
@@ -67,6 +83,8 @@ export type Database = {
           audio_path?: string | null;
           currency_detected?: string | null;
           visited_at?: string | null;
+          visit_lat?: number | null;
+          visit_lng?: number | null;
           visit_rating?: number | null;
           visit_note?: string | null;
           created_at?: string;
