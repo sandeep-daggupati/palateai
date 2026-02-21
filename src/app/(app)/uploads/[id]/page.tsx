@@ -19,7 +19,7 @@ export default function UploadDetailPage() {
     const supabase = getBrowserSupabaseClient();
     const { data: uploadData } = await supabase.from('receipt_uploads').select('*').eq('id', uploadId).single();
     const { data: itemData } = await supabase.from('extracted_line_items').select('*').eq('upload_id', uploadId);
-    setUpload(uploadData as ReceiptUpload);
+    setUpload(uploadData as ReceiptUpload | null);
     setItems((itemData ?? []) as ExtractedLineItem[]);
   };
 
@@ -179,4 +179,6 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
+
 
