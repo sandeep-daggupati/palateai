@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { StatusChip } from '@/components/StatusChip';
@@ -10,6 +10,7 @@ import { ExtractedLineItem, ReceiptUpload } from '@/lib/supabase/types';
 
 export default function UploadDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const uploadId = params.id;
   const [upload, setUpload] = useState<ReceiptUpload | null>(null);
   const [items, setItems] = useState<ExtractedLineItem[]>([]);
@@ -54,7 +55,8 @@ export default function UploadDetailPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uploadId }),
     });
-    await load();
+    router.push('/');
+    router.refresh();
   };
 
   const addRow = () => {
@@ -177,3 +179,4 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+

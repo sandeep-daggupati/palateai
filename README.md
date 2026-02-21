@@ -28,7 +28,7 @@ Dish Tracker is a mobile-first Next.js PWA for personal dish logging using recei
 ## Required environment variables
 
 - `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
 ## Supabase auth notes
