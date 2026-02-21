@@ -35,7 +35,7 @@ export default function DishProfilePage() {
     <div className="space-y-4 pb-8">
       <h1 className="text-xl font-bold">Dish profile</h1>
       {trend && (
-        <div className="rounded-xl bg-white p-4 shadow-sm text-sm">
+        <div className="card-surface text-sm">
           <p>First price: ${trend.first.toFixed(2)}</p>
           <p>Latest price: ${trend.last.toFixed(2)}</p>
           <p>Change: {trend.changePct.toFixed(1)}%</p>
@@ -43,7 +43,7 @@ export default function DishProfilePage() {
       )}
       <div className="space-y-2">
         {entries.map((entry) => (
-          <div key={entry.id} className="rounded-xl bg-white p-4 shadow-sm text-sm">
+          <div key={entry.id} className="card-surface text-sm">
             <p className="font-medium">{entry.dish_name}</p>
             <p>${entry.price_original?.toFixed(2) ?? '—'}</p>
             <p className="text-xs text-slate-500">{new Date(entry.created_at).toLocaleString()}</p>
@@ -53,3 +53,4 @@ export default function DishProfilePage() {
     </div>
   );
 }
+

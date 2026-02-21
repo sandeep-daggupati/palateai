@@ -287,7 +287,7 @@ export default function AddPage() {
   return (
     <div className="space-y-4 pb-8">
       <h1 className="text-xl font-bold">Add upload</h1>
-      <div className="rounded-xl bg-white p-4 shadow-sm space-y-3">
+      <div className="card-surface space-y-3">
         <label className="text-sm font-medium">Receipt/Menu Image</label>
         <input
           ref={receiptPickerRef}
@@ -437,3 +437,4 @@ export default function AddPage() {
     </div>
   );
 }
+

@@ -175,47 +175,39 @@ export default function HomePage() {
   );
 
   return (
-    <div className="space-y-5 pb-8">
+    <div className="space-y-6 pb-8">
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Needs review</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Needs review</h2>
         {uploads.length === 0 ? (
-          <p className="rounded-xl bg-white p-4 text-sm text-slate-500">No uploads waiting for review.</p>
+          <p className="empty-surface">No uploads waiting for review.</p>
         ) : (
           uploads.map((upload) => (
-            <Link
-              key={upload.id}
-              href={`/uploads/${upload.id}`}
-              className="block rounded-xl bg-white p-4 shadow-sm"
-            >
+            <Link key={upload.id} href={`/uploads/${upload.id}`} className="card-surface block">
               <div className="mb-2 flex items-center justify-between">
                 <p className="font-medium">Upload {upload.id.slice(0, 8)}</p>
                 <StatusChip status={upload.status} />
               </div>
-              <p className="text-xs text-slate-500">{formatDate(upload.created_at)}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{formatDate(upload.created_at)}</p>
             </Link>
           ))
         )}
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Recent dishes</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Recent dishes</h2>
         {entries.length === 0 ? (
-          <p className="rounded-xl bg-white p-4 text-sm text-slate-500">No dishes yet.</p>
+          <p className="empty-surface">No dishes logged yet.</p>
         ) : (
           entries.map((entry) => {
             const eatenAt = entry.eaten_at ?? entry.created_at;
             const restaurant = entry.restaurant_id ? restaurantsById[entry.restaurant_id] : null;
 
             return (
-              <Link
-                key={entry.id}
-                href={`/dishes/${entry.dish_key}`}
-                className="block rounded-xl bg-white p-4 shadow-sm"
-              >
+              <Link key={entry.id} href={`/dishes/${entry.dish_key}`} className="card-surface block">
                 <p className="font-medium">{entry.dish_name}</p>
-                <p className="text-sm text-slate-600">{restaurant?.name ?? 'Unknown restaurant'}</p>
-                <p className="text-sm text-slate-600">{formatPrice(entry)}</p>
-                <p className="text-xs text-slate-500">{formatDate(eatenAt)}</p>
+                <p className="text-sm text-slate-600 dark:text-slate-300">{restaurant?.name ?? 'Unknown restaurant'}</p>
+                <p className="text-sm text-slate-600 dark:text-slate-300">{formatPrice(entry)}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">{formatDate(eatenAt)}</p>
               </Link>
             );
           })
@@ -223,27 +215,23 @@ export default function HomePage() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Recent restaurant visits</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Recent restaurant visits</h2>
         {visitsSorted.length === 0 ? (
-          <p className="rounded-xl bg-white p-4 text-sm text-slate-500">No visits yet.</p>
+          <p className="empty-surface">No visits recorded yet.</p>
         ) : (
           visitsSorted.map(({ upload, itemCount }) => {
             const restaurant = upload.restaurant_id ? restaurantsById[upload.restaurant_id] : null;
             const visitDate = upload.visited_at ?? upload.created_at;
 
             return (
-              <Link
-                key={upload.id}
-                href={`/uploads/${upload.id}`}
-                className="block rounded-xl bg-white p-4 shadow-sm"
-              >
+              <Link key={upload.id} href={`/uploads/${upload.id}`} className="card-surface block">
                 <div className="mb-2 flex items-center justify-between">
                   <p className="font-medium">{restaurant?.name ?? 'Unknown restaurant'}</p>
                   <StatusChip status={upload.status} />
                 </div>
-                {restaurant?.address && <p className="text-xs text-slate-500">{restaurant.address}</p>}
-                <p className="text-sm text-slate-600">{formatDate(visitDate)}</p>
-                <p className="text-xs text-slate-500">{itemCount} extracted item{itemCount === 1 ? '' : 's'}</p>
+                {restaurant?.address && <p className="text-xs text-slate-500 dark:text-slate-400">{restaurant.address}</p>}
+                <p className="text-sm text-slate-600 dark:text-slate-300">{formatDate(visitDate)}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">{itemCount} extracted item{itemCount === 1 ? '' : 's'}</p>
               </Link>
             );
           })

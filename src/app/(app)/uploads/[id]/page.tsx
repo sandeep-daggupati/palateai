@@ -201,7 +201,7 @@ export default function UploadDetailPage() {
 
   return (
     <div className="space-y-4 pb-8">
-      <div className="rounded-xl bg-white p-4 shadow-sm space-y-3">
+      <div className="card-surface space-y-3">
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-bold">Upload details</h1>
           <StatusChip status={upload.status} />
@@ -218,7 +218,7 @@ export default function UploadDetailPage() {
       </div>
 
       {upload.status === 'needs_review' && (
-        <div className="rounded-xl bg-white p-4 shadow-sm space-y-4">
+        <div className="card-surface space-y-4">
           <h2 className="font-semibold">Review and feedback</h2>
 
           <div className="rounded-lg border border-slate-200 p-3 space-y-3">
@@ -362,3 +362,4 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
