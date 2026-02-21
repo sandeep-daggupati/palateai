@@ -1,0 +1,5 @@
+# Ignore uploads and built assets
+/public/icons/
+/uploads/
+/node_modules/
+/.next/

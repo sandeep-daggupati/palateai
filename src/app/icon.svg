@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Dish Tracker icon">
+  <rect width="512" height="512" rx="96" fill="#0f172a"/>
+  <g fill="#f8fafc">
+    <circle cx="256" cy="184" r="72" opacity="0.95"/>
+    <path d="M128 328c0-44.18 35.82-80 80-80h96c44.18 0 80 35.82 80 80v24c0 17.67-14.33 32-32 32H160c-17.67 0-32-14.33-32-32v-24z"/>
+  </g>
+</svg>
