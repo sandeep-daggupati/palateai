@@ -102,9 +102,8 @@ export default function AddPage() {
         onProgress: setProgress,
       });
 
-      let dishPath: string | null = null;
       if (dishFile) {
-        dishPath = await uploadImage({ file: dishFile, userId: user.id, uploadId, category: 'dish' });
+        await uploadImage({ file: dishFile, userId: user.id, uploadId, category: 'dish' });
       }
 
       let audioPath: string | null = null;
@@ -116,7 +115,6 @@ export default function AddPage() {
         .from('receipt_uploads')
         .update({
           image_paths: [receiptPath],
-          dish_image_path: dishPath,
           audio_path: audioPath,
         })
         .eq('id', uploadId);
@@ -183,4 +181,6 @@ export default function AddPage() {
     </div>
   );
 }
+
+
 

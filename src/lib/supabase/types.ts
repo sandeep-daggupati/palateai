@@ -34,7 +34,6 @@ export type Database = {
           status: ReceiptUploadStatus;
           type: 'receipt' | 'menu';
           image_paths: string[];
-          dish_image_path: string | null;
           audio_path: string | null;
           currency_detected: string | null;
           created_at: string;
@@ -47,7 +46,6 @@ export type Database = {
           status: ReceiptUploadStatus;
           type: 'receipt' | 'menu';
           image_paths?: string[];
-          dish_image_path?: string | null;
           audio_path?: string | null;
           currency_detected?: string | null;
           created_at?: string;
@@ -60,7 +58,6 @@ export type Database = {
           status?: ReceiptUploadStatus;
           type?: 'receipt' | 'menu';
           image_paths?: string[];
-          dish_image_path?: string | null;
           audio_path?: string | null;
           currency_detected?: string | null;
           created_at?: string;
