@@ -223,7 +223,7 @@ export default function UploadDetailPage() {
 
       const finalItems = [...persisted, ...insertedReviewItems];
 
-      await fetch('/api/approve', {
+      const approveResponse = await fetch('/api/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -234,6 +234,10 @@ export default function UploadDetailPage() {
           })),
         }),
       });
+
+      if (!approveResponse.ok) {
+        throw new Error('Could not save approved dishes for this visit.');
+      }
 
       await load();
       router.refresh();
@@ -256,6 +260,8 @@ export default function UploadDetailPage() {
   }
 
   const visitDate = formatDate(upload.visited_at ?? upload.created_at);
+  const isReviewable = upload.status === 'needs_review';
+  const isApproved = upload.status === 'approved';
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4 pb-8">
@@ -271,7 +277,7 @@ export default function UploadDetailPage() {
         <p className="text-xs text-app-muted">Visit ID: {upload.id}</p>
       </div>
 
-      {upload.status === 'needs_review' ? (
+      {isReviewable ? (
         <div className="card-surface space-y-4">
           <h2 className="text-base font-semibold text-app-text">Review and approve</h2>
 
@@ -422,7 +428,7 @@ export default function UploadDetailPage() {
             </Button>
           </div>
         </div>
-      ) : (
+      ) : isApproved ? (
         <div className="card-surface space-y-3">
           <h2 className="section-label">Dishes from this visit</h2>
           {visitDishes.length === 0 ? (
@@ -438,6 +444,29 @@ export default function UploadDetailPage() {
                 <p className="text-xs text-app-muted">{formatDate(dish.eaten_at ?? dish.created_at)}</p>
               </Link>
             ))
+          )}
+        </div>
+      ) : (
+        <div className="card-surface space-y-3">
+          <h2 className="section-label">Visit is in progress</h2>
+          <p className="text-sm text-app-muted">
+            This visit has been saved and is waiting for extraction and review. Run extraction when you are ready.
+          </p>
+          <Button type="button" variant="secondary" onClick={runExtraction}>
+            Run extraction
+          </Button>
+          {items.length > 0 && (
+            <div className="space-y-2">
+              <p className="section-label">Extracted dishes</p>
+              {items
+                .filter((item) => item.included)
+                .map((item) => (
+                  <div key={item.id} className="rounded-2xl border border-app-border bg-app-card p-4">
+                    <p className="font-medium text-app-text">{item.name_final || item.name_raw}</p>
+                    {item.comment && <p className="text-xs text-app-muted">{item.comment}</p>}
+                  </div>
+                ))}
+            </div>
           )}
         </div>
       )}
