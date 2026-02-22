@@ -1,13 +1,14 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { identityTagOptions } from '@/components/IdentityTagPill';
+import { IdentityTagPill, identityTagOptions } from '@/components/IdentityTagPill';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { StatusChip } from '@/components/StatusChip';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { DishIdentityTag, ExtractedLineItem, ReceiptUpload } from '@/lib/supabase/types';
+import { DishEntry, DishIdentityTag, ExtractedLineItem, ReceiptUpload, Restaurant } from '@/lib/supabase/types';
 
 const QUICK_NOTE_CHIPS = ['Great value', 'Would repeat', 'Too salty', 'Spicy', 'Slow service', 'Amazing dessert'];
 const VISIT_NOTE_MAX = 140;
@@ -15,6 +16,17 @@ const VISIT_NOTE_MAX = 140;
 type ReviewItem = ExtractedLineItem & {
   identity_tag: DishIdentityTag | null;
 };
+
+type VisitDish = Pick<DishEntry, 'id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment' | 'created_at' | 'eaten_at'>;
+
+function formatDate(value: string | null): string {
+  if (!value) return 'Unknown date';
+  return new Date(value).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
 
 function IdentitySelector({
   value,
@@ -61,7 +73,9 @@ export default function UploadDetailPage() {
   const router = useRouter();
   const uploadId = params.id;
   const [upload, setUpload] = useState<ReceiptUpload | null>(null);
+  const [restaurant, setRestaurant] = useState<Pick<Restaurant, 'name' | 'address'> | null>(null);
   const [items, setItems] = useState<ReviewItem[]>([]);
+  const [visitDishes, setVisitDishes] = useState<VisitDish[]>([]);
   const [visitNote, setVisitNote] = useState('');
   const [openItemNotes, setOpenItemNotes] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
@@ -69,14 +83,36 @@ export default function UploadDetailPage() {
   const load = useCallback(async () => {
     const supabase = getBrowserSupabaseClient();
     const { data: uploadData } = await supabase.from('receipt_uploads').select('*').eq('id', uploadId).single();
-    const { data: itemData } = await supabase.from('extracted_line_items').select('*').eq('upload_id', uploadId);
 
     const typedUpload = uploadData as ReceiptUpload | null;
-    const typedItems = (itemData ?? []) as ExtractedLineItem[];
-
     setUpload(typedUpload);
+
+    if (!typedUpload) {
+      setRestaurant(null);
+      setItems([]);
+      setVisitDishes([]);
+      setVisitNote('');
+      return;
+    }
+
+    const [itemData, dishData, restaurantData] = await Promise.all([
+      supabase.from('extracted_line_items').select('*').eq('upload_id', uploadId),
+      supabase
+        .from('dish_entries')
+        .select('id,dish_name,dish_key,identity_tag,comment,created_at,eaten_at')
+        .eq('source_upload_id', uploadId)
+        .order('eaten_at', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false }),
+      typedUpload.restaurant_id
+        ? supabase.from('restaurants').select('name,address').eq('id', typedUpload.restaurant_id).single()
+        : Promise.resolve({ data: null }),
+    ]);
+
+    const typedItems = (itemData.data ?? []) as ExtractedLineItem[];
     setItems(typedItems.map((item) => ({ ...item, identity_tag: null })));
-    setVisitNote(typedUpload?.visit_note ?? '');
+    setVisitDishes((dishData.data ?? []) as VisitDish[]);
+    setRestaurant((restaurantData.data ?? null) as Pick<Restaurant, 'name' | 'address'> | null);
+    setVisitNote(typedUpload.visit_note ?? '');
   }, [uploadId]);
 
   useEffect(() => {
@@ -199,7 +235,7 @@ export default function UploadDetailPage() {
         }),
       });
 
-      router.push('/');
+      await load();
       router.refresh();
     } finally {
       setSaving(false);
@@ -216,34 +252,36 @@ export default function UploadDetailPage() {
   };
 
   if (!upload) {
-    return <div className="text-sm text-app-muted">Loading upload...</div>;
+    return <div className="text-sm text-app-muted">Loading visit...</div>;
   }
+
+  const visitDate = formatDate(upload.visited_at ?? upload.created_at);
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4 pb-8">
-      <div className="card-surface space-y-4">
+      <div className="card-surface space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <h1 className="text-2xl font-semibold text-app-text">Upload details</h1>
+          <h1 className="text-2xl font-semibold text-app-text">Visit details</h1>
           <StatusChip status={upload.status} />
         </div>
-        <p className="text-xs text-app-muted">ID: {upload.id}</p>
-        {upload.image_paths.map((path) => (
-          <p key={path} className="text-xs break-all text-app-muted">
-            {path}
-          </p>
-        ))}
-        <Button type="button" variant="secondary" onClick={runExtraction}>
-          Run extraction
-        </Button>
+        <p className="text-base text-app-text">{restaurant?.name ?? 'Unknown restaurant'}</p>
+        {restaurant?.address && <p className="text-sm text-app-muted">{restaurant.address}</p>}
+        <p className="text-sm text-app-muted">{visitDate}</p>
+        {visitNote && <p className="text-sm text-app-text">{visitNote}</p>}
+        <p className="text-xs text-app-muted">Visit ID: {upload.id}</p>
       </div>
 
-      {upload.status === 'needs_review' && (
+      {upload.status === 'needs_review' ? (
         <div className="card-surface space-y-4">
-          <h2 className="text-base font-semibold text-app-text">Review and feedback</h2>
+          <h2 className="text-base font-semibold text-app-text">Review and approve</h2>
+
+          <Button type="button" variant="secondary" onClick={runExtraction}>
+            Run extraction
+          </Button>
 
           <div className="rounded-2xl border border-app-border p-4 space-y-3">
             <div className="space-y-2">
-              <label className="section-label">Quick note (optional)</label>
+              <label className="section-label">Visit note (optional)</label>
               <Input
                 value={visitNote}
                 maxLength={VISIT_NOTE_MAX}
@@ -269,7 +307,7 @@ export default function UploadDetailPage() {
             </div>
           </div>
 
-          <h3 className="section-label">Line items</h3>
+          <h3 className="section-label">Dishes from this visit</h3>
           {items.length === 0 ? (
             <p className="rounded-2xl border border-dashed border-app-border p-4 text-sm text-app-muted">
               No extracted dishes yet. You can still save the visit note, then approve.
@@ -384,8 +422,25 @@ export default function UploadDetailPage() {
             </Button>
           </div>
         </div>
+      ) : (
+        <div className="card-surface space-y-3">
+          <h2 className="section-label">Dishes from this visit</h2>
+          {visitDishes.length === 0 ? (
+            <p className="empty-surface">No dishes were saved for this visit.</p>
+          ) : (
+            visitDishes.map((dish) => (
+              <Link key={dish.id} href={`/dishes/${dish.dish_key}`} className="rounded-2xl border border-app-border bg-app-card p-4 block">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <p className="font-medium text-app-text">{dish.dish_name}</p>
+                  <IdentityTagPill tag={dish.identity_tag} />
+                </div>
+                {dish.comment && <p className="text-xs text-app-muted">{dish.comment}</p>}
+                <p className="text-xs text-app-muted">{formatDate(dish.eaten_at ?? dish.created_at)}</p>
+              </Link>
+            ))
+          )}
+        </div>
       )}
     </div>
   );
 }
-

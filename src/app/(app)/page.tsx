@@ -2,16 +2,34 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { FilterChips } from '@/components/FilterChips';
 import { IdentityTagPill } from '@/components/IdentityTagPill';
 import { StatusChip } from '@/components/StatusChip';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { DishEntry, ReceiptUpload, Restaurant } from '@/lib/supabase/types';
+import { DishEntry, DishIdentityTag, ReceiptUpload, ReceiptUploadStatus, Restaurant } from '@/lib/supabase/types';
 
-const RECENT_ACTIVITY_LIMIT = 5;
-const GO_TO_LIMIT = 5;
+const LIST_LIMIT = 10;
+
+const DISH_FILTER_OPTIONS: Array<{ label: string; value: 'all' | DishIdentityTag; badge?: string }> = [
+  { label: 'All', value: 'all' },
+  { label: 'GO-TO', value: 'go_to', badge: 'Suggested' },
+  { label: 'Hidden Gem', value: 'hidden_gem' },
+  { label: 'Special Occasion', value: 'special_occasion' },
+  { label: 'Try Again', value: 'try_again' },
+  { label: 'Never Again', value: 'never_again' },
+];
+
+const ACTIVITY_FILTER_OPTIONS: Array<{ label: string; value: 'all' | ReceiptUploadStatus }> = [
+  { label: 'All', value: 'all' },
+  { label: 'Needs review', value: 'needs_review' },
+  { label: 'Approved', value: 'approved' },
+  { label: 'Processing', value: 'processing' },
+  { label: 'Failed', value: 'failed' },
+];
 
 type RestaurantLookup = {
   name: string;
+  address: string | null;
 };
 
 function formatDate(value: string | null): string {
@@ -24,9 +42,13 @@ function formatDate(value: string | null): string {
 }
 
 export default function HomePage() {
-  const [recentActivity, setRecentActivity] = useState<ReceiptUpload[]>([]);
-  const [goToDishes, setGoToDishes] = useState<DishEntry[]>([]);
+  const [hasAnyUploads, setHasAnyUploads] = useState(false);
+  const [dishes, setDishes] = useState<DishEntry[]>([]);
+  const [visits, setVisits] = useState<ReceiptUpload[]>([]);
   const [restaurantsById, setRestaurantsById] = useState<Record<string, RestaurantLookup>>({});
+
+  const [dishFilter, setDishFilter] = useState<'all' | DishIdentityTag>('all');
+  const [activityFilter, setActivityFilter] = useState<'all' | ReceiptUploadStatus>('all');
 
   useEffect(() => {
     const load = async () => {
@@ -36,35 +58,48 @@ export default function HomePage() {
       } = await supabase.auth.getUser();
 
       if (!user) {
-        setRecentActivity([]);
-        setGoToDishes([]);
+        setHasAnyUploads(false);
+        setDishes([]);
+        setVisits([]);
         setRestaurantsById({});
         return;
       }
 
-      const { data: activityData } = await supabase
+      const uploadsExistQuery = await supabase.from('receipt_uploads').select('id').eq('user_id', user.id).limit(1);
+      setHasAnyUploads((uploadsExistQuery.data ?? []).length > 0);
+
+      let dishQuery = supabase
+        .from('dish_entries')
+        .select('id,dish_name,dish_key,restaurant_id,identity_tag,eaten_at,created_at,source_upload_id')
+        .eq('user_id', user.id)
+        .order('eaten_at', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false })
+        .limit(LIST_LIMIT);
+
+      if (dishFilter !== 'all') {
+        dishQuery = dishQuery.eq('identity_tag', dishFilter);
+      }
+
+      let visitQuery = supabase
         .from('receipt_uploads')
-        .select('id,restaurant_id,status,visited_at,created_at')
+        .select('id,restaurant_id,status,visited_at,created_at,visit_note')
         .eq('user_id', user.id)
         .order('visited_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false })
-        .limit(RECENT_ACTIVITY_LIMIT);
+        .limit(LIST_LIMIT);
 
-      const { data: goToData } = await supabase
-        .from('dish_entries')
-        .select('id,dish_name,dish_key,restaurant_id,identity_tag,eaten_at,created_at')
-        .eq('user_id', user.id)
-        .eq('identity_tag', 'go_to')
-        .order('eaten_at', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false })
-        .limit(GO_TO_LIMIT);
+      if (activityFilter !== 'all') {
+        visitQuery = visitQuery.eq('status', activityFilter);
+      }
 
-      const activityRows = (activityData ?? []) as ReceiptUpload[];
-      const goToRows = (goToData ?? []) as DishEntry[];
+      const [{ data: dishRows }, { data: visitRows }] = await Promise.all([dishQuery, visitQuery]);
+
+      const parsedDishes = (dishRows ?? []) as DishEntry[];
+      const parsedVisits = (visitRows ?? []) as ReceiptUpload[];
 
       const restaurantIds = Array.from(
         new Set(
-          [...activityRows, ...goToRows]
+          [...parsedDishes, ...parsedVisits]
             .map((row) => row.restaurant_id)
             .filter((id): id is string => Boolean(id)),
         ),
@@ -74,46 +109,49 @@ export default function HomePage() {
       if (restaurantIds.length > 0) {
         const { data: restaurantRows } = await supabase
           .from('restaurants')
-          .select('id,name')
+          .select('id,name,address')
           .eq('user_id', user.id)
           .in('id', restaurantIds);
 
-        restaurantLookup = ((restaurantRows ?? []) as Pick<Restaurant, 'id' | 'name'>[]).reduce(
-          (acc, restaurant) => {
-            acc[restaurant.id] = { name: restaurant.name };
+        restaurantLookup = ((restaurantRows ?? []) as Pick<Restaurant, 'id' | 'name' | 'address'>[]).reduce(
+          (acc, row) => {
+            acc[row.id] = {
+              name: row.name,
+              address: row.address,
+            };
             return acc;
           },
           {} as Record<string, RestaurantLookup>,
         );
       }
 
-      setRecentActivity(activityRows);
-      setGoToDishes(goToRows);
+      setDishes(parsedDishes);
+      setVisits(parsedVisits);
       setRestaurantsById(restaurantLookup);
     };
 
     void load();
-  }, []);
+  }, [activityFilter, dishFilter]);
 
-  const hasAnyActivity = recentActivity.length > 0;
-
-  const activityRows = useMemo(
+  const dishRows = useMemo(
     () =>
-      recentActivity.map((row) => ({
-        ...row,
-        restaurantName: row.restaurant_id ? restaurantsById[row.restaurant_id]?.name ?? 'Unknown restaurant' : 'Unknown restaurant',
-        dateLabel: formatDate(row.visited_at ?? row.created_at),
+      dishes.map((dish) => ({
+        ...dish,
+        restaurantName: dish.restaurant_id ? restaurantsById[dish.restaurant_id]?.name ?? 'Unknown restaurant' : 'Unknown restaurant',
+        dateLabel: formatDate(dish.eaten_at ?? dish.created_at),
       })),
-    [recentActivity, restaurantsById],
+    [dishes, restaurantsById],
   );
 
-  const goToRows = useMemo(
+  const visitRows = useMemo(
     () =>
-      goToDishes.map((row) => ({
-        ...row,
-        restaurantName: row.restaurant_id ? restaurantsById[row.restaurant_id]?.name ?? 'Unknown restaurant' : 'Unknown restaurant',
+      visits.map((visit) => ({
+        ...visit,
+        restaurantName: visit.restaurant_id ? restaurantsById[visit.restaurant_id]?.name ?? 'Unknown restaurant' : 'Unknown restaurant',
+        address: visit.restaurant_id ? restaurantsById[visit.restaurant_id]?.address ?? null : null,
+        dateLabel: formatDate(visit.visited_at ?? visit.created_at),
       })),
-    [goToDishes, restaurantsById],
+    [restaurantsById, visits],
   );
 
   return (
@@ -131,40 +169,44 @@ export default function HomePage() {
           Add receipt or menu
         </Link>
 
-        {!hasAnyActivity && (
+        {!hasAnyUploads && (
           <p className="text-sm text-app-muted">1) Upload receipt/menu -&gt; 2) Approve dishes -&gt; 3) Build your food identity</p>
         )}
       </section>
 
       <section className="space-y-2">
-        <h2 className="section-label">Recent activity</h2>
-        {activityRows.length === 0 ? (
-          <p className="empty-surface">No activity yet.</p>
+        <h2 className="section-label">Recent Dishes</h2>
+        <FilterChips options={DISH_FILTER_OPTIONS} selected={dishFilter} onChange={setDishFilter} />
+        {dishRows.length === 0 ? (
+          <p className="empty-surface">No dishes yet.</p>
         ) : (
-          activityRows.map((row) => (
-            <Link key={row.id} href={`/uploads/${row.id}`} className="card-surface block">
+          dishRows.map((dish) => (
+            <Link key={dish.id} href={dish.dish_key ? `/dishes/${dish.dish_key}` : `/uploads/${dish.source_upload_id}`} className="card-surface block">
               <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="font-medium text-app-text">{row.restaurantName}</p>
-                <StatusChip status={row.status} />
+                <p className="font-medium text-app-text">{dish.dish_name}</p>
+                {dish.identity_tag && <IdentityTagPill tag={dish.identity_tag} />}
               </div>
-              <p className="text-sm text-app-muted">{row.dateLabel}</p>
+              <p className="text-sm text-app-muted">{dish.restaurantName}</p>
+              <p className="text-xs text-app-muted">{dish.dateLabel}</p>
             </Link>
           ))
         )}
       </section>
 
       <section className="space-y-2">
-        <h2 className="section-label">Your GO-TOs</h2>
-        {goToRows.length === 0 ? (
-          <p className="empty-surface">Mark dishes as GO-TO during approval.</p>
+        <h2 className="section-label">Recent Activity</h2>
+        <FilterChips options={ACTIVITY_FILTER_OPTIONS} selected={activityFilter} onChange={setActivityFilter} />
+        {visitRows.length === 0 ? (
+          <p className="empty-surface">No activity yet.</p>
         ) : (
-          goToRows.map((row) => (
-            <Link key={row.id} href={`/dishes/${row.dish_key}`} className="card-surface block">
+          visitRows.map((visit) => (
+            <Link key={visit.id} href={`/uploads/${visit.id}`} className="card-surface block">
               <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="font-medium text-app-text">{row.dish_name}</p>
-                <IdentityTagPill tag="go_to" />
+                <p className="font-medium text-app-text">{visit.restaurantName}</p>
+                <StatusChip status={visit.status} />
               </div>
-              <p className="text-sm text-app-muted">{row.restaurantName}</p>
+              {visit.address && <p className="text-xs text-app-muted">{visit.address}</p>}
+              <p className="text-xs text-app-muted">{visit.dateLabel}</p>
             </Link>
           ))
         )}
@@ -172,7 +214,4 @@ export default function HomePage() {
     </div>
   );
 }
-
-
-
 
