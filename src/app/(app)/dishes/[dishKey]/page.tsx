@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { RatingStars } from '@/components/RatingStars';
+import { IdentityTagPill } from '@/components/IdentityTagPill';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { DishEntry } from '@/lib/supabase/types';
 
@@ -19,7 +19,7 @@ export default function DishProfilePage() {
       const supabase = getBrowserSupabaseClient();
       const { data } = await supabase
         .from('dish_entries')
-        .select('id,dish_name,price_original,price_usd,currency_original,rating,comment,created_at,eaten_at,dish_key')
+        .select('id,dish_name,price_original,price_usd,currency_original,identity_tag,comment,created_at,eaten_at,dish_key')
         .eq('dish_key', params.dishKey)
         .order('created_at', { ascending: true });
       setEntries((data ?? []) as DishEntry[]);
@@ -49,9 +49,9 @@ export default function DishProfilePage() {
       <div className="space-y-2">
         {entries.map((entry) => (
           <div key={entry.id} className="card-surface text-sm">
-            <div className="mb-1 flex items-center justify-between">
+            <div className="mb-1 flex items-center justify-between gap-3">
               <p className="font-medium">{entry.dish_name}</p>
-              <RatingStars value={entry.rating} size="sm" showEmpty />
+              <IdentityTagPill tag={entry.identity_tag} />
             </div>
             <p className="text-app-muted">${entry.price_original?.toFixed(2) ?? '--'}</p>
             {entry.comment && <p className="text-xs text-app-muted">{truncate(entry.comment)}</p>}

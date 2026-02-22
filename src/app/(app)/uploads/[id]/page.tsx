@@ -2,43 +2,48 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { identityTagOptions } from '@/components/IdentityTagPill';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { StatusChip } from '@/components/StatusChip';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { ExtractedLineItem, ReceiptUpload } from '@/lib/supabase/types';
+import { DishIdentityTag, ExtractedLineItem, ReceiptUpload } from '@/lib/supabase/types';
 
 const QUICK_NOTE_CHIPS = ['Great value', 'Would repeat', 'Too salty', 'Spicy', 'Slow service', 'Amazing dessert'];
 const VISIT_NOTE_MAX = 140;
 
-function RatingPicker({
+type ReviewItem = ExtractedLineItem & {
+  identity_tag: DishIdentityTag | null;
+};
+
+function IdentitySelector({
   value,
   onChange,
-  label,
 }: {
-  value: number | null;
-  onChange: (value: number | null) => void;
-  label: string;
+  value: DishIdentityTag | null;
+  onChange: (value: DishIdentityTag | null) => void;
 }) {
   return (
-    <div className="space-y-1">
-      <p className="text-xs font-medium text-app-muted">{label}</p>
-      <div className="flex gap-2">
-        {[1, 2, 3, 4, 5].map((score) => {
-          const active = value === score;
+    <div className="space-y-2">
+      <p className="text-xs font-medium text-app-muted">How does this dish live in your world?</p>
+      <div className="flex flex-wrap gap-2">
+        {identityTagOptions().map((option) => {
+          const active = option.value === value;
           return (
             <button
-              key={score}
+              key={option.value}
               type="button"
-              onClick={() => onChange(active ? null : score)}
-              className={`h-9 min-w-9 rounded-full border px-3 text-sm font-semibold transition ${
+              onClick={() => onChange(active ? null : option.value)}
+              className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide transition-colors ${
                 active
-                  ? 'border-app-primary bg-app-primary text-app-primary-text'
-                  : 'border-app-border bg-app-card text-app-text hover:border-app-primary'
+                  ? option.value === 'never_again'
+                    ? 'border-rose-300/70 bg-rose-50/80 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300'
+                    : 'border-app-primary/40 bg-app-primary/10 text-app-primary'
+                  : 'border-app-border bg-app-card text-app-muted hover:border-app-primary/40 hover:text-app-text'
               }`}
-              aria-label={`${score} out of 5`}
             >
-              {score}
+              {active && <span aria-hidden="true">?</span>}
+              {option.label}
             </button>
           );
         })}
@@ -52,8 +57,7 @@ export default function UploadDetailPage() {
   const router = useRouter();
   const uploadId = params.id;
   const [upload, setUpload] = useState<ReceiptUpload | null>(null);
-  const [items, setItems] = useState<ExtractedLineItem[]>([]);
-  const [visitRating, setVisitRating] = useState<number | null>(null);
+  const [items, setItems] = useState<ReviewItem[]>([]);
   const [visitNote, setVisitNote] = useState('');
   const [openItemNotes, setOpenItemNotes] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
@@ -64,9 +68,10 @@ export default function UploadDetailPage() {
     const { data: itemData } = await supabase.from('extracted_line_items').select('*').eq('upload_id', uploadId);
 
     const typedUpload = uploadData as ReceiptUpload | null;
+    const typedItems = (itemData ?? []) as ExtractedLineItem[];
+
     setUpload(typedUpload);
-    setItems((itemData ?? []) as ExtractedLineItem[]);
-    setVisitRating(typedUpload?.visit_rating ?? null);
+    setItems(typedItems.map((item) => ({ ...item, identity_tag: null })));
     setVisitNote(typedUpload?.visit_note ?? '');
   }, [uploadId]);
 
@@ -97,6 +102,7 @@ export default function UploadDetailPage() {
         included: true,
         rating: null,
         comment: null,
+        identity_tag: null,
         created_at: new Date().toISOString(),
       },
     ]);
@@ -117,7 +123,6 @@ export default function UploadDetailPage() {
         price_final: item.price_final,
         confidence: item.confidence,
         included: item.included,
-        rating: item.rating,
         comment: item.comment,
       })),
     );
@@ -137,14 +142,15 @@ export default function UploadDetailPage() {
       await supabase
         .from('receipt_uploads')
         .update({
-          visit_rating: visitRating,
           visit_note: visitNote.trim() ? visitNote.trim() : null,
         })
         .eq('id', uploadId);
 
-      if (unsaved.length) {
-        await supabase.from('extracted_line_items').insert(
-          unsaved.map((item) => ({
+      const insertedReviewItems: ReviewItem[] = [];
+      for (const item of unsaved) {
+        const { data: inserted, error } = await supabase
+          .from('extracted_line_items')
+          .insert({
             upload_id: uploadId,
             name_raw: item.name_final ?? item.name_raw,
             name_final: item.name_final,
@@ -152,10 +158,13 @@ export default function UploadDetailPage() {
             price_final: item.price_final,
             confidence: item.confidence,
             included: item.included,
-            rating: item.rating,
             comment: item.comment,
-          })),
-        );
+          })
+          .select('*')
+          .single();
+
+        if (error) throw error;
+        insertedReviewItems.push({ ...(inserted as ExtractedLineItem), identity_tag: item.identity_tag });
       }
 
       await Promise.all(
@@ -166,17 +175,24 @@ export default function UploadDetailPage() {
               name_final: item.name_final,
               price_final: item.price_final,
               included: item.included,
-              rating: item.rating,
               comment: item.comment,
             })
             .eq('id', item.id),
         ),
       );
 
+      const finalItems = [...persisted, ...insertedReviewItems];
+
       await fetch('/api/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uploadId }),
+        body: JSON.stringify({
+          uploadId,
+          identities: finalItems.map((item) => ({
+            lineItemId: item.id,
+            identityTag: item.identity_tag,
+          })),
+        }),
       });
 
       router.push('/');
@@ -222,7 +238,6 @@ export default function UploadDetailPage() {
           <h2 className="font-semibold">Review and feedback</h2>
 
           <div className="rounded-lg border border-app-border p-3 space-y-3">
-            <RatingPicker value={visitRating} onChange={setVisitRating} label="Overall visit" />
             <div className="space-y-2">
               <label className="text-xs font-medium text-app-muted">Quick note (optional)</label>
               <Input
@@ -250,7 +265,7 @@ export default function UploadDetailPage() {
           <h3 className="text-sm font-semibold text-app-text">Line items</h3>
           {items.length === 0 ? (
             <p className="rounded-lg border border-dashed border-app-border p-3 text-sm text-app-muted">
-              No extracted dishes yet. You can still save visit rating and note, then approve.
+              No extracted dishes yet. You can still save visit note, then approve.
             </p>
           ) : (
             <div className="space-y-3">
@@ -301,14 +316,15 @@ export default function UploadDetailPage() {
                       </label>
                     </div>
 
-                    <RatingPicker
-                      value={item.rating}
+                    <IdentitySelector
+                      value={item.identity_tag}
                       onChange={(value) =>
                         setItems((prev) =>
-                          prev.map((entry, itemIndex) => (itemIndex === index ? { ...entry, rating: value } : entry)),
+                          prev.map((entry, itemIndex) =>
+                            itemIndex === index ? { ...entry, identity_tag: value } : entry,
+                          ),
                         )
                       }
-                      label="Dish rating"
                     />
 
                     <div className="space-y-2">
@@ -362,6 +378,4 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
-
 

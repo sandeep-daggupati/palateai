@@ -1,13 +1,31 @@
 import { NextResponse } from 'next/server';
 import { getServiceSupabaseClient } from '@/lib/supabase/server';
-import { TableInsert, TableRow } from '@/lib/supabase/types';
+import { DishIdentityTag, TableInsert, TableRow } from '@/lib/supabase/types';
 import { toDishKey } from '@/lib/utils';
 
+type ApproveBody = {
+  uploadId?: string;
+  identities?: Array<{ lineItemId: string; identityTag: DishIdentityTag | null }>;
+};
+
+const VALID_IDENTITIES: DishIdentityTag[] = ['go_to', 'hidden_gem', 'special_occasion', 'try_again', 'never_again'];
+
+function sanitizeIdentity(value: DishIdentityTag | null | undefined): DishIdentityTag | null {
+  if (!value) return null;
+  return VALID_IDENTITIES.includes(value) ? value : null;
+}
+
 export async function POST(request: Request) {
-  const body = (await request.json()) as { uploadId?: string };
+  const body = (await request.json()) as ApproveBody;
 
   if (!body.uploadId) {
     return NextResponse.json({ ok: false, error: 'uploadId is required' }, { status: 400 });
+  }
+
+  const identityByLineItemId = new Map<string, DishIdentityTag | null>();
+  for (const entry of body.identities ?? []) {
+    if (!entry.lineItemId) continue;
+    identityByLineItemId.set(entry.lineItemId, sanitizeIdentity(entry.identityTag));
   }
 
   const supabase = getServiceSupabaseClient();
@@ -45,6 +63,7 @@ export async function POST(request: Request) {
         eaten_at: upload.visited_at ?? upload.created_at,
         source_upload_id: upload.id,
         dish_key: toDishKey(`${restaurantName} ${finalName}`),
+        identity_tag: identityByLineItemId.get(item.id) ?? null,
         rating: item.rating,
         comment: item.comment,
       };

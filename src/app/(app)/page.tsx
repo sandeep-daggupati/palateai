@@ -2,10 +2,10 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { RatingStars } from '@/components/RatingStars';
+import { IdentityTagPill, identityTagLabel, identityTagOptions } from '@/components/IdentityTagPill';
 import { StatusChip } from '@/components/StatusChip';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { DishEntry, ReceiptUpload, Restaurant } from '@/lib/supabase/types';
+import { DishEntry, DishIdentityTag, ReceiptUpload, Restaurant } from '@/lib/supabase/types';
 
 const RECENT_DISHES_LIMIT = 10;
 const RECENT_VISITS_LIMIT = 10;
@@ -19,17 +19,10 @@ const FILTER_WINDOWS = [
   { value: '90d', label: '90d', days: 90 },
 ] as const;
 
-const RATING_FILTERS = [
-  { value: 'all', label: 'Any rating', min: null },
-  { value: '5', label: '5 stars', min: 5 },
-  { value: '4', label: '4+ stars', min: 4 },
-  { value: '3', label: '3+ stars', min: 3 },
-  { value: '2', label: '2+ stars', min: 2 },
-  { value: '1', label: '1+ stars', min: 1 },
-] as const;
+const IDENTITY_FILTERS = [{ value: 'all', label: 'Any identity' }, ...identityTagOptions()] as const;
 
 type FilterWindow = (typeof FILTER_WINDOWS)[number]['value'];
-type RatingFilter = (typeof RATING_FILTERS)[number]['value'];
+type IdentityFilter = (typeof IDENTITY_FILTERS)[number]['value'];
 
 type VisitSummary = {
   upload: ReceiptUpload;
@@ -86,11 +79,9 @@ function matchesSearch(search: string, values: Array<string | null | undefined>)
   return values.some((value) => value?.toLowerCase().includes(normalizedSearch));
 }
 
-function hasMinimumRating(value: number | null, filter: RatingFilter): boolean {
-  const min = RATING_FILTERS.find((option) => option.value === filter)?.min;
-  if (!min) return true;
-  if (value == null) return false;
-  return value >= min;
+function matchesIdentityFilter(value: DishIdentityTag | null, filter: IdentityFilter): boolean {
+  if (filter === 'all') return true;
+  return value === filter;
 }
 
 function FilterButtons({
@@ -120,18 +111,18 @@ function FilterButtons({
   );
 }
 
-function SearchAndRatingFilters({
+function SearchAndIdentityFilters({
   searchValue,
   onSearchChange,
   searchPlaceholder,
-  ratingValue,
-  onRatingChange,
+  identityValue,
+  onIdentityChange,
 }: {
   searchValue: string;
   onSearchChange: (next: string) => void;
   searchPlaceholder: string;
-  ratingValue: RatingFilter;
-  onRatingChange: (next: RatingFilter) => void;
+  identityValue: IdentityFilter;
+  onIdentityChange: (next: IdentityFilter) => void;
 }) {
   return (
     <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
@@ -143,17 +134,37 @@ function SearchAndRatingFilters({
         className="h-10 rounded-lg border border-app-border bg-app-card px-3 text-sm text-app-text placeholder:text-app-muted focus:border-app-primary focus:outline-none focus:ring-2 focus:ring-app-accent/50"
       />
       <select
-        value={ratingValue}
-        onChange={(event) => onRatingChange(event.target.value as RatingFilter)}
+        value={identityValue}
+        onChange={(event) => onIdentityChange(event.target.value as IdentityFilter)}
         className="h-10 rounded-lg border border-app-border bg-app-card px-3 text-sm text-app-text focus:border-app-primary focus:outline-none focus:ring-2 focus:ring-app-accent/50"
       >
-        {RATING_FILTERS.map((option) => (
+        {IDENTITY_FILTERS.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
           </option>
         ))}
       </select>
     </div>
+  );
+}
+
+function SearchOnlyFilter({
+  searchValue,
+  onSearchChange,
+  searchPlaceholder,
+}: {
+  searchValue: string;
+  onSearchChange: (next: string) => void;
+  searchPlaceholder: string;
+}) {
+  return (
+    <input
+      type="search"
+      value={searchValue}
+      onChange={(event) => onSearchChange(event.target.value)}
+      placeholder={searchPlaceholder}
+      className="h-10 w-full rounded-lg border border-app-border bg-app-card px-3 text-sm text-app-text placeholder:text-app-muted focus:border-app-primary focus:outline-none focus:ring-2 focus:ring-app-accent/50"
+    />
   );
 }
 
@@ -168,8 +179,7 @@ export default function HomePage() {
   const [visitFilter, setVisitFilter] = useState<FilterWindow>('30d');
   const [dishSearch, setDishSearch] = useState('');
   const [visitSearch, setVisitSearch] = useState('');
-  const [dishRatingFilter, setDishRatingFilter] = useState<RatingFilter>('all');
-  const [visitRatingFilter, setVisitRatingFilter] = useState<RatingFilter>('all');
+  const [dishIdentityFilter, setDishIdentityFilter] = useState<IdentityFilter>('all');
 
   useEffect(() => {
     const load = async () => {
@@ -196,7 +206,7 @@ export default function HomePage() {
 
       const { data: entryData } = await supabase
         .from('dish_entries')
-        .select('id,dish_name,dish_key,restaurant_id,price_original,currency_original,price_usd,eaten_at,created_at,rating,comment')
+        .select('id,dish_name,dish_key,restaurant_id,price_original,currency_original,price_usd,eaten_at,created_at,identity_tag,comment')
         .eq('user_id', user.id)
         .order('eaten_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false })
@@ -204,7 +214,7 @@ export default function HomePage() {
 
       const { data: visitData } = await supabase
         .from('receipt_uploads')
-        .select('id,restaurant_id,status,visited_at,created_at,visit_rating,visit_note')
+        .select('id,restaurant_id,status,visited_at,created_at,visit_note')
         .eq('user_id', user.id)
         .not('restaurant_id', 'is', null)
         .order('visited_at', { ascending: false, nullsFirst: false })
@@ -296,20 +306,19 @@ export default function HomePage() {
     () =>
       entrySample
         .filter((entry) => isWithinWindow(entry.eaten_at ?? entry.created_at, dishFilter))
-        .filter((entry) => hasMinimumRating(entry.rating, dishRatingFilter))
+        .filter((entry) => matchesIdentityFilter(entry.identity_tag, dishIdentityFilter))
         .filter((entry) => {
           const restaurant = entry.restaurant_id ? restaurantsById[entry.restaurant_id] : null;
           return matchesSearch(dishSearch, [entry.dish_name, restaurant?.name, restaurant?.address]);
         })
         .slice(0, RECENT_DISHES_LIMIT),
-    [dishFilter, dishRatingFilter, dishSearch, entrySample, restaurantsById],
+    [dishFilter, dishIdentityFilter, dishSearch, entrySample, restaurantsById],
   );
 
   const visitsSorted = useMemo(
     () =>
       [...visitSample]
         .filter((visit) => isWithinWindow(visit.upload.visited_at ?? visit.upload.created_at, visitFilter))
-        .filter((visit) => hasMinimumRating(visit.upload.visit_rating, visitRatingFilter))
         .filter((visit) => {
           const restaurant = visit.upload.restaurant_id ? restaurantsById[visit.upload.restaurant_id] : null;
           return matchesSearch(visitSearch, [restaurant?.name, restaurant?.address, visit.upload.visit_note]);
@@ -320,28 +329,25 @@ export default function HomePage() {
           return new Date(bDate).getTime() - new Date(aDate).getTime();
         })
         .slice(0, RECENT_VISITS_LIMIT),
-    [visitFilter, visitRatingFilter, visitSearch, visitSample, restaurantsById],
+    [visitFilter, visitSearch, visitSample, restaurantsById],
   );
 
   const insights = useMemo(() => {
     if (entrySample.length === 0) {
       return {
-        topRated: null as string | null,
+        topIdentity: null as string | null,
         mostRepeated: null as string | null,
         mostVisited: null as string | null,
       };
     }
 
-    const rated = entrySample.filter((entry) => entry.rating != null);
-    const topRated = rated
-      .slice()
-      .sort((a, b) => {
-        const ratingDiff = (b.rating ?? 0) - (a.rating ?? 0);
-        if (ratingDiff !== 0) return ratingDiff;
-        const aDate = new Date(a.eaten_at ?? a.created_at).getTime();
-        const bDate = new Date(b.eaten_at ?? b.created_at).getTime();
-        return bDate - aDate;
-      })[0];
+    const identityCounts = entrySample.reduce((acc, entry) => {
+      if (!entry.identity_tag) return acc;
+      acc[entry.identity_tag] = (acc[entry.identity_tag] ?? 0) + 1;
+      return acc;
+    }, {} as Record<DishIdentityTag, number>);
+
+    const topIdentity = Object.entries(identityCounts).sort((a, b) => b[1] - a[1])[0]?.[0] as DishIdentityTag | undefined;
 
     const dishCounts = entrySample.reduce((acc, entry) => {
       const key = entry.dish_key || normalizeDishName(entry.dish_name);
@@ -362,7 +368,7 @@ export default function HomePage() {
     const mostVisitedCount = mostVisitedId ? visitCounts[mostVisitedId] : 0;
 
     return {
-      topRated: topRated ? `${topRated.dish_name} (${topRated.rating}/5)` : null,
+      topIdentity: topIdentity ? `${identityTagLabel(topIdentity)}` : null,
       mostRepeated: mostRepeatedEntry ? `${mostRepeatedEntry.label} (${mostRepeatedEntry.count}x)` : null,
       mostVisited:
         mostVisitedId && restaurantsById[mostVisitedId]
@@ -370,6 +376,25 @@ export default function HomePage() {
           : null,
     };
   }, [entrySample, visitSample, restaurantsById]);
+
+  const identitySnapshot = useMemo(() => {
+    const now = Date.now();
+    const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+
+    const counts = entrySample.reduce((acc, entry) => {
+      if (!entry.identity_tag) return acc;
+      const date = new Date(entry.eaten_at ?? entry.created_at).getTime();
+      if (Number.isNaN(date) || date < thirtyDaysAgo) return acc;
+      acc[entry.identity_tag] = (acc[entry.identity_tag] ?? 0) + 1;
+      return acc;
+    }, {} as Record<DishIdentityTag, number>);
+
+    return identityTagOptions().map((option) => ({
+      tag: option.value,
+      label: option.label,
+      count: counts[option.value] ?? 0,
+    }));
+  }, [entrySample]);
 
   return (
     <div className="space-y-6 pb-8">
@@ -407,9 +432,22 @@ export default function HomePage() {
             </p>
           )}
           <div className="space-y-1 text-sm text-app-muted">
-            <p>Top rated recently: {insights.topRated ?? '--'}</p>
+            <p>Top identity recently: {insights.topIdentity ?? '--'}</p>
             <p>Most repeated dish: {insights.mostRepeated ?? '--'}</p>
             <p>Most visited recently: {insights.mostVisited ?? '--'}</p>
+          </div>
+        </div>
+
+        <div className="card-surface space-y-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-app-muted">Your identity snapshot</h2>
+          <p className="text-xs text-app-muted">Last 30 days</p>
+          <div className="flex flex-wrap gap-2">
+            {identitySnapshot.map((entry) => (
+              <div key={entry.tag} className="inline-flex items-center gap-2 rounded-full border border-app-border bg-app-card px-3 py-1">
+                <IdentityTagPill tag={entry.tag} />
+                <span className="text-xs font-medium text-app-text">{entry.count}</span>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -417,12 +455,12 @@ export default function HomePage() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-app-muted">Recent dishes</h2>
           <FilterButtons value={dishFilter} onChange={setDishFilter} />
         </div>
-        <SearchAndRatingFilters
+        <SearchAndIdentityFilters
           searchValue={dishSearch}
           onSearchChange={setDishSearch}
           searchPlaceholder="Search dish, restaurant, city, state, county"
-          ratingValue={dishRatingFilter}
-          onRatingChange={setDishRatingFilter}
+          identityValue={dishIdentityFilter}
+          onIdentityChange={setDishIdentityFilter}
         />
         {entries.length === 0 ? (
           <p className="empty-surface">No matching dishes. Try a different search or filter.</p>
@@ -435,7 +473,7 @@ export default function HomePage() {
               <Link key={entry.id} href={`/dishes/${entry.dish_key}`} className="card-surface block">
                 <div className="mb-1 flex items-center justify-between gap-3">
                   <p className="font-medium">{entry.dish_name}</p>
-                  <RatingStars value={entry.rating} size="sm" showEmpty />
+                  <IdentityTagPill tag={entry.identity_tag} />
                 </div>
                 <p className="text-sm text-app-muted">{restaurant?.name ?? 'Unknown restaurant'}</p>
                 <p className="text-sm text-app-muted">{formatPrice(entry)}</p>
@@ -452,12 +490,10 @@ export default function HomePage() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-app-muted">Recent restaurant visits</h2>
           <FilterButtons value={visitFilter} onChange={setVisitFilter} />
         </div>
-        <SearchAndRatingFilters
+        <SearchOnlyFilter
           searchValue={visitSearch}
           onSearchChange={setVisitSearch}
           searchPlaceholder="Search restaurant, city, state, county"
-          ratingValue={visitRatingFilter}
-          onRatingChange={setVisitRatingFilter}
         />
         {visitsSorted.length === 0 ? (
           <p className="empty-surface">No matching visits. Try a different search or filter.</p>
@@ -474,7 +510,6 @@ export default function HomePage() {
                 </div>
                 <div className="mb-1 flex items-center justify-between">
                   <p className="text-sm text-app-muted">{formatDate(visitDate)}</p>
-                  <RatingStars value={upload.visit_rating} size="sm" showEmpty />
                 </div>
                 {restaurant?.address && <p className="text-xs text-app-muted">{restaurant.address}</p>}
                 {upload.visit_note && <p className="text-xs text-app-muted">{truncate(upload.visit_note)}</p>}
@@ -487,4 +522,3 @@ export default function HomePage() {
     </div>
   );
 }
-

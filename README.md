@@ -111,6 +111,19 @@ For Home page recency, visits are ordered by:
 
 The "Recent Restaurant Visits" list links each visit to `/uploads/[id]` and shows status plus extracted item count.
 
+## Migration for Dish Identity System
+
+Run the SQL in `supabase/migrations/20260222_dish_identity.sql` in your Supabase SQL editor.
+
+It adds:
+
+- enum type `dish_identity` with values: `go_to`, `hidden_gem`, `special_occasion`, `try_again`, `never_again`
+- `dish_entries.identity_tag` using that enum
+
+Notes:
+
+- `dish_entries.rating` is intentionally kept for backward compatibility.
+- The UI now uses `identity_tag` instead of numeric rating.
 ## Migration for Ratings + Visit Notes
 
 Run the SQL in `supabase/migrations/20260221_ratings_visit_notes.sql` in your Supabase SQL editor.
@@ -123,7 +136,8 @@ It adds:
 
 Approval flow behavior:
 
-1. User edits line items + ratings + notes on `/uploads/[id]`
+1. User edits line items + identity tags + notes on `/uploads/[id]`
 2. `Approve & Save` writes visit feedback to `receipt_uploads`
 3. `Approve & Save` writes dish feedback to `extracted_line_items`
-4. `/api/approve` creates `dish_entries` and copies rating/comment per dish
+4. `/api/approve` creates `dish_entries` and copies identity_tag/comment per dish
+

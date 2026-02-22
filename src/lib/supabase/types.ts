@@ -1,6 +1,7 @@
 export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
 
 export type ReceiptUploadStatus = 'uploaded' | 'processing' | 'needs_review' | 'approved' | 'rejected' | 'failed';
+export type DishIdentityTag = Database['public']['Enums']['dish_identity'];
 
 export type Database = {
   public: {
@@ -146,6 +147,7 @@ export type Database = {
           eaten_at: string | null;
           source_upload_id: string;
           dish_key: string;
+          identity_tag: Database['public']['Enums']['dish_identity'] | null;
           rating: number | null;
           comment: string | null;
           created_at: string;
@@ -161,6 +163,7 @@ export type Database = {
           eaten_at?: string | null;
           source_upload_id: string;
           dish_key: string;
+          identity_tag?: Database['public']['Enums']['dish_identity'] | null;
           rating?: number | null;
           comment?: string | null;
           created_at?: string;
@@ -176,6 +179,7 @@ export type Database = {
           eaten_at?: string | null;
           source_upload_id?: string;
           dish_key?: string;
+          identity_tag?: Database['public']['Enums']['dish_identity'] | null;
           rating?: number | null;
           comment?: string | null;
           created_at?: string;
@@ -185,7 +189,9 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
-    Enums: Record<string, never>;
+    Enums: {
+      dish_identity: 'go_to' | 'hidden_gem' | 'special_occasion' | 'try_again' | 'never_again';
+    };
     CompositeTypes: Record<string, never>;
   };
 };
