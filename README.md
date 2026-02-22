@@ -111,6 +111,21 @@ For Home page recency, visits are ordered by:
 
 The "Recent Restaurant Visits" list links each visit to `/uploads/[id]` and shows status plus extracted item count.
 
+## Migration for Shared Visits
+
+Run the SQL in `supabase/migrations/20260222_shared_visits.sql` in your Supabase SQL editor.
+
+It adds:
+
+- `receipt_uploads.is_shared` and `receipt_uploads.share_visibility`
+- `visit_participants` table for private participant membership/invites
+- `dish_entries.had_it` for per-user dish participation
+- indexes for participant lookups and per-user-per-visit dish upserts
+
+MVP behavior:
+
+- Visits are private and visible to host + active participants.
+- Dishes are shared by default; each user saves their own identity, note, and `had_it` state.
 ## Migration for Dish Identity System
 
 Run the SQL in `supabase/migrations/20260222_dish_identity.sql` in your Supabase SQL editor.
@@ -140,4 +155,5 @@ Approval flow behavior:
 2. `Approve & Save` writes visit feedback to `receipt_uploads`
 3. `Approve & Save` writes dish feedback to `extracted_line_items`
 4. `/api/approve` creates `dish_entries` and copies identity_tag/comment per dish
+
 

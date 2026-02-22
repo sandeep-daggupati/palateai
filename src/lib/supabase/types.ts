@@ -2,6 +2,9 @@ export type Json = string | number | boolean | null | { [key: string]: Json } | 
 
 export type ReceiptUploadStatus = 'uploaded' | 'processing' | 'needs_review' | 'approved' | 'rejected' | 'failed';
 export type DishIdentityTag = Database['public']['Enums']['dish_identity'];
+export type ShareVisibility = 'private' | 'public';
+export type VisitParticipantRole = 'host' | 'participant';
+export type VisitParticipantStatus = 'active' | 'invited' | 'removed';
 
 export type Database = {
   public: {
@@ -54,6 +57,8 @@ export type Database = {
           visit_lng: number | null;
           visit_rating: number | null;
           visit_note: string | null;
+          is_shared: boolean;
+          share_visibility: ShareVisibility;
           created_at: string;
           processed_at: string | null;
         };
@@ -71,6 +76,8 @@ export type Database = {
           visit_lng?: number | null;
           visit_rating?: number | null;
           visit_note?: string | null;
+          is_shared?: boolean;
+          share_visibility?: ShareVisibility;
           created_at?: string;
           processed_at?: string | null;
         };
@@ -88,8 +95,40 @@ export type Database = {
           visit_lng?: number | null;
           visit_rating?: number | null;
           visit_note?: string | null;
+          is_shared?: boolean;
+          share_visibility?: ShareVisibility;
           created_at?: string;
           processed_at?: string | null;
+        };
+        Relationships: [];
+      };
+      visit_participants: {
+        Row: {
+          id: string;
+          visit_id: string;
+          user_id: string | null;
+          role: VisitParticipantRole;
+          invited_email: string | null;
+          status: VisitParticipantStatus;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          visit_id: string;
+          user_id?: string | null;
+          role?: VisitParticipantRole;
+          invited_email?: string | null;
+          status?: VisitParticipantStatus;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          visit_id?: string;
+          user_id?: string | null;
+          role?: VisitParticipantRole;
+          invited_email?: string | null;
+          status?: VisitParticipantStatus;
+          created_at?: string;
         };
         Relationships: [];
       };
@@ -150,6 +189,7 @@ export type Database = {
           identity_tag: Database['public']['Enums']['dish_identity'] | null;
           rating: number | null;
           comment: string | null;
+          had_it: boolean | null;
           created_at: string;
         };
         Insert: {
@@ -166,6 +206,7 @@ export type Database = {
           identity_tag?: Database['public']['Enums']['dish_identity'] | null;
           rating?: number | null;
           comment?: string | null;
+          had_it?: boolean | null;
           created_at?: string;
         };
         Update: {
@@ -182,6 +223,7 @@ export type Database = {
           identity_tag?: Database['public']['Enums']['dish_identity'] | null;
           rating?: number | null;
           comment?: string | null;
+          had_it?: boolean | null;
           created_at?: string;
         };
         Relationships: [];
@@ -198,6 +240,7 @@ export type Database = {
 
 export type Restaurant = Database['public']['Tables']['restaurants']['Row'];
 export type ReceiptUpload = Database['public']['Tables']['receipt_uploads']['Row'];
+export type VisitParticipant = Database['public']['Tables']['visit_participants']['Row'];
 export type ExtractedLineItem = Database['public']['Tables']['extracted_line_items']['Row'];
 export type DishEntry = Database['public']['Tables']['dish_entries']['Row'];
 

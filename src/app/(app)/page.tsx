@@ -6,13 +6,13 @@ import { FilterChips } from '@/components/FilterChips';
 import { IdentityTagPill } from '@/components/IdentityTagPill';
 import { StatusChip } from '@/components/StatusChip';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { DishEntry, DishIdentityTag, ReceiptUpload, ReceiptUploadStatus, Restaurant } from '@/lib/supabase/types';
+import { DishEntry, DishIdentityTag, ReceiptUpload, ReceiptUploadStatus, Restaurant, VisitParticipant } from '@/lib/supabase/types';
 
 const LIST_LIMIT = 10;
 
 const DISH_FILTER_OPTIONS: Array<{ label: string; value: 'all' | DishIdentityTag; badge?: string }> = [
   { label: 'All', value: 'all' },
-  { label: 'GO-TO', value: 'go_to', badge: 'Your Favorites' },
+  { label: 'GO-TO', value: 'go_to', badge: 'Suggested' },
   { label: 'Hidden Gem', value: 'hidden_gem' },
   { label: 'Special Occasion', value: 'special_occasion' },
   { label: 'Try Again', value: 'try_again' },
@@ -41,8 +41,14 @@ function formatDate(value: string | null): string {
   });
 }
 
+function sortByVisitDateDesc(a: ReceiptUpload, b: ReceiptUpload) {
+  const aDate = new Date(a.visited_at ?? a.created_at).getTime();
+  const bDate = new Date(b.visited_at ?? b.created_at).getTime();
+  return bDate - aDate;
+}
+
 export default function HomePage() {
-  const [hasAnyUploads, setHasAnyUploads] = useState(false);
+  const [hasAnyVisits, setHasAnyVisits] = useState(false);
   const [dishes, setDishes] = useState<DishEntry[]>([]);
   const [visits, setVisits] = useState<ReceiptUpload[]>([]);
   const [restaurantsById, setRestaurantsById] = useState<Record<string, RestaurantLookup>>({});
@@ -58,15 +64,12 @@ export default function HomePage() {
       } = await supabase.auth.getUser();
 
       if (!user) {
-        setHasAnyUploads(false);
+        setHasAnyVisits(false);
         setDishes([]);
         setVisits([]);
         setRestaurantsById({});
         return;
       }
-
-      const uploadsExistQuery = await supabase.from('receipt_uploads').select('id').eq('user_id', user.id).limit(1);
-      setHasAnyUploads((uploadsExistQuery.data ?? []).length > 0);
 
       let dishQuery = supabase
         .from('dish_entries')
@@ -80,26 +83,61 @@ export default function HomePage() {
         dishQuery = dishQuery.eq('identity_tag', dishFilter);
       }
 
-      let visitQuery = supabase
+      let ownVisitQuery = supabase
         .from('receipt_uploads')
-        .select('id,restaurant_id,status,visited_at,created_at,visit_note')
+        .select('id,user_id,restaurant_id,status,visited_at,created_at,visit_note')
         .eq('user_id', user.id)
         .order('visited_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false })
         .limit(LIST_LIMIT);
 
       if (activityFilter !== 'all') {
-        visitQuery = visitQuery.eq('status', activityFilter);
+        ownVisitQuery = ownVisitQuery.eq('status', activityFilter);
       }
 
-      const [{ data: dishRows }, { data: visitRows }] = await Promise.all([dishQuery, visitQuery]);
+      const [{ data: dishRows }, { data: ownVisitRows }, { data: participantRows }] = await Promise.all([
+        dishQuery,
+        ownVisitQuery,
+        supabase
+          .from('visit_participants')
+          .select('visit_id,status')
+          .eq('user_id', user.id)
+          .eq('status', 'active')
+          .limit(200),
+      ]);
+
+      const participantVisitIds = ((participantRows ?? []) as Pick<VisitParticipant, 'visit_id' | 'status'>[])
+        .map((row) => row.visit_id)
+        .filter((value, index, self) => self.indexOf(value) === index);
+
+      let sharedVisitRows: ReceiptUpload[] = [];
+      if (participantVisitIds.length > 0) {
+        let sharedVisitQuery = supabase
+          .from('receipt_uploads')
+          .select('id,user_id,restaurant_id,status,visited_at,created_at,visit_note')
+          .in('id', participantVisitIds)
+          .order('visited_at', { ascending: false, nullsFirst: false })
+          .order('created_at', { ascending: false })
+          .limit(LIST_LIMIT);
+
+        if (activityFilter !== 'all') {
+          sharedVisitQuery = sharedVisitQuery.eq('status', activityFilter);
+        }
+
+        const { data: sharedRows } = await sharedVisitQuery;
+        sharedVisitRows = (sharedRows ?? []) as ReceiptUpload[];
+      }
+
+      const mergedVisits = [...((ownVisitRows ?? []) as ReceiptUpload[]), ...sharedVisitRows]
+        .filter((row, index, self) => self.findIndex((entry) => entry.id === row.id) === index)
+        .sort(sortByVisitDateDesc)
+        .slice(0, LIST_LIMIT);
 
       const parsedDishes = (dishRows ?? []) as DishEntry[];
-      const parsedVisits = (visitRows ?? []) as ReceiptUpload[];
 
       const restaurantIds = Array.from(
         new Set(
-          [...parsedDishes, ...parsedVisits]
+          [...parsedDishes, ...mergedVisits]
             .map((row) => row.restaurant_id)
             .filter((id): id is string => Boolean(id)),
         ),
@@ -110,7 +148,6 @@ export default function HomePage() {
         const { data: restaurantRows } = await supabase
           .from('restaurants')
           .select('id,name,address')
-          .eq('user_id', user.id)
           .in('id', restaurantIds);
 
         restaurantLookup = ((restaurantRows ?? []) as Pick<Restaurant, 'id' | 'name' | 'address'>[]).reduce(
@@ -125,8 +162,9 @@ export default function HomePage() {
         );
       }
 
+      setHasAnyVisits(mergedVisits.length > 0);
       setDishes(parsedDishes);
-      setVisits(parsedVisits);
+      setVisits(mergedVisits);
       setRestaurantsById(restaurantLookup);
     };
 
@@ -169,7 +207,7 @@ export default function HomePage() {
           Add receipt or menu
         </Link>
 
-        {!hasAnyUploads && (
+        {!hasAnyVisits && (
           <p className="text-sm text-app-muted">1) Upload receipt/menu -&gt; 2) Approve dishes -&gt; 3) Build your food identity</p>
         )}
       </section>
@@ -214,4 +252,3 @@ export default function HomePage() {
     </div>
   );
 }
-
