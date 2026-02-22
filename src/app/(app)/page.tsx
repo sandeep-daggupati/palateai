@@ -12,7 +12,7 @@ const LIST_LIMIT = 10;
 
 const DISH_FILTER_OPTIONS: Array<{ label: string; value: 'all' | DishIdentityTag; badge?: string }> = [
   { label: 'All', value: 'all' },
-  { label: 'GO-TO', value: 'go_to', badge: 'Suggested' },
+  { label: 'GO-TO', value: 'go_to', badge: 'Your Favorites' },
   { label: 'Hidden Gem', value: 'hidden_gem' },
   { label: 'Special Occasion', value: 'special_occasion' },
   { label: 'Try Again', value: 'try_again' },

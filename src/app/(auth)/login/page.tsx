@@ -47,8 +47,8 @@ export default function LoginPage() {
             <span>Palate</span>
             <span className="text-brand-accent dark:text-brand-accent-dark">AI</span>
           </h1>
-          <p className="text-base text-app-text">Your personal food identity. Captured effortlessly.</p>
-          <p className="text-sm text-app-muted">Upload a receipt or menu. PalateAI extracts dishes. You approve.</p>
+          <p className="text-base text-app-text">Remember every plate you love.</p>
+          <p className="text-sm text-app-muted">Upload a receipt or menu. PalateAI pulls your Palate picks in seconds.</p>
         </div>
 
         <Button onClick={onLogin} disabled={loading} size="lg">
