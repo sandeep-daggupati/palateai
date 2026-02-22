@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { RatingStars } from '@/components/RatingStars';
 import { StatusChip } from '@/components/StatusChip';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { DishEntry, ReceiptUpload, Restaurant } from '@/lib/supabase/types';
@@ -9,6 +10,7 @@ import { DishEntry, ReceiptUpload, Restaurant } from '@/lib/supabase/types';
 const RECENT_DISHES_LIMIT = 10;
 const RECENT_VISITS_LIMIT = 10;
 const NEEDS_REVIEW_LIMIT = 10;
+const INSIGHTS_WINDOW = 20;
 
 type VisitSummary = {
   upload: ReceiptUpload;
@@ -37,11 +39,20 @@ function formatDate(value: string | null): string {
   return new Date(value).toLocaleString();
 }
 
+function truncate(value: string, max = 90): string {
+  return value.length <= max ? value : `${value.slice(0, max)}...`;
+}
+
+function normalizeDishName(value: string): string {
+  return value.trim().toLowerCase();
+}
+
 export default function HomePage() {
   const [uploads, setUploads] = useState<ReceiptUpload[]>([]);
-  const [entries, setEntries] = useState<DishEntry[]>([]);
-  const [visits, setVisits] = useState<VisitSummary[]>([]);
+  const [entrySample, setEntrySample] = useState<DishEntry[]>([]);
+  const [visitSample, setVisitSample] = useState<VisitSummary[]>([]);
   const [restaurantsById, setRestaurantsById] = useState<Record<string, RestaurantLookup>>({});
+  const [showWhy, setShowWhy] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -52,15 +63,15 @@ export default function HomePage() {
 
       if (!user) {
         setUploads([]);
-        setEntries([]);
-        setVisits([]);
+        setEntrySample([]);
+        setVisitSample([]);
         setRestaurantsById({});
         return;
       }
 
       const { data: uploadData } = await supabase
         .from('receipt_uploads')
-        .select('*')
+        .select('id,status,created_at')
         .eq('user_id', user.id)
         .eq('status', 'needs_review')
         .order('created_at', { ascending: false })
@@ -68,20 +79,20 @@ export default function HomePage() {
 
       const { data: entryData } = await supabase
         .from('dish_entries')
-        .select('*')
+        .select('id,dish_name,dish_key,restaurant_id,price_original,currency_original,price_usd,eaten_at,created_at,rating,comment')
         .eq('user_id', user.id)
         .order('eaten_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false })
-        .limit(RECENT_DISHES_LIMIT);
+        .limit(INSIGHTS_WINDOW);
 
       const { data: visitData } = await supabase
         .from('receipt_uploads')
-        .select('*')
+        .select('id,restaurant_id,status,visited_at,created_at,visit_rating,visit_note')
         .eq('user_id', user.id)
         .not('restaurant_id', 'is', null)
         .order('visited_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false })
-        .limit(RECENT_VISITS_LIMIT);
+        .limit(INSIGHTS_WINDOW);
 
       const uploadRows = (uploadData ?? []) as ReceiptUpload[];
       const entryRows = (entryData ?? []) as DishEntry[];
@@ -156,23 +167,75 @@ export default function HomePage() {
       }
 
       setUploads(uploadRows);
-      setEntries(entryRows);
-      setVisits(visitSummaries);
+      setEntrySample(entryRows);
+      setVisitSample(visitSummaries);
       setRestaurantsById(restaurantLookup);
     };
 
     void load();
   }, []);
 
+  const entries = useMemo(() => entrySample.slice(0, RECENT_DISHES_LIMIT), [entrySample]);
+
   const visitsSorted = useMemo(
     () =>
-      [...visits].sort((a, b) => {
-        const aDate = a.upload.visited_at ?? a.upload.created_at;
-        const bDate = b.upload.visited_at ?? b.upload.created_at;
-        return new Date(bDate).getTime() - new Date(aDate).getTime();
-      }),
-    [visits],
+      [...visitSample]
+        .sort((a, b) => {
+          const aDate = a.upload.visited_at ?? a.upload.created_at;
+          const bDate = b.upload.visited_at ?? b.upload.created_at;
+          return new Date(bDate).getTime() - new Date(aDate).getTime();
+        })
+        .slice(0, RECENT_VISITS_LIMIT),
+    [visitSample],
   );
+
+  const insights = useMemo(() => {
+    if (entrySample.length === 0) {
+      return {
+        topRated: null as string | null,
+        mostRepeated: null as string | null,
+        mostVisited: null as string | null,
+      };
+    }
+
+    const rated = entrySample.filter((entry) => entry.rating != null);
+    const topRated = rated
+      .slice()
+      .sort((a, b) => {
+        const ratingDiff = (b.rating ?? 0) - (a.rating ?? 0);
+        if (ratingDiff !== 0) return ratingDiff;
+        const aDate = new Date(a.eaten_at ?? a.created_at).getTime();
+        const bDate = new Date(b.eaten_at ?? b.created_at).getTime();
+        return bDate - aDate;
+      })[0];
+
+    const dishCounts = entrySample.reduce((acc, entry) => {
+      const key = entry.dish_key || normalizeDishName(entry.dish_name);
+      const current = acc[key] ?? { count: 0, label: entry.dish_name };
+      acc[key] = { count: current.count + 1, label: current.label };
+      return acc;
+    }, {} as Record<string, { count: number; label: string }>);
+
+    const mostRepeatedEntry = Object.values(dishCounts).sort((a, b) => b.count - a.count)[0];
+
+    const visitCounts = visitSample.reduce((acc, visit) => {
+      if (!visit.upload.restaurant_id) return acc;
+      acc[visit.upload.restaurant_id] = (acc[visit.upload.restaurant_id] ?? 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    const mostVisitedId = Object.entries(visitCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+    const mostVisitedCount = mostVisitedId ? visitCounts[mostVisitedId] : 0;
+
+    return {
+      topRated: topRated ? `${topRated.dish_name} (${topRated.rating}/5)` : null,
+      mostRepeated: mostRepeatedEntry ? `${mostRepeatedEntry.label} (${mostRepeatedEntry.count}x)` : null,
+      mostVisited:
+        mostVisitedId && restaurantsById[mostVisitedId]
+          ? `${restaurantsById[mostVisitedId].name} (${mostVisitedCount} visits)`
+          : null,
+    };
+  }, [entrySample, visitSample, restaurantsById]);
 
   return (
     <div className="space-y-6 pb-8">
@@ -194,9 +257,33 @@ export default function HomePage() {
       </section>
 
       <section className="space-y-3">
+        <div className="card-surface space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-app-muted">Insights</p>
+          <p className="text-sm text-app-muted">
+            Recent dishes are your last logged items. Use them to quickly revisit what you liked and spot patterns over time.
+          </p>
+          <button
+            type="button"
+            className="w-fit text-xs font-medium text-app-text underline underline-offset-2"
+            onClick={() => setShowWhy((value) => !value)}
+          >
+            {showWhy ? 'Hide why this matters' : 'Why this matters?'}
+          </button>
+          {showWhy && (
+            <p className="text-xs text-app-muted">
+              This helps PalateAI learn your preferences and highlight favorites.
+            </p>
+          )}
+          <div className="space-y-1 text-sm text-app-muted">
+            <p>Top rated recently: {insights.topRated ?? '--'}</p>
+            <p>Most repeated dish: {insights.mostRepeated ?? '--'}</p>
+            <p>Most visited recently: {insights.mostVisited ?? '--'}</p>
+          </div>
+        </div>
+
         <h2 className="text-sm font-semibold uppercase tracking-wide text-app-muted">Recent dishes</h2>
         {entries.length === 0 ? (
-          <p className="empty-surface">No dishes logged yet.</p>
+          <p className="empty-surface">No dishes yet. Upload a receipt or menu to start your tasting journal.</p>
         ) : (
           entries.map((entry) => {
             const eatenAt = entry.eaten_at ?? entry.created_at;
@@ -204,9 +291,13 @@ export default function HomePage() {
 
             return (
               <Link key={entry.id} href={`/dishes/${entry.dish_key}`} className="card-surface block">
-                <p className="font-medium">{entry.dish_name}</p>
+                <div className="mb-1 flex items-center justify-between gap-3">
+                  <p className="font-medium">{entry.dish_name}</p>
+                  <RatingStars value={entry.rating} size="sm" showEmpty />
+                </div>
                 <p className="text-sm text-app-muted">{restaurant?.name ?? 'Unknown restaurant'}</p>
                 <p className="text-sm text-app-muted">{formatPrice(entry)}</p>
+                {entry.comment && <p className="text-xs text-app-muted">{truncate(entry.comment)}</p>}
                 <p className="text-xs text-app-muted">{formatDate(eatenAt)}</p>
               </Link>
             );
@@ -225,12 +316,16 @@ export default function HomePage() {
 
             return (
               <Link key={upload.id} href={`/uploads/${upload.id}`} className="card-surface block">
-                <div className="mb-2 flex items-center justify-between">
+                <div className="mb-2 flex items-center justify-between gap-3">
                   <p className="font-medium">{restaurant?.name ?? 'Unknown restaurant'}</p>
                   <StatusChip status={upload.status} />
                 </div>
+                <div className="mb-1 flex items-center justify-between">
+                  <p className="text-sm text-app-muted">{formatDate(visitDate)}</p>
+                  <RatingStars value={upload.visit_rating} size="sm" showEmpty />
+                </div>
                 {restaurant?.address && <p className="text-xs text-app-muted">{restaurant.address}</p>}
-                <p className="text-sm text-app-muted">{formatDate(visitDate)}</p>
+                {upload.visit_note && <p className="text-xs text-app-muted">{truncate(upload.visit_note)}</p>}
                 <p className="text-xs text-app-muted">{itemCount} extracted item{itemCount === 1 ? '' : 's'}</p>
               </Link>
             );
@@ -240,4 +335,3 @@ export default function HomePage() {
     </div>
   );
 }
-

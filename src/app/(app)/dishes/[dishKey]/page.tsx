@@ -2,8 +2,13 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { RatingStars } from '@/components/RatingStars';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { DishEntry } from '@/lib/supabase/types';
+
+function truncate(value: string, max = 100): string {
+  return value.length <= max ? value : `${value.slice(0, max)}...`;
+}
 
 export default function DishProfilePage() {
   const params = useParams<{ dishKey: string }>();
@@ -14,13 +19,13 @@ export default function DishProfilePage() {
       const supabase = getBrowserSupabaseClient();
       const { data } = await supabase
         .from('dish_entries')
-        .select('*')
+        .select('id,dish_name,price_original,price_usd,currency_original,rating,comment,created_at,eaten_at,dish_key')
         .eq('dish_key', params.dishKey)
         .order('created_at', { ascending: true });
       setEntries((data ?? []) as DishEntry[]);
     };
 
-    load();
+    void load();
   }, [params.dishKey]);
 
   const trend = useMemo(() => {
@@ -44,13 +49,16 @@ export default function DishProfilePage() {
       <div className="space-y-2">
         {entries.map((entry) => (
           <div key={entry.id} className="card-surface text-sm">
-            <p className="font-medium">{entry.dish_name}</p>
-            <p>${entry.price_original?.toFixed(2) ?? '—'}</p>
-            <p className="text-xs text-slate-500">{new Date(entry.created_at).toLocaleString()}</p>
+            <div className="mb-1 flex items-center justify-between">
+              <p className="font-medium">{entry.dish_name}</p>
+              <RatingStars value={entry.rating} size="sm" showEmpty />
+            </div>
+            <p className="text-app-muted">${entry.price_original?.toFixed(2) ?? '--'}</p>
+            {entry.comment && <p className="text-xs text-app-muted">{truncate(entry.comment)}</p>}
+            <p className="text-xs text-app-muted">{new Date(entry.eaten_at ?? entry.created_at).toLocaleString()}</p>
           </div>
         ))}
       </div>
     </div>
   );
 }
-
