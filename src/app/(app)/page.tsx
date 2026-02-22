@@ -10,7 +10,7 @@ import { DishEntry, ReceiptUpload, Restaurant } from '@/lib/supabase/types';
 const RECENT_DISHES_LIMIT = 10;
 const RECENT_VISITS_LIMIT = 10;
 const NEEDS_REVIEW_LIMIT = 10;
-const INSIGHTS_WINDOW = 20;
+const INSIGHTS_WINDOW = 200;
 
 const FILTER_WINDOWS = [
   { value: 'all', label: 'All', days: null },
@@ -19,7 +19,17 @@ const FILTER_WINDOWS = [
   { value: '90d', label: '90d', days: 90 },
 ] as const;
 
+const RATING_FILTERS = [
+  { value: 'all', label: 'Any rating', min: null },
+  { value: '5', label: '5 stars', min: 5 },
+  { value: '4', label: '4+ stars', min: 4 },
+  { value: '3', label: '3+ stars', min: 3 },
+  { value: '2', label: '2+ stars', min: 2 },
+  { value: '1', label: '1+ stars', min: 1 },
+] as const;
+
 type FilterWindow = (typeof FILTER_WINDOWS)[number]['value'];
+type RatingFilter = (typeof RATING_FILTERS)[number]['value'];
 
 type VisitSummary = {
   upload: ReceiptUpload;
@@ -70,6 +80,19 @@ function isWithinWindow(dateValue: string | null, filter: FilterWindow): boolean
   return now - date.getTime() <= days * 24 * 60 * 60 * 1000;
 }
 
+function matchesSearch(search: string, values: Array<string | null | undefined>): boolean {
+  if (!search.trim()) return true;
+  const normalizedSearch = search.trim().toLowerCase();
+  return values.some((value) => value?.toLowerCase().includes(normalizedSearch));
+}
+
+function hasMinimumRating(value: number | null, filter: RatingFilter): boolean {
+  const min = RATING_FILTERS.find((option) => option.value === filter)?.min;
+  if (!min) return true;
+  if (value == null) return false;
+  return value >= min;
+}
+
 function FilterButtons({
   value,
   onChange,
@@ -97,14 +120,56 @@ function FilterButtons({
   );
 }
 
+function SearchAndRatingFilters({
+  searchValue,
+  onSearchChange,
+  searchPlaceholder,
+  ratingValue,
+  onRatingChange,
+}: {
+  searchValue: string;
+  onSearchChange: (next: string) => void;
+  searchPlaceholder: string;
+  ratingValue: RatingFilter;
+  onRatingChange: (next: RatingFilter) => void;
+}) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+      <input
+        type="search"
+        value={searchValue}
+        onChange={(event) => onSearchChange(event.target.value)}
+        placeholder={searchPlaceholder}
+        className="h-10 rounded-lg border border-app-border bg-app-card px-3 text-sm text-app-text placeholder:text-app-muted focus:border-app-primary focus:outline-none focus:ring-2 focus:ring-app-accent/50"
+      />
+      <select
+        value={ratingValue}
+        onChange={(event) => onRatingChange(event.target.value as RatingFilter)}
+        className="h-10 rounded-lg border border-app-border bg-app-card px-3 text-sm text-app-text focus:border-app-primary focus:outline-none focus:ring-2 focus:ring-app-accent/50"
+      >
+        {RATING_FILTERS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const [uploads, setUploads] = useState<ReceiptUpload[]>([]);
   const [entrySample, setEntrySample] = useState<DishEntry[]>([]);
   const [visitSample, setVisitSample] = useState<VisitSummary[]>([]);
   const [restaurantsById, setRestaurantsById] = useState<Record<string, RestaurantLookup>>({});
   const [showWhy, setShowWhy] = useState(false);
+
   const [dishFilter, setDishFilter] = useState<FilterWindow>('30d');
   const [visitFilter, setVisitFilter] = useState<FilterWindow>('30d');
+  const [dishSearch, setDishSearch] = useState('');
+  const [visitSearch, setVisitSearch] = useState('');
+  const [dishRatingFilter, setDishRatingFilter] = useState<RatingFilter>('all');
+  const [visitRatingFilter, setVisitRatingFilter] = useState<RatingFilter>('all');
 
   useEffect(() => {
     const load = async () => {
@@ -231,21 +296,31 @@ export default function HomePage() {
     () =>
       entrySample
         .filter((entry) => isWithinWindow(entry.eaten_at ?? entry.created_at, dishFilter))
+        .filter((entry) => hasMinimumRating(entry.rating, dishRatingFilter))
+        .filter((entry) => {
+          const restaurant = entry.restaurant_id ? restaurantsById[entry.restaurant_id] : null;
+          return matchesSearch(dishSearch, [entry.dish_name, restaurant?.name, restaurant?.address]);
+        })
         .slice(0, RECENT_DISHES_LIMIT),
-    [dishFilter, entrySample],
+    [dishFilter, dishRatingFilter, dishSearch, entrySample, restaurantsById],
   );
 
   const visitsSorted = useMemo(
     () =>
       [...visitSample]
         .filter((visit) => isWithinWindow(visit.upload.visited_at ?? visit.upload.created_at, visitFilter))
+        .filter((visit) => hasMinimumRating(visit.upload.visit_rating, visitRatingFilter))
+        .filter((visit) => {
+          const restaurant = visit.upload.restaurant_id ? restaurantsById[visit.upload.restaurant_id] : null;
+          return matchesSearch(visitSearch, [restaurant?.name, restaurant?.address, visit.upload.visit_note]);
+        })
         .sort((a, b) => {
           const aDate = a.upload.visited_at ?? a.upload.created_at;
           const bDate = b.upload.visited_at ?? b.upload.created_at;
           return new Date(bDate).getTime() - new Date(aDate).getTime();
         })
         .slice(0, RECENT_VISITS_LIMIT),
-    [visitFilter, visitSample],
+    [visitFilter, visitRatingFilter, visitSearch, visitSample, restaurantsById],
   );
 
   const insights = useMemo(() => {
@@ -344,8 +419,15 @@ export default function HomePage() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-app-muted">Recent dishes</h2>
           <FilterButtons value={dishFilter} onChange={setDishFilter} />
         </div>
+        <SearchAndRatingFilters
+          searchValue={dishSearch}
+          onSearchChange={setDishSearch}
+          searchPlaceholder="Search dish, restaurant, city, state, county"
+          ratingValue={dishRatingFilter}
+          onRatingChange={setDishRatingFilter}
+        />
         {entries.length === 0 ? (
-          <p className="empty-surface">No dishes yet. Upload a receipt or menu to start your tasting journal.</p>
+          <p className="empty-surface">No matching dishes. Try a different search or filter.</p>
         ) : (
           entries.map((entry) => {
             const eatenAt = entry.eaten_at ?? entry.created_at;
@@ -372,8 +454,15 @@ export default function HomePage() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-app-muted">Recent restaurant visits</h2>
           <FilterButtons value={visitFilter} onChange={setVisitFilter} />
         </div>
+        <SearchAndRatingFilters
+          searchValue={visitSearch}
+          onSearchChange={setVisitSearch}
+          searchPlaceholder="Search restaurant, city, state, county"
+          ratingValue={visitRatingFilter}
+          onRatingChange={setVisitRatingFilter}
+        />
         {visitsSorted.length === 0 ? (
-          <p className="empty-surface">No visits recorded yet.</p>
+          <p className="empty-surface">No matching visits. Try a different search or filter.</p>
         ) : (
           visitsSorted.map(({ upload, itemCount }) => {
             const restaurant = upload.restaurant_id ? restaurantsById[upload.restaurant_id] : null;
