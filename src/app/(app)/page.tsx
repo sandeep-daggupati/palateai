@@ -12,6 +12,15 @@ const RECENT_VISITS_LIMIT = 10;
 const NEEDS_REVIEW_LIMIT = 10;
 const INSIGHTS_WINDOW = 20;
 
+const FILTER_WINDOWS = [
+  { value: 'all', label: 'All', days: null },
+  { value: '7d', label: '7d', days: 7 },
+  { value: '30d', label: '30d', days: 30 },
+  { value: '90d', label: '90d', days: 90 },
+] as const;
+
+type FilterWindow = (typeof FILTER_WINDOWS)[number]['value'];
+
 type VisitSummary = {
   upload: ReceiptUpload;
   itemCount: number;
@@ -47,12 +56,55 @@ function normalizeDishName(value: string): string {
   return value.trim().toLowerCase();
 }
 
+function isWithinWindow(dateValue: string | null, filter: FilterWindow): boolean {
+  if (filter === 'all') return true;
+  if (!dateValue) return false;
+
+  const days = FILTER_WINDOWS.find((window) => window.value === filter)?.days;
+  if (!days) return true;
+
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return false;
+
+  const now = Date.now();
+  return now - date.getTime() <= days * 24 * 60 * 60 * 1000;
+}
+
+function FilterButtons({
+  value,
+  onChange,
+}: {
+  value: FilterWindow;
+  onChange: (next: FilterWindow) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      {FILTER_WINDOWS.map((window) => (
+        <button
+          key={window.value}
+          type="button"
+          onClick={() => onChange(window.value)}
+          className={
+            value === window.value
+              ? 'rounded-full border border-app-primary bg-app-primary px-3 py-1 text-xs font-medium text-app-primary-text'
+              : 'rounded-full border border-app-border bg-app-card px-3 py-1 text-xs font-medium text-app-muted'
+          }
+        >
+          {window.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function HomePage() {
   const [uploads, setUploads] = useState<ReceiptUpload[]>([]);
   const [entrySample, setEntrySample] = useState<DishEntry[]>([]);
   const [visitSample, setVisitSample] = useState<VisitSummary[]>([]);
   const [restaurantsById, setRestaurantsById] = useState<Record<string, RestaurantLookup>>({});
   const [showWhy, setShowWhy] = useState(false);
+  const [dishFilter, setDishFilter] = useState<FilterWindow>('30d');
+  const [visitFilter, setVisitFilter] = useState<FilterWindow>('30d');
 
   useEffect(() => {
     const load = async () => {
@@ -175,18 +227,25 @@ export default function HomePage() {
     void load();
   }, []);
 
-  const entries = useMemo(() => entrySample.slice(0, RECENT_DISHES_LIMIT), [entrySample]);
+  const entries = useMemo(
+    () =>
+      entrySample
+        .filter((entry) => isWithinWindow(entry.eaten_at ?? entry.created_at, dishFilter))
+        .slice(0, RECENT_DISHES_LIMIT),
+    [dishFilter, entrySample],
+  );
 
   const visitsSorted = useMemo(
     () =>
       [...visitSample]
+        .filter((visit) => isWithinWindow(visit.upload.visited_at ?? visit.upload.created_at, visitFilter))
         .sort((a, b) => {
           const aDate = a.upload.visited_at ?? a.upload.created_at;
           const bDate = b.upload.visited_at ?? b.upload.created_at;
           return new Date(bDate).getTime() - new Date(aDate).getTime();
         })
         .slice(0, RECENT_VISITS_LIMIT),
-    [visitSample],
+    [visitFilter, visitSample],
   );
 
   const insights = useMemo(() => {
@@ -281,7 +340,10 @@ export default function HomePage() {
           </div>
         </div>
 
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-app-muted">Recent dishes</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-app-muted">Recent dishes</h2>
+          <FilterButtons value={dishFilter} onChange={setDishFilter} />
+        </div>
         {entries.length === 0 ? (
           <p className="empty-surface">No dishes yet. Upload a receipt or menu to start your tasting journal.</p>
         ) : (
@@ -306,7 +368,10 @@ export default function HomePage() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-app-muted">Recent restaurant visits</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-app-muted">Recent restaurant visits</h2>
+          <FilterButtons value={visitFilter} onChange={setVisitFilter} />
+        </div>
         {visitsSorted.length === 0 ? (
           <p className="empty-surface">No visits recorded yet.</p>
         ) : (
