@@ -373,12 +373,10 @@ export default function HomePage() {
 
   return (
     <div className="space-y-6 pb-8">
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-app-muted">Needs review</h2>
-        {uploads.length === 0 ? (
-          <p className="empty-surface">No uploads waiting for review.</p>
-        ) : (
-          uploads.map((upload) => (
+      {uploads.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-app-muted">Needs review</h2>
+          {uploads.map((upload) => (
             <Link key={upload.id} href={`/uploads/${upload.id}`} className="card-surface block">
               <div className="mb-2 flex items-center justify-between">
                 <p className="font-medium">Upload {upload.id.slice(0, 8)}</p>
@@ -386,9 +384,9 @@ export default function HomePage() {
               </div>
               <p className="text-xs text-app-muted">{formatDate(upload.created_at)}</p>
             </Link>
-          ))
-        )}
-      </section>
+          ))}
+        </section>
+      )}
 
       <section className="space-y-3">
         <div className="card-surface space-y-2">
@@ -489,3 +487,4 @@ export default function HomePage() {
     </div>
   );
 }
+
