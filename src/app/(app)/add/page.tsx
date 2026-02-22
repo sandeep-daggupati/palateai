@@ -28,6 +28,8 @@ type UserLocation = {
   lng: number;
 };
 
+const fieldLabelClass = 'section-label';
+
 export default function AddPage() {
   const router = useRouter();
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
@@ -285,81 +287,83 @@ export default function AddPage() {
   };
 
   return (
-    <div className="space-y-4 pb-8">
-      <h1 className="text-xl font-bold">Add upload</h1>
-      <div className="card-surface space-y-3">
-        <label className="text-sm font-medium">Receipt/Menu Image</label>
-        <input
-          ref={receiptPickerRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
-        />
-        <input
-          ref={receiptCameraRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
-        />
-        <div className="flex gap-2">
-          <Button type="button" className="w-auto" onClick={() => receiptPickerRef.current?.click()}>
-            Upload photo
-          </Button>
-          <Button
-            type="button"
-            className="w-auto border border-app-border bg-app-card px-4 py-3 text-app-text hover:bg-slate-100 dark:hover:bg-slate-800"
-            onClick={() => receiptCameraRef.current?.click()}
-          >
-            Take photo
-          </Button>
-        </div>
-        <p className="text-xs text-app-muted">{receiptFile ? `Selected: ${receiptFile.name}` : 'No file selected.'}</p>
+    <div className="mx-auto w-full max-w-md space-y-4 pb-8">
+      <div className="space-y-1">
+        <h1 className="text-2xl font-semibold text-app-text">Add Upload</h1>
+        <p className="text-sm text-app-muted">Capture a receipt or menu, then review before saving to your journal.</p>
+      </div>
 
-        <label className="text-sm font-medium">Optional Dish Photo</label>
-        <input
-          ref={dishPickerRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => setDishFile(e.target.files?.[0] ?? null)}
-        />
-        <input
-          ref={dishCameraRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={(e) => setDishFile(e.target.files?.[0] ?? null)}
-        />
-        <div className="flex gap-2">
-          <Button type="button" className="w-auto" onClick={() => dishPickerRef.current?.click()}>
-            Upload dish photo
-          </Button>
-          <Button
-            type="button"
-            className="w-auto border border-app-border bg-app-card px-4 py-3 text-app-text hover:bg-slate-100 dark:hover:bg-slate-800"
-            onClick={() => dishCameraRef.current?.click()}
-          >
-            Take dish photo
-          </Button>
+      <div className="card-surface space-y-4">
+        <div className="space-y-2">
+          <p className={fieldLabelClass}>Receipt or Menu Image</p>
+          <input
+            ref={receiptPickerRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+          />
+          <input
+            ref={receiptCameraRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <Button type="button" variant="primary" size="sm" onClick={() => receiptPickerRef.current?.click()}>
+              Upload photo
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={() => receiptCameraRef.current?.click()}>
+              Take photo
+            </Button>
+          </div>
+          <p className="text-xs text-app-muted">{receiptFile ? `Selected: ${receiptFile.name}` : 'No file selected.'}</p>
         </div>
-        <p className="text-xs text-app-muted">{dishFile ? `Selected: ${dishFile.name}` : 'No dish photo selected.'}</p>
-
-        <label className="text-sm font-medium">Upload Type</label>
-        <select
-          className="w-full rounded-xl border border-app-border bg-app-card px-3 py-2 text-app-text"
-          value={uploadType}
-          onChange={(e) => setUploadType(e.target.value as 'receipt' | 'menu')}
-        >
-          <option value="receipt">Receipt</option>
-          <option value="menu">Menu</option>
-        </select>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium">Restaurant</label>
+          <p className={fieldLabelClass}>Optional Dish Photo</p>
+          <input
+            ref={dishPickerRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => setDishFile(e.target.files?.[0] ?? null)}
+          />
+          <input
+            ref={dishCameraRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => setDishFile(e.target.files?.[0] ?? null)}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <Button type="button" variant="secondary" size="sm" onClick={() => dishPickerRef.current?.click()}>
+              Upload dish
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={() => dishCameraRef.current?.click()}>
+              Take dish photo
+            </Button>
+          </div>
+          <p className="text-xs text-app-muted">{dishFile ? `Selected: ${dishFile.name}` : 'No dish photo selected.'}</p>
+        </div>
+
+        <div className="space-y-2">
+          <label className={fieldLabelClass}>Upload Type</label>
+          <select
+            className="h-11 w-full rounded-xl border border-app-border bg-app-card px-3 text-base leading-6 text-app-text outline-none transition-colors duration-200 focus:border-app-primary focus:ring-2 focus:ring-app-accent/60"
+            value={uploadType}
+            onChange={(e) => setUploadType(e.target.value as 'receipt' | 'menu')}
+          >
+            <option value="receipt">Receipt</option>
+            <option value="menu">Menu</option>
+          </select>
+        </div>
+
+        <div className="space-y-2">
+          <label className={fieldLabelClass}>Restaurant</label>
           <div className="relative">
             <Input
               value={restaurantQuery}
@@ -381,32 +385,27 @@ export default function AddPage() {
                 {!autocompleteLoading && suggestions.length === 0 && (
                   <p className="p-3 text-sm text-app-muted">No matching places found.</p>
                 )}
-                {!autocompleteLoading && suggestions.map((suggestion) => (
-                  <button
-                    key={suggestion.placeId}
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => void selectSuggestion(suggestion)}
-                    className="w-full border-b border-app-border px-3 py-3 text-left last:border-b-0"
-                  >
-                    <p className="text-sm font-medium text-app-text">{suggestion.primaryText}</p>
-                    {suggestion.secondaryText && <p className="text-xs text-app-muted">{suggestion.secondaryText}</p>}
-                  </button>
-                ))}
+                {!autocompleteLoading &&
+                  suggestions.map((suggestion) => (
+                    <button
+                      key={suggestion.placeId}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => void selectSuggestion(suggestion)}
+                      className="w-full border-b border-app-border px-3 py-3 text-left last:border-b-0"
+                    >
+                      <p className="text-sm font-medium text-app-text">{suggestion.primaryText}</p>
+                      {suggestion.secondaryText && <p className="text-xs text-app-muted">{suggestion.secondaryText}</p>}
+                    </button>
+                  ))}
               </div>
             )}
           </div>
 
           {selectedPlace?.address && <p className="text-xs text-app-muted">Selected: {selectedPlace.address}</p>}
+          {autocompleteError && <p className="text-xs text-rose-700 dark:text-rose-300">{autocompleteError}</p>}
 
-          {autocompleteError && <p className="text-xs text-red-700">{autocompleteError}</p>}
-
-          <Button
-            type="button"
-            className="w-auto border border-app-border bg-app-card px-3 py-2 text-sm text-app-text hover:bg-slate-100 dark:hover:bg-slate-800"
-            onClick={useMyLocation}
-            disabled={locationLoading}
-          >
+          <Button type="button" variant="secondary" size="sm" onClick={useMyLocation} disabled={locationLoading}>
             {locationLoading ? 'Locating...' : 'Use my location'}
           </Button>
 
@@ -415,17 +414,21 @@ export default function AddPage() {
               Using location bias: {userLocation.lat.toFixed(4)}, {userLocation.lng.toFixed(4)}
             </p>
           )}
-          {locationError && <p className="text-xs text-red-700">{locationError}</p>}
+          {locationError && <p className="text-xs text-rose-700 dark:text-rose-300">{locationError}</p>}
         </div>
 
-        <Button type="button" className="bg-app-primary" onClick={toggleRecording}>
-          {recording ? 'Stop recording' : audioBlob ? 'Re-record audio note' : 'Record audio note'}
-        </Button>
-        {audioBlob && <p className="text-xs text-app-muted">Audio note attached.</p>}
+        <div className="space-y-2">
+          <p className={fieldLabelClass}>Audio Note</p>
+          <Button type="button" variant="secondary" onClick={toggleRecording}>
+            {recording ? 'Stop recording' : audioBlob ? 'Re-record audio note' : 'Record audio note'}
+          </Button>
+          <p className="text-xs text-app-muted">{audioBlob ? 'Audio note attached.' : 'Optional: add a short voice note.'}</p>
+        </div>
 
-        {loading && <p className="text-xs text-app-muted">Uploading... {Math.round(progress)}%</p>}
-        <Button type="button" onClick={onSubmit} disabled={!receiptFile || loading}>
-          Save upload
+        {loading && <p className="text-sm text-app-muted">Uploading... {Math.round(progress)}%</p>}
+
+        <Button type="button" variant="primary" size="lg" onClick={onSubmit} disabled={!receiptFile || loading}>
+          {loading ? 'Saving...' : 'Save upload'}
         </Button>
       </div>
     </div>

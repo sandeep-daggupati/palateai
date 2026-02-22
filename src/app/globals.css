@@ -4,78 +4,103 @@
 
 :root {
   color-scheme: light;
-  --color-bg: #f6f4ef;
-  --color-card: #ffffff;
-  --color-text: #1e2c23;
-  --color-muted: #4b5a50;
-  --color-border: #cfd6cf;
-  --color-primary: #1f3d2b;
-  --color-primary-text: #ffffff;
-  --color-accent: #c9a227;
-  --color-link: #254c35;
-  --color-selection-bg: #c9a227;
-  --color-selection-text: #1e2c23;
+  --bg: #f6f4ef;
+  --card: #ffffff;
+  --text: #1d2b23;
+  --muted: #4a5a50;
+  --border: #cad3cb;
+  --primary: #1f3d2b;
+  --primary-foreground: #ffffff;
+  --accent: #c9a227;
+  --link: #254c35;
+  --selection-bg: #d8c07a;
+  --selection-text: #18241d;
+
+  /* Backward-compatible aliases */
+  --color-bg: var(--bg);
+  --color-card: var(--card);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-text: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-link: var(--link);
+  --color-selection-bg: var(--selection-bg);
+  --color-selection-text: var(--selection-text);
 }
 
 .dark {
   color-scheme: dark;
-  --color-bg: #0f1412;
-  --color-card: #161b18;
-  --color-text: #ecf1ed;
-  --color-muted: #aab7af;
-  --color-border: #2a342e;
-  --color-primary: #3e6b4e;
-  --color-primary-text: #f7faf8;
-  --color-accent: #d4af37;
-  --color-link: #d4af37;
-  --color-selection-bg: #3e6b4e;
-  --color-selection-text: #f7faf8;
+  --bg: #0f1412;
+  --card: #161b18;
+  --text: #ecf1ed;
+  --muted: #aebbb2;
+  --border: #2a342e;
+  --primary: #3e6b4e;
+  --primary-foreground: #f7faf8;
+  --accent: #d4af37;
+  --link: #d4af37;
+  --selection-bg: #335842;
+  --selection-text: #f7faf8;
 }
 
 html,
 body {
-  background-color: var(--color-bg);
-  color: var(--color-text);
+  background-color: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
-  @apply transition-colors duration-200;
+  @apply text-base leading-6 transition-colors duration-200;
 }
 
 ::selection {
-  background: var(--color-selection-bg);
-  color: var(--color-selection-text);
+  background: var(--selection-bg);
+  color: var(--selection-text);
 }
 
 a {
-  color: var(--color-link);
+  color: var(--link);
+  -webkit-tap-highlight-color: transparent;
 }
 
-.dark a {
-  color: var(--color-link);
+button {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 input,
 textarea,
 select {
-  color: var(--color-text);
-  background-color: var(--color-card);
-  border-color: var(--color-border);
+  color: var(--text);
+  background-color: var(--card);
+  border-color: var(--border);
   -webkit-text-fill-color: currentColor;
+  font-size: 16px;
+  appearance: none;
 }
 
 input::placeholder,
 textarea::placeholder {
-  color: var(--color-muted);
+  color: var(--muted);
   opacity: 1;
 }
 
 @layer components {
   .card-surface {
-    @apply rounded-xl bg-app-card p-5 shadow-sm transition-colors duration-200 dark:border dark:border-app-border dark:shadow-none;
+    @apply rounded-2xl border border-app-border bg-app-card p-5 shadow-sm transition-colors duration-200 dark:shadow-none;
   }
 
   .empty-surface {
-    @apply rounded-xl bg-app-card p-6 text-center text-sm text-app-muted transition-colors duration-200 dark:border dark:border-app-border;
+    @apply rounded-2xl border border-app-border bg-app-card p-6 text-center text-sm text-app-muted transition-colors duration-200;
+  }
+
+  .section-label {
+    @apply text-sm font-medium uppercase tracking-wide text-app-muted;
   }
 }

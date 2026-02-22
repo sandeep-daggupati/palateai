@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Button } from '@/components/Button';
 
 type Theme = 'light' | 'dark';
 
@@ -32,15 +33,27 @@ export function ThemeToggle() {
   };
 
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="sm"
+      fullWidth={false}
+      className="h-11 w-11 rounded-xl border border-app-border"
       onClick={toggleTheme}
-      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-app-border bg-app-card text-app-text shadow-sm transition-colors duration-200 hover:bg-slate-100 dark:hover:bg-slate-800"
       aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
       title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
     >
       {theme === 'dark' ? (
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <svg
+          viewBox="0 0 24 24"
+          className="h-4 w-4"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
           <circle cx="12" cy="12" r="4" />
           <path d="M12 2v2" />
           <path d="M12 20v2" />
@@ -52,10 +65,20 @@ export function ThemeToggle() {
           <path d="m19.07 4.93-1.41 1.41" />
         </svg>
       ) : (
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <svg
+          viewBox="0 0 24 24"
+          className="h-4 w-4"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
           <path d="M12 3a7 7 0 1 0 9 9 9 9 0 1 1-9-9z" />
         </svg>
       )}
-    </button>
+    </Button>
   );
 }
+

@@ -25,7 +25,7 @@ function IdentitySelector({
 }) {
   return (
     <div className="space-y-2">
-      <p className="text-xs font-medium text-app-muted">How does this dish live in your world?</p>
+      <p className="section-label">How does this dish live in your world?</p>
       <div className="flex flex-wrap gap-2">
         {identityTagOptions().map((option) => {
           const active = option.value === value;
@@ -34,7 +34,7 @@ function IdentitySelector({
               key={option.value}
               type="button"
               onClick={() => onChange(active ? null : option.value)}
-              className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide transition-colors ${
+              className={`inline-flex h-10 items-center gap-1 rounded-full border px-3 text-xs font-semibold tracking-wide transition-colors duration-200 ${
                 active
                   ? option.value === 'never_again'
                     ? 'border-rose-300/70 bg-rose-50/80 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300'
@@ -42,7 +42,11 @@ function IdentitySelector({
                   : 'border-app-border bg-app-card text-app-muted hover:border-app-primary/40 hover:text-app-text'
               }`}
             >
-              {active && <span aria-hidden="true">?</span>}
+              {active && (
+                <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M4 10.5 8 14.5 16 6.5" />
+                </svg>
+              )}
               {option.label}
             </button>
           );
@@ -216,10 +220,10 @@ export default function UploadDetailPage() {
   }
 
   return (
-    <div className="space-y-4 pb-8">
-      <div className="card-surface space-y-3">
-        <div className="flex items-center justify-between">
-          <h1 className="text-lg font-bold">Upload details</h1>
+    <div className="mx-auto w-full max-w-3xl space-y-4 pb-8">
+      <div className="card-surface space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-2xl font-semibold text-app-text">Upload details</h1>
           <StatusChip status={upload.status} />
         </div>
         <p className="text-xs text-app-muted">ID: {upload.id}</p>
@@ -228,44 +232,47 @@ export default function UploadDetailPage() {
             {path}
           </p>
         ))}
-        <Button type="button" onClick={runExtraction} className="bg-blue-600 hover:bg-blue-500">
+        <Button type="button" variant="secondary" onClick={runExtraction}>
           Run extraction
         </Button>
       </div>
 
       {upload.status === 'needs_review' && (
         <div className="card-surface space-y-4">
-          <h2 className="font-semibold">Review and feedback</h2>
+          <h2 className="text-base font-semibold text-app-text">Review and feedback</h2>
 
-          <div className="rounded-lg border border-app-border p-3 space-y-3">
+          <div className="rounded-2xl border border-app-border p-4 space-y-3">
             <div className="space-y-2">
-              <label className="text-xs font-medium text-app-muted">Quick note (optional)</label>
+              <label className="section-label">Quick note (optional)</label>
               <Input
                 value={visitNote}
                 maxLength={VISIT_NOTE_MAX}
                 onChange={(e) => setVisitNote(e.target.value.slice(0, VISIT_NOTE_MAX))}
                 placeholder="e.g., great vibe, too spicy, slow service"
               />
-              <p className="text-[11px] text-app-muted">{visitNote.length}/{VISIT_NOTE_MAX}</p>
+              <p className="text-xs text-app-muted">{visitNote.length}/{VISIT_NOTE_MAX}</p>
               <div className="flex flex-wrap gap-2">
                 {QUICK_NOTE_CHIPS.map((chip) => (
-                  <button
+                  <Button
                     key={chip}
                     type="button"
+                    variant="secondary"
+                    size="sm"
+                    fullWidth={false}
+                    className="h-8 rounded-full px-3 text-xs"
                     onClick={() => appendVisitNoteChip(chip)}
-                    className="rounded-full border border-app-border bg-app-card px-3 py-1 text-xs text-app-text"
                   >
                     {chip}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>
           </div>
 
-          <h3 className="text-sm font-semibold text-app-text">Line items</h3>
+          <h3 className="section-label">Line items</h3>
           {items.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-app-border p-3 text-sm text-app-muted">
-              No extracted dishes yet. You can still save visit note, then approve.
+            <p className="rounded-2xl border border-dashed border-app-border p-4 text-sm text-app-muted">
+              No extracted dishes yet. You can still save the visit note, then approve.
             </p>
           ) : (
             <div className="space-y-3">
@@ -273,8 +280,8 @@ export default function UploadDetailPage() {
                 const noteOpen = openItemNotes[item.id] || Boolean(item.comment);
 
                 return (
-                  <div key={item.id} className="rounded-lg border border-app-border p-3 space-y-3">
-                    <div className="grid grid-cols-[1fr,100px,72px] gap-2 items-center">
+                  <div key={item.id} className="rounded-2xl border border-app-border p-4 space-y-3">
+                    <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr,120px,84px]">
                       <Input
                         value={item.name_final ?? ''}
                         onChange={(e) =>
@@ -300,7 +307,7 @@ export default function UploadDetailPage() {
                         }
                         placeholder="Price"
                       />
-                      <label className="text-xs flex items-center gap-1">
+                      <label className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-app-border bg-app-card px-3 text-sm text-app-text">
                         <input
                           type="checkbox"
                           checked={item.included}
@@ -328,18 +335,21 @@ export default function UploadDetailPage() {
                     />
 
                     <div className="space-y-2">
-                      <button
+                      <Button
                         type="button"
+                        variant="ghost"
+                        size="sm"
+                        fullWidth={false}
+                        className="h-8 px-1 text-xs underline underline-offset-2"
                         onClick={() =>
                           setOpenItemNotes((prev) => ({
                             ...prev,
                             [item.id]: !noteOpen,
                           }))
                         }
-                        className="text-xs font-medium text-app-text underline underline-offset-2"
                       >
                         {noteOpen ? 'Hide dish note' : 'Add note'}
-                      </button>
+                      </Button>
 
                       {noteOpen && (
                         <Input
@@ -362,11 +372,11 @@ export default function UploadDetailPage() {
             </div>
           )}
 
-          <div className="flex flex-col gap-2">
-            <Button type="button" onClick={addRow} className="bg-slate-600 hover:bg-slate-500">
+          <div className="grid gap-2 sm:grid-cols-3">
+            <Button type="button" variant="secondary" onClick={addRow}>
               Add row
             </Button>
-            <Button type="button" onClick={saveNewRows} className="bg-indigo-600 hover:bg-indigo-500">
+            <Button type="button" variant="secondary" onClick={saveNewRows}>
               Save added rows
             </Button>
             <Button type="button" onClick={approve} disabled={saving}>

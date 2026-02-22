@@ -92,7 +92,7 @@ function FilterButtons({
   onChange: (next: FilterWindow) => void;
 }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       {FILTER_WINDOWS.map((window) => (
         <button
           key={window.value}
@@ -100,8 +100,8 @@ function FilterButtons({
           onClick={() => onChange(window.value)}
           className={
             value === window.value
-              ? 'rounded-full border border-app-primary bg-app-primary px-3 py-1 text-xs font-medium text-app-primary-text'
-              : 'rounded-full border border-app-border bg-app-card px-3 py-1 text-xs font-medium text-app-muted'
+              ? 'inline-flex h-10 items-center rounded-xl border border-app-primary bg-app-primary px-3 text-xs font-medium text-app-primary-text transition-colors duration-200'
+              : 'inline-flex h-10 items-center rounded-xl border border-app-border bg-app-card px-3 text-xs font-medium text-app-muted transition-colors duration-200 hover:border-app-primary/30 hover:text-app-text'
           }
         >
           {window.label}
@@ -131,12 +131,12 @@ function SearchAndIdentityFilters({
         value={searchValue}
         onChange={(event) => onSearchChange(event.target.value)}
         placeholder={searchPlaceholder}
-        className="h-10 rounded-lg border border-app-border bg-app-card px-3 text-sm text-app-text placeholder:text-app-muted focus:border-app-primary focus:outline-none focus:ring-2 focus:ring-app-accent/50"
+        className="h-11 rounded-xl border border-app-border bg-app-card px-3 text-base leading-6 text-app-text placeholder:text-app-muted focus:border-app-primary focus:outline-none focus:ring-2 focus:ring-app-accent/60"
       />
       <select
         value={identityValue}
         onChange={(event) => onIdentityChange(event.target.value as IdentityFilter)}
-        className="h-10 rounded-lg border border-app-border bg-app-card px-3 text-sm text-app-text focus:border-app-primary focus:outline-none focus:ring-2 focus:ring-app-accent/50"
+        className="h-11 rounded-xl border border-app-border bg-app-card px-3 text-base leading-6 text-app-text focus:border-app-primary focus:outline-none focus:ring-2 focus:ring-app-accent/60"
       >
         {IDENTITY_FILTERS.map((option) => (
           <option key={option.value} value={option.value}>
@@ -163,7 +163,7 @@ function SearchOnlyFilter({
       value={searchValue}
       onChange={(event) => onSearchChange(event.target.value)}
       placeholder={searchPlaceholder}
-      className="h-10 w-full rounded-lg border border-app-border bg-app-card px-3 text-sm text-app-text placeholder:text-app-muted focus:border-app-primary focus:outline-none focus:ring-2 focus:ring-app-accent/50"
+      className="h-11 w-full rounded-xl border border-app-border bg-app-card px-3 text-base leading-6 text-app-text placeholder:text-app-muted focus:border-app-primary focus:outline-none focus:ring-2 focus:ring-app-accent/60"
     />
   );
 }
@@ -397,10 +397,10 @@ export default function HomePage() {
   }, [entrySample]);
 
   return (
-    <div className="space-y-6 pb-8">
+    <div className="space-y-5 pb-8">
       {uploads.length > 0 && (
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-app-muted">Needs review</h2>
+          <h2 className="section-label">Needs review</h2>
           {uploads.map((upload) => (
             <Link key={upload.id} href={`/uploads/${upload.id}`} className="card-surface block">
               <div className="mb-2 flex items-center justify-between">
@@ -415,7 +415,7 @@ export default function HomePage() {
 
       <section className="space-y-3">
         <div className="card-surface space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-app-muted">Insights</p>
+          <p className="section-label">Insights</p>
           <p className="text-sm text-app-muted">
             Recent dishes are your last logged items. Use them to quickly revisit what you liked and spot patterns over time.
           </p>
@@ -439,7 +439,7 @@ export default function HomePage() {
         </div>
 
         <div className="card-surface space-y-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-app-muted">Your identity snapshot</h2>
+          <h2 className="section-label">Your identity snapshot</h2>
           <p className="text-xs text-app-muted">Last 30 days</p>
           <div className="flex flex-wrap gap-2">
             {identitySnapshot.map((entry) => (
@@ -452,7 +452,7 @@ export default function HomePage() {
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-app-muted">Recent dishes</h2>
+          <h2 className="section-label">Recent dishes</h2>
           <FilterButtons value={dishFilter} onChange={setDishFilter} />
         </div>
         <SearchAndIdentityFilters
@@ -487,7 +487,7 @@ export default function HomePage() {
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-app-muted">Recent restaurant visits</h2>
+          <h2 className="section-label">Recent restaurant visits</h2>
           <FilterButtons value={visitFilter} onChange={setVisitFilter} />
         </div>
         <SearchOnlyFilter
@@ -522,3 +522,5 @@ export default function HomePage() {
     </div>
   );
 }
+
+

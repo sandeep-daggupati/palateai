@@ -22,12 +22,13 @@ export default function LoginPage() {
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center gap-6 p-6">
-      <h1 className="text-3xl font-bold">Dish Tracker</h1>
-      <p className="text-sm text-app-muted">Capture dishes from receipts and keep your own food timeline.</p>
-      <Button onClick={onLogin} disabled={loading}>
-        {loading ? 'Redirecting…' : 'Continue with Google'}
+      <div className="space-y-2">
+        <h1 className="text-2xl font-semibold text-app-text">PalateAI</h1>
+        <p className="text-base text-app-muted">Capture dishes from receipts and keep your personal food timeline.</p>
+      </div>
+      <Button onClick={onLogin} disabled={loading} size="lg">
+        {loading ? 'Redirecting...' : 'Continue with Google'}
       </Button>
     </main>
   );
 }
-
