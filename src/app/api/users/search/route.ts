@@ -19,6 +19,32 @@ function getAnonSupabaseClient() {
   });
 }
 
+async function searchUsersByEmail(service: ReturnType<typeof getServiceSupabaseClient>, query: string, currentUserId: string) {
+  let page = 1;
+  const perPage = 200;
+  const matches: Array<{ id: string; email: string }> = [];
+
+  while (page <= 25 && matches.length < 8) {
+    const response = await service.auth.admin.listUsers({ page, perPage });
+    const users = response.data.users ?? [];
+
+    for (const entry of users) {
+      const email = entry.email?.toLowerCase();
+      if (!email) continue;
+      if (entry.id === currentUserId) continue;
+      if (!email.includes(query)) continue;
+
+      matches.push({ id: entry.id, email: entry.email as string });
+      if (matches.length >= 8) break;
+    }
+
+    if (users.length < perPage) break;
+    page += 1;
+  }
+
+  return matches;
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const query = (searchParams.get('q') ?? '').trim().toLowerCase();
@@ -44,12 +70,7 @@ export async function GET(request: Request) {
   }
 
   const service = getServiceSupabaseClient();
-  const users = await service.auth.admin.listUsers({ page: 1, perPage: 500 });
-
-  const matched = users.data.users
-    .filter((entry) => entry.email && entry.email.toLowerCase().includes(query) && entry.id !== user.id)
-    .slice(0, 8)
-    .map((entry) => ({ id: entry.id, email: entry.email as string }));
+  const matched = await searchUsersByEmail(service, query, user.id);
 
   return NextResponse.json({ ok: true, users: matched });
 }

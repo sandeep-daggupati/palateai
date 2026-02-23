@@ -71,6 +71,19 @@ export default function HomePage() {
         return;
       }
 
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session?.access_token) {
+        await fetch('/api/visits/claim', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }).catch(() => undefined);
+      }
+
       let dishQuery = supabase
         .from('dish_entries')
         .select('id,dish_name,dish_key,restaurant_id,identity_tag,eaten_at,created_at,source_upload_id')
@@ -252,3 +265,4 @@ export default function HomePage() {
     </div>
   );
 }
+

@@ -65,6 +65,24 @@ async function authorize(request: Request, visitId: string) {
   };
 }
 
+async function findUserByEmail(service: ReturnType<typeof getServiceSupabaseClient>, email: string) {
+  let page = 1;
+  const perPage = 200;
+
+  while (page <= 25) {
+    const response = await service.auth.admin.listUsers({ page, perPage });
+    const users = response.data.users ?? [];
+
+    const match = users.find((row) => row.email?.toLowerCase() === email);
+    if (match) return match;
+
+    if (users.length < perPage) break;
+    page += 1;
+  }
+
+  return null;
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const visitId = searchParams.get('visitId');
@@ -108,8 +126,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: 'Only host can share this visit' }, { status: 403 });
   }
 
-  const users = await auth.service.auth.admin.listUsers({ page: 1, perPage: 500 });
-  const matchedUser = users.data.users.find((row) => row.email?.toLowerCase() === email);
+  const matchedUser = await findUserByEmail(auth.service, email);
 
   if (matchedUser?.id === auth.user.id) {
     return NextResponse.json({ ok: false, error: 'Host is already part of this visit' }, { status: 400 });
