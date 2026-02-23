@@ -718,20 +718,24 @@ export default function UploadDetailPage() {
                         }
                         placeholder="Price"
                       />
-                      <label className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-app-border bg-app-card px-3 text-sm text-app-text">
-                        <input
-                          type="checkbox"
-                          checked={item.included}
-                          onChange={(e) =>
-                            setItems((prev) =>
-                              prev.map((entry, itemIndex) =>
-                                itemIndex === index ? { ...entry, included: e.target.checked } : entry,
-                              ),
-                            )
-                          }
-                        />
-                        Include
-                      </label>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setItems((prev) =>
+                            prev.map((entry, itemIndex) =>
+                              itemIndex === index ? { ...entry, included: !entry.included } : entry,
+                            ),
+                          )
+                        }
+                        className={`inline-flex h-11 items-center justify-center rounded-xl border px-3 text-sm font-medium transition-colors duration-200 ${
+                          item.included
+                            ? 'border-app-primary bg-app-primary text-app-primary-text'
+                            : 'border-app-border bg-app-card text-app-muted'
+                        }`}
+                        aria-pressed={item.included}
+                      >
+                        {item.included ? 'Included' : 'Excluded'}
+                      </button>
                     </div>
 
                     <IdentitySelector
@@ -997,6 +1001,8 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
+
 
 
 
