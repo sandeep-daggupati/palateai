@@ -69,9 +69,9 @@ function IdentitySelector({
               className={`inline-flex h-10 items-center gap-1 rounded-full border px-3 text-xs font-semibold tracking-wide transition-colors duration-200 ${
                 active
                   ? option.value === 'never_again'
-                    ? 'border-rose-300/70 bg-rose-50/80 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300'
-                    : 'border-app-primary/40 bg-app-primary/10 text-app-primary'
-                  : 'border-app-border bg-app-card text-app-muted hover:border-app-primary/40 hover:text-app-text'
+                    ? 'border-rose-500 bg-rose-100 text-rose-800 outline outline-2 outline-offset-2 outline-rose-500 dark:border-rose-900/70 dark:bg-rose-950/50 dark:text-rose-200 dark:outline-rose-400'
+                    : 'border-app-border bg-app-card text-app-text shadow-sm'
+                  : 'border-app-border bg-app-card text-app-muted hover:bg-app-card/80 hover:text-app-text'
               }`}
             >
               {option.label}
@@ -1001,3 +1001,4 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
