@@ -70,7 +70,7 @@ function IdentitySelector({
                 active
                   ? option.value === 'never_again'
                     ? 'border-rose-500 bg-rose-100 text-rose-800 outline outline-2 outline-offset-2 outline-rose-500 dark:border-rose-900/70 dark:bg-rose-950/50 dark:text-rose-200 dark:outline-rose-400'
-                    : 'border-app-border bg-app-card text-app-text shadow-sm'
+                    : 'border-2 border-app-primary bg-app-card text-app-text shadow-sm ring-2 ring-app-accent/50 ring-offset-1 ring-offset-transparent'
                   : 'border-app-border bg-app-card text-app-muted hover:bg-app-card/80 hover:text-app-text'
               }`}
             >
@@ -1001,4 +1001,3 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
