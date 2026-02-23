@@ -36,22 +36,22 @@ export default function LoginPage() {
   };
 
   if (checkingSession) {
-    return <main className="mx-auto min-h-screen w-full max-w-md p-6" />;
+    return <main className="mx-auto min-h-screen w-full max-w-md p-4" />;
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center p-6">
-      <div className="card-surface space-y-5">
-        <div className="space-y-2">
-          <h1 className="text-2xl font-semibold text-app-text">
+    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center p-4">
+      <div className="card-surface space-y-4">
+        <div className="space-y-1">
+          <h1 className="text-xl font-semibold text-app-text">
             <span>Palate</span>
             <span className="text-brand-accent dark:text-brand-accent-dark">AI</span>
           </h1>
-          <p className="text-base text-app-text">Remember every plate you love.</p>
-          <p className="text-sm text-app-muted">Upload a receipt or menu. PalateAI pulls your Palate picks in seconds.</p>
+          <p className="text-sm text-app-text">Log the meals you want to remember.</p>
+          <p className="text-sm text-app-muted">Upload a receipt or menu, then save your hangout recap.</p>
         </div>
 
-        <Button onClick={onLogin} disabled={loading} size="lg">
+        <Button onClick={onLogin} disabled={loading} size="md">
           {loading ? 'Redirecting...' : 'Continue with Google'}
         </Button>
 

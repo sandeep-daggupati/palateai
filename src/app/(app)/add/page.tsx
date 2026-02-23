@@ -290,10 +290,10 @@ export default function AddPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-md space-y-4 pb-8">
+    <div className="mx-auto w-full max-w-md space-y-4 pb-6">
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold text-app-text">Add Upload</h1>
-        <p className="text-sm text-app-muted">Capture a receipt or menu, then review before saving to your journal.</p>
+        <h1 className="text-xl font-semibold text-app-text">Add</h1>
+        <p className="text-sm text-app-muted">Capture a receipt or menu, then review and save your hangout.</p>
       </div>
 
       <div className="card-surface space-y-4">
@@ -370,13 +370,13 @@ export default function AddPage() {
               size="sm"
               onClick={() => setIsSharedVisit(true)}
             >
-              Shared with friends
+              With crew
             </Button>
           </div>
           <p className="text-xs text-app-muted">
             {isSharedVisit
-              ? 'Invite friends on the next screen. Everyone can log their own experience.'
-              : 'Private flow: extract, review, and save in one quick pass.'}
+              ? 'Invite your buddies on the next screen. Everyone can log their own experience.'
+              : 'Just you: extract, review, and save in one quick pass.'}
           </p>
         </div>
 
@@ -464,6 +464,7 @@ export default function AddPage() {
     </div>
   );
 }
+
 
 
 

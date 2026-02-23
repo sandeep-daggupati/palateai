@@ -40,27 +40,31 @@ export function AppHeader() {
   };
 
   return (
-    <header className="mb-4 flex items-center justify-between gap-3">
-      <Link href="/" className="text-xl tracking-tight text-app-text">
+    <header className="mb-3 flex items-center justify-between gap-3">
+      <Link href="/" className="text-lg tracking-tight text-app-text">
         <span className="font-semibold">Palate</span>
         <span className="font-semibold text-brand-accent dark:text-brand-accent-dark">AI</span>
       </Link>
 
       <div className="flex items-center gap-2">
+        <ThemeToggle />
         <Link
           href="/add"
-          aria-label="Add receipt or menu"
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-transparent bg-app-primary px-3 text-sm font-medium text-app-primary-text shadow-sm transition-colors duration-200 hover:bg-app-primary/90"
+          aria-label="Add"
+          className="inline-flex h-10 items-center justify-center rounded-xl border border-transparent bg-app-primary px-3 text-sm font-medium text-app-primary-text shadow-sm transition-colors duration-200 hover:bg-app-primary/90"
         >
-          <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-            <path d="M10 4v12" />
-            <path d="M4 10h12" />
-          </svg>
           Add
         </Link>
-        <ThemeToggle />
         {hasSession && (
-          <Button type="button" variant="secondary" size="sm" fullWidth={false} onClick={onLogout} disabled={loggingOut}>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            fullWidth={false}
+            className="h-10 px-3"
+            onClick={onLogout}
+            disabled={loggingOut}
+          >
             {loggingOut ? 'Logging out...' : 'Logout'}
           </Button>
         )}

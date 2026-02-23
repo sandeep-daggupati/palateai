@@ -37,28 +37,34 @@ export default function DishProfilePage() {
   }, [entries]);
 
   return (
-    <div className="space-y-4 pb-8">
-      <h1 className="text-xl font-bold">Dish profile</h1>
+    <div className="space-y-4 pb-6">
+      <h1 className="text-xl font-semibold text-app-text">Dish recap</h1>
+
       {trend && (
-        <div className="card-surface text-sm">
-          <p>First price: ${trend.first.toFixed(2)}</p>
-          <p>Latest price: ${trend.last.toFixed(2)}</p>
-          <p>Change: {trend.changePct.toFixed(1)}%</p>
+        <div className="card-surface space-y-1 text-sm">
+          <p className="text-app-muted">First price: ${trend.first.toFixed(2)}</p>
+          <p className="text-app-muted">Latest price: ${trend.last.toFixed(2)}</p>
+          <p className="text-app-text">Change: {trend.changePct.toFixed(1)}%</p>
         </div>
       )}
-      <div className="space-y-2">
-        {entries.map((entry) => (
-          <div key={entry.id} className="card-surface text-sm">
-            <div className="mb-1 flex items-center justify-between gap-3">
-              <p className="font-medium">{entry.dish_name}</p>
-              <IdentityTagPill tag={entry.identity_tag} />
+
+      {entries.length === 0 ? (
+        <p className="empty-surface">No dish logs yet.</p>
+      ) : (
+        <div className="divide-y divide-app-border rounded-2xl border border-app-border bg-app-card">
+          {entries.map((entry) => (
+            <div key={entry.id} className="px-3 py-3 text-sm">
+              <div className="mb-1 flex items-center justify-between gap-3">
+                <p className="font-medium text-app-text">{entry.dish_name}</p>
+                <IdentityTagPill tag={entry.identity_tag} />
+              </div>
+              <p className="text-app-muted">${entry.price_original?.toFixed(2) ?? '--'}</p>
+              {entry.comment && <p className="text-xs text-app-muted">{truncate(entry.comment)}</p>}
+              <p className="text-xs text-app-muted">{new Date(entry.eaten_at ?? entry.created_at).toLocaleString()}</p>
             </div>
-            <p className="text-app-muted">${entry.price_original?.toFixed(2) ?? '--'}</p>
-            {entry.comment && <p className="text-xs text-app-muted">{truncate(entry.comment)}</p>}
-            <p className="text-xs text-app-muted">{new Date(entry.eaten_at ?? entry.created_at).toLocaleString()}</p>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

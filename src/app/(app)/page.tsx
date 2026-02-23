@@ -194,7 +194,7 @@ export default function HomePage() {
     [dishes, restaurantsById],
   );
 
-  const visitRows = useMemo(
+  const hangoutRows = useMemo(
     () =>
       visits.map((visit) => ({
         ...visit,
@@ -206,23 +206,17 @@ export default function HomePage() {
   );
 
   return (
-    <div className="space-y-5 pb-8">
-      <section className="card-surface space-y-4">
-        <h1 className="text-2xl font-semibold text-app-text">What did you eat today?</h1>
+    <div className="space-y-4 pb-6">
+      <section className="card-surface space-y-3">
+        <h1 className="text-xl font-semibold text-app-text">What did you eat today?</h1>
         <Link
           href="/add"
-          className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-transparent bg-app-primary px-5 text-base font-semibold text-app-primary-text shadow-sm transition-colors duration-200 hover:bg-app-primary/90"
+          className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-transparent bg-app-primary px-4 text-sm font-semibold text-app-primary-text shadow-sm transition-colors duration-200 hover:bg-app-primary/90"
         >
-          <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-            <path d="M10 4v12" />
-            <path d="M4 10h12" />
-          </svg>
-          Add receipt or menu
+          Add
         </Link>
 
-        {!hasAnyVisits && (
-          <p className="text-sm text-app-muted">1) Upload receipt/menu -&gt; 2) Approve dishes -&gt; 3) Build your food identity</p>
-        )}
+        {!hasAnyVisits && <p className="text-sm text-app-muted">Upload a receipt, review your dishes, and save the hangout.</p>}
       </section>
 
       <section className="space-y-2">
@@ -231,38 +225,41 @@ export default function HomePage() {
         {dishRows.length === 0 ? (
           <p className="empty-surface">No dishes yet.</p>
         ) : (
-          dishRows.map((dish) => (
-            <Link key={dish.id} href={dish.dish_key ? `/dishes/${dish.dish_key}` : `/uploads/${dish.source_upload_id}`} className="card-surface block">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="font-medium text-app-text">{dish.dish_name}</p>
-                {dish.identity_tag && <IdentityTagPill tag={dish.identity_tag} />}
-              </div>
-              <p className="text-sm text-app-muted">{dish.restaurantName}</p>
-              <p className="text-xs text-app-muted">{dish.dateLabel}</p>
-            </Link>
-          ))
+          <div className="divide-y divide-app-border rounded-2xl border border-app-border bg-app-card">
+            {dishRows.map((dish) => (
+              <Link key={dish.id} href={dish.dish_key ? `/dishes/${dish.dish_key}` : `/uploads/${dish.source_upload_id}`} className="block px-3 py-3">
+                <div className="mb-1 flex items-center justify-between gap-3">
+                  <p className="font-medium text-app-text">{dish.dish_name}</p>
+                  {dish.identity_tag && <IdentityTagPill tag={dish.identity_tag} />}
+                </div>
+                <p className="text-sm text-app-muted">{dish.restaurantName}</p>
+                <p className="text-xs text-app-muted">{dish.dateLabel}</p>
+              </Link>
+            ))}
+          </div>
         )}
       </section>
 
       <section className="space-y-2">
-        <h2 className="section-label">Recent Activity</h2>
+        <h2 className="section-label">Recent Hangouts</h2>
         <FilterChips options={ACTIVITY_FILTER_OPTIONS} selected={activityFilter} onChange={setActivityFilter} />
-        {visitRows.length === 0 ? (
-          <p className="empty-surface">No activity yet.</p>
+        {hangoutRows.length === 0 ? (
+          <p className="empty-surface">No hangouts yet.</p>
         ) : (
-          visitRows.map((visit) => (
-            <Link key={visit.id} href={`/uploads/${visit.id}`} className="card-surface block">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="font-medium text-app-text">{visit.restaurantName}</p>
-                <StatusChip status={visit.status} />
-              </div>
-              {visit.address && <p className="text-xs text-app-muted">{visit.address}</p>}
-              <p className="text-xs text-app-muted">{visit.dateLabel}</p>
-            </Link>
-          ))
+          <div className="divide-y divide-app-border rounded-2xl border border-app-border bg-app-card">
+            {hangoutRows.map((visit) => (
+              <Link key={visit.id} href={`/uploads/${visit.id}`} className="block px-3 py-3">
+                <div className="mb-1 flex items-center justify-between gap-3">
+                  <p className="font-medium text-app-text">{visit.restaurantName}</p>
+                  <StatusChip status={visit.status} />
+                </div>
+                {visit.address && <p className="text-xs text-app-muted">{visit.address}</p>}
+                <p className="text-xs text-app-muted">{visit.dateLabel}</p>
+              </Link>
+            ))}
+          </div>
         )}
       </section>
     </div>
   );
 }
-

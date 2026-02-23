@@ -39,6 +39,10 @@ type ReviewRenderRow = {
   split: boolean;
 };
 
+type CrewMember = VisitParticipant & {
+  display_name: string | null;
+};
+
 type ShareUserSuggestion = {
   id: string;
   email: string;
@@ -121,7 +125,7 @@ export default function UploadDetailPage() {
   const [openItemNotes, setOpenItemNotes] = useState<Record<string, boolean>>({});
   const [splitGroupKeys, setSplitGroupKeys] = useState<Record<string, boolean>>({});
 
-  const [participants, setParticipants] = useState<VisitParticipant[]>([]);
+  const [participants, setParticipants] = useState<CrewMember[]>([]);
   const [shareEmail, setShareEmail] = useState('');
   const [shareLoading, setShareLoading] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
@@ -202,7 +206,7 @@ export default function UploadDetailPage() {
       return;
     }
 
-    const payload = (await response.json()) as { participants?: VisitParticipant[] };
+    const payload = (await response.json()) as { participants?: CrewMember[] };
     setParticipants(payload.participants ?? []);
   }, [getAuthHeader, uploadId]);
 
@@ -500,7 +504,7 @@ export default function UploadDetailPage() {
       });
 
       if (!approveResponse.ok) {
-        throw new Error('Could not save approved dishes for this visit.');
+        throw new Error('Could not save approved dishes for this hangout.');
       }
 
       await load();
@@ -573,14 +577,14 @@ export default function UploadDetailPage() {
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => ({ error: 'Could not share visit' }))) as { error?: string };
-        throw new Error(payload.error ?? 'Could not share visit');
+        const payload = (await response.json().catch(() => ({ error: 'Could not add buddy' }))) as { error?: string };
+        throw new Error(payload.error ?? 'Could not add buddy');
       }
 
       setShareEmail('');
       await loadParticipants();
     } catch (error) {
-      setShareError(error instanceof Error ? error.message : 'Could not share visit');
+      setShareError(error instanceof Error ? error.message : 'Could not add buddy');
     } finally {
       setShareLoading(false);
     }
@@ -605,23 +609,23 @@ export default function UploadDetailPage() {
       });
 
       if (!response.ok) {
-        throw new Error('Could not remove participant');
+        throw new Error('Could not remove buddy');
       }
 
       await loadParticipants();
     } catch (error) {
-      setShareError(error instanceof Error ? error.message : 'Could not remove participant');
+      setShareError(error instanceof Error ? error.message : 'Could not remove buddy');
     } finally {
       setShareLoading(false);
     }
   };
 
   if (!upload) {
-    return <div className="text-sm text-app-muted">Loading visit...</div>;
+    return <div className="text-sm text-app-muted">Loading hangout...</div>;
   }
 
   if (currentUserId && !canViewVisit) {
-    return <div className="card-surface text-sm text-app-muted">You do not have access to this visit.</div>;
+    return <div className="card-surface text-sm text-app-muted">You do not have access to this hangout.</div>;
   }
 
   const visitDate = formatDate(upload.visited_at ?? upload.created_at);
@@ -631,22 +635,22 @@ export default function UploadDetailPage() {
   const showStandaloneExperience = isSharedVisit && (!isHost || !isReviewable);
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 pb-8">
+    <div className="mx-auto w-full max-w-3xl space-y-4 pb-6">
       <div className="card-surface space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <h1 className="text-2xl font-semibold text-app-text">Visit details</h1>
+          <h1 className="text-xl font-semibold text-app-text">Hangout recap</h1>
           <StatusChip status={upload.status} />
         </div>
         <p className="text-base text-app-text">{restaurant?.name ?? 'Unknown restaurant'}</p>
         {restaurant?.address && <p className="text-sm text-app-muted">{restaurant.address}</p>}
         <p className="text-sm text-app-muted">{visitDate}</p>
         {visitNote && <p className="text-sm text-app-text">{visitNote}</p>}
-        <p className="text-xs text-app-muted">Visit ID: {upload.id}</p>
+        
       </div>
 
       {showHostShareSection && (
         <div className="card-surface space-y-3">
-          <h2 className="section-label">Share this visit (optional)</h2>
+          <h2 className="section-label">Who was in your crew?</h2>
           <div className="relative">
             <div className="flex gap-2">
               <Input
@@ -658,7 +662,7 @@ export default function UploadDetailPage() {
                 type="email"
               />
               <Button type="button" variant="secondary" fullWidth={false} onClick={addParticipant} disabled={shareLoading}>
-                Add
+                Invite a buddy
               </Button>
             </div>
             {shareFocused && shareEmail.trim().length >= 2 && (
@@ -689,13 +693,13 @@ export default function UploadDetailPage() {
           {shareError && <p className="text-xs text-rose-700 dark:text-rose-300">{shareError}</p>}
           <div className="space-y-2">
             {participants.length === 0 ? (
-              <p className="text-xs text-app-muted">No participants yet.</p>
+              <p className="text-xs text-app-muted">No crew yet. Add your buddies.</p>
             ) : (
               participants.map((participant) => (
                 <div key={participant.id} className="flex items-center justify-between gap-3 rounded-xl border border-app-border bg-app-card px-3 py-2">
                   <div>
-                    <p className="text-sm text-app-text">{participant.invited_email ?? participant.user_id ?? 'Unknown participant'}</p>
-                    <p className="text-xs text-app-muted">{participant.status === 'invited' ? 'Invite pending' : 'Active participant'}</p>
+                    <p className="text-sm text-app-text">{participant.display_name ?? participant.invited_email ?? 'Unknown buddy'}</p>
+                    <p className="text-xs text-app-muted">{participant.status === 'invited' ? 'Invite pending' : 'Active buddy'}</p>
                   </div>
                   <Button
                     type="button"
@@ -718,7 +722,7 @@ export default function UploadDetailPage() {
       {showExtractionPrompt && (
         <div className="card-surface space-y-3">
           <h2 className="section-label">Extraction</h2>
-          <p className="text-sm text-app-muted">{isSharedVisit ? 'Run extraction to generate dishes for review and shared experience.' : 'Run extraction to generate dishes for quick review.'}</p>
+          <p className="text-sm text-app-muted">{isSharedVisit ? 'Run extraction to generate dishes for your crew.' : 'Run extraction to generate dishes for your hangout.'}</p>
           <Button type="button" variant="secondary" onClick={runExtraction}>
             Run extraction
           </Button>
@@ -726,8 +730,8 @@ export default function UploadDetailPage() {
       )}
 
       {isReviewable && (
-        <div className="card-surface space-y-4">
-          <h2 className="text-base font-semibold text-app-text">Review and approve</h2>
+        <div className="card-surface space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-app-text">Review dishes</h2>
 
           <Button type="button" variant="secondary" onClick={runExtraction}>
             Run extraction
@@ -735,7 +739,7 @@ export default function UploadDetailPage() {
 
           <div className="rounded-2xl border border-app-border p-4 space-y-3">
             <div className="space-y-2">
-              <label className="section-label">Visit note (optional)</label>
+              <label className="section-label">Vibe (optional)</label>
               <Input
                 value={visitNote}
                 maxLength={VISIT_NOTE_MAX}
@@ -761,7 +765,7 @@ export default function UploadDetailPage() {
             </div>
           </div>
 
-          <h3 className="section-label">{isSharedVisit ? 'Dishes (review + your experience)' : 'Extracted dishes (host review)'}</h3>
+          <h3 className="section-label">{isSharedVisit ? 'Dishes (review + your experience)' : 'Extracted dishes (organizer review)'}</h3>
           {isSharedVisit && (
             <div className="flex gap-2">
               <Button
@@ -784,7 +788,7 @@ export default function UploadDetailPage() {
           )}
           {items.length === 0 ? (
             <p className="rounded-2xl border border-dashed border-app-border p-4 text-sm text-app-muted">
-              No extracted dishes yet. You can still save the visit note, then approve.
+              No extracted dishes yet. You can still save the vibe, then approve.
             </p>
           ) : (
             <div className="space-y-3">
@@ -1117,7 +1121,7 @@ export default function UploadDetailPage() {
 
       {visitDishes.length > 0 && (
         <div className="card-surface space-y-3">
-          <h2 className="section-label">Visit dishes (saved)</h2>
+          <h2 className="section-label">Hangout dishes (saved)</h2>
           {visitDishes.map((dish) => (
             <Link key={dish.id} href={`/dishes/${dish.dish_key}`} className="rounded-2xl border border-app-border bg-app-card p-4 block">
               <div className="mb-2 flex items-center justify-between gap-3">
@@ -1133,3 +1137,10 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
+
+
+
+
+
+

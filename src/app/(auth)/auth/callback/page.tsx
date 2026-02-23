@@ -14,8 +14,8 @@ export default function AuthCallbackPage() {
       router.replace('/');
     };
 
-    finalize();
+    void finalize();
   }, [router]);
 
-  return <div className="p-6 text-sm text-slate-600">Finalizing login…</div>;
+  return <div className="p-4 text-sm text-app-muted">Finishing sign-in...</div>;
 }
