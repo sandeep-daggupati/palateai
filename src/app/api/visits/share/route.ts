@@ -6,7 +6,6 @@ import { getServiceSupabaseClient } from '@/lib/supabase/server';
 type CrewMember = VisitParticipant & {
   display_name: string | null;
   avatar_url: string | null;
-  email: string | null;
 };
 
 type ProfileLookup = {
@@ -101,36 +100,93 @@ function emailPrefix(email: string | null): string | null {
   return prefix || null;
 }
 
-async function attachDisplayNames(
-  service: ReturnType<typeof getServiceSupabaseClient>,
-  participants: VisitParticipant[],
-): Promise<CrewMember[]> {
-  const userIds = participants.map((row) => row.user_id).filter((id): id is string => Boolean(id));
+function metadataDisplayName(metadata: Record<string, unknown> | undefined, email: string | null): string | null {
+  const fullName = typeof metadata?.full_name === 'string' ? metadata.full_name.trim() : '';
+  if (fullName) return fullName;
 
-  if (userIds.length === 0) {
-    return participants.map((row) => ({ ...row, display_name: null, avatar_url: null, email: null }));
-  }
+  const name = typeof metadata?.name === 'string' ? metadata.name.trim() : '';
+  if (name) return name;
 
-  const { data: profileRows } = await service.from('profiles').select('id,display_name,avatar_url,email').in('id', userIds);
-  const byId = new Map<string, ProfileLookup>();
+  const username = typeof metadata?.user_name === 'string' ? metadata.user_name.trim() : '';
+  if (username) return username;
+
+  return emailPrefix(email);
+}
+
+function metadataAvatar(metadata: Record<string, unknown> | undefined): string | null {
+  const avatar = typeof metadata?.avatar_url === 'string' ? metadata.avatar_url.trim() : '';
+  if (avatar) return avatar;
+
+  const picture = typeof metadata?.picture === 'string' ? metadata.picture.trim() : '';
+  return picture || null;
+}
+
+async function buildProfileLookup(service: ReturnType<typeof getServiceSupabaseClient>, userIds: string[]) {
+  const uniqueIds = Array.from(new Set(userIds));
+  if (uniqueIds.length === 0) return new Map<string, ProfileLookup>();
+
+  const { data: profileRows } = await service.from('profiles').select('id,display_name,avatar_url,email').in('id', uniqueIds);
+  const lookup = new Map<string, ProfileLookup>();
+
   for (const row of profileRows ?? []) {
-    byId.set(row.id, {
+    lookup.set(row.id, {
       display_name: row.display_name,
       avatar_url: row.avatar_url,
       email: row.email,
     });
   }
 
+  for (const userId of uniqueIds) {
+    const existing = lookup.get(userId) ?? { display_name: null, avatar_url: null, email: null };
+    const adminResult = await service.auth.admin.getUserById(userId);
+    const authUser = adminResult.data.user;
+    const authEmail = authUser?.email?.toLowerCase() ?? null;
+    const metadata = (authUser?.user_metadata ?? undefined) as Record<string, unknown> | undefined;
+
+    const nextDisplayName = existing.display_name ?? metadataDisplayName(metadata, authEmail) ?? 'Crew member';
+    const nextAvatar = existing.avatar_url ?? metadataAvatar(metadata);
+    const nextEmail = existing.email ?? authEmail;
+
+    lookup.set(userId, {
+      display_name: nextDisplayName,
+      avatar_url: nextAvatar,
+      email: nextEmail,
+    });
+
+    if (!existing.display_name || !existing.avatar_url || !existing.email) {
+      await service.from('profiles').upsert(
+        {
+          id: userId,
+          display_name: existing.display_name ?? nextDisplayName,
+          avatar_url: existing.avatar_url ?? nextAvatar,
+          email: existing.email ?? nextEmail,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' },
+      );
+    }
+  }
+
+  return lookup;
+}
+
+async function attachDisplayNames(
+  service: ReturnType<typeof getServiceSupabaseClient>,
+  participants: VisitParticipant[],
+): Promise<CrewMember[]> {
+  const userIds = participants.map((row) => row.user_id).filter((id): id is string => Boolean(id));
+  const profileLookup = await buildProfileLookup(service, userIds);
+
   return participants.map((row) => {
-    const profile = row.user_id ? byId.get(row.user_id) : null;
-    const profileEmail = profile?.email ?? null;
+    const profile = row.user_id ? profileLookup.get(row.user_id) : null;
 
     return {
       ...row,
-      invited_email: row.invited_email ?? profileEmail,
-      email: profileEmail,
+      invited_email: null,
+      display_name:
+        profile?.display_name ??
+        (row.status === 'invited' && !row.user_id ? 'Invite pending' : 'Crew member'),
       avatar_url: profile?.avatar_url ?? null,
-      display_name: profile?.display_name ?? emailPrefix(profileEmail),
     };
   });
 }
