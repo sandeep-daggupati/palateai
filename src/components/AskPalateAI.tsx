@@ -6,12 +6,11 @@ import { Input } from '@/components/Input';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 
 type AskContext = {
-  lastRestaurantName?: string;
-  lastRestaurantId?: string;
-  lastPlaceId?: string;
-  lastHangoutId?: string;
-  lastDishName?: string;
-  lastIntent?: string;
+  lastRestaurantName: string | null;
+  lastRestaurantId: string | null;
+  lastHangoutId: string | null;
+  lastDishName: string | null;
+  lastIntent: string | null;
 };
 
 type AskMessage = {
@@ -20,13 +19,24 @@ type AskMessage = {
 };
 
 type AskResponse = {
-  ok: boolean;
-  answer?: string;
-  intent?: string;
-  needsClarification?: boolean;
-  clarificationQuestion?: string;
-  contextUpdates?: AskContext;
-  error?: string;
+  answer: string;
+  meta: {
+    intent: string;
+    confidence: number;
+    used_context: {
+      restaurant: boolean;
+      hangout: boolean;
+    };
+    context_update: AskContext;
+  };
+};
+
+const DEFAULT_CONTEXT: AskContext = {
+  lastRestaurantName: null,
+  lastRestaurantId: null,
+  lastHangoutId: null,
+  lastDishName: null,
+  lastIntent: null,
 };
 
 const SUGGESTED_QUESTIONS = [
@@ -40,10 +50,9 @@ export function AskPalateAI() {
   const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<AskMessage[]>([]);
-  const [context, setContext] = useState<AskContext>({});
+  const [context, setContext] = useState<AskContext>(DEFAULT_CONTEXT);
 
   const canAsk = question.trim().length > 0 && !loading;
-
   const title = useMemo(() => (loading ? 'Thinking...' : 'Ask PalateAI'), [loading]);
 
   const ask = async (value: string) => {
@@ -73,29 +82,21 @@ export function AskPalateAI() {
         body: JSON.stringify({ question: trimmed, context }),
       });
 
-      const payload = (await response.json().catch(() => ({ ok: false, error: 'Could not process your question.' }))) as AskResponse;
-
-      if (!response.ok || !payload.ok) {
-        setMessages((prev) => [...prev, { role: 'assistant', text: payload.error ?? 'Could not process your question.' }]);
+      if (!response.ok) {
+        const errorPayload = (await response.json().catch(() => ({ error: 'Could not process your question.' }))) as { error?: string };
+        setMessages((prev) => [...prev, { role: 'assistant', text: errorPayload.error ?? 'Could not process your question.' }]);
         return;
       }
 
-      if (payload.contextUpdates) {
-        setContext((prev) => ({ ...prev, ...payload.contextUpdates }));
-      }
-
-      if (payload.needsClarification) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: 'assistant',
-            text: payload.clarificationQuestion ?? "Which hangout do you mean? Try 'last hangout at Popeyes'.",
-          },
-        ]);
-        return;
-      }
-
-      setMessages((prev) => [...prev, { role: 'assistant', text: payload.answer ?? "I don't have that in your logs yet. Add a hangout and I'll learn." }]);
+      const payload = (await response.json()) as AskResponse;
+      setContext(payload.meta?.context_update ?? DEFAULT_CONTEXT);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: payload.answer || "I don't have that in your logs yet. Add a hangout and I'll learn.",
+        },
+      ]);
     } finally {
       setLoading(false);
     }
@@ -109,7 +110,7 @@ export function AskPalateAI() {
   const clearAll = () => {
     setQuestion('');
     setMessages([]);
-    setContext({});
+    setContext(DEFAULT_CONTEXT);
   };
 
   return (
