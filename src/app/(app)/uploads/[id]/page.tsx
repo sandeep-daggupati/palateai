@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { IdentityTagPill, identityTagOptions } from '@/components/IdentityTagPill';
 import { Button } from '@/components/Button';
@@ -27,6 +27,11 @@ type PersonalDishDraft = {
   identity_tag: DishIdentityTag | null;
   comment: string;
   had_it: boolean;
+};
+
+type ShareUserSuggestion = {
+  id: string;
+  email: string;
 };
 
 function formatDate(value: string | null): string {
@@ -98,9 +103,13 @@ export default function UploadDetailPage() {
   const [shareEmail, setShareEmail] = useState('');
   const [shareLoading, setShareLoading] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [shareSuggestions, setShareSuggestions] = useState<ShareUserSuggestion[]>([]);
+  const [shareSuggestLoading, setShareSuggestLoading] = useState(false);
+  const [shareFocused, setShareFocused] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [savingExperience, setSavingExperience] = useState(false);
+  const didAutoExtractRef = useRef(false);
 
   const isHost = Boolean(upload && currentUserId && upload.user_id === currentUserId);
 
@@ -110,6 +119,11 @@ export default function UploadDetailPage() {
   );
 
   const canViewVisit = isHost || isActiveParticipant;
+  const hasAnyExtractedItems = items.some((item) => item.included);
+  const hasAnySavedVisitDishes = visitDishes.length > 0;
+  const showExtractionPrompt = Boolean(
+    isHost && upload && upload.status !== 'needs_review' && !hasAnyExtractedItems && !hasAnySavedVisitDishes,
+  );
 
   const getAuthHeader = useCallback(async (): Promise<Record<string, string>> => {
     const supabase = getBrowserSupabaseClient();
@@ -226,15 +240,53 @@ export default function UploadDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    if (!isHost || shareEmail.trim().length < 2) {
+      setShareSuggestions([]);
+      setShareSuggestLoading(false);
+      return;
+    }
 
-  const runExtraction = async () => {
+    const timeout = window.setTimeout(async () => {
+      try {
+        setShareSuggestLoading(true);
+        const headers = await getAuthHeader();
+        const response = await fetch(`/api/users/search?q=${encodeURIComponent(shareEmail.trim())}`, { headers });
+
+        if (!response.ok) {
+          setShareSuggestions([]);
+          return;
+        }
+
+        const payload = (await response.json()) as { users?: ShareUserSuggestion[] };
+        setShareSuggestions(payload.users ?? []);
+      } finally {
+        setShareSuggestLoading(false);
+      }
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [getAuthHeader, isHost, shareEmail]);
+
+  const runExtraction = useCallback(async () => {
     await fetch('/api/extract', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uploadId }),
     });
     await load();
-  };
+  }, [load, uploadId]);
+
+  useEffect(() => {
+    if (didAutoExtractRef.current) return;
+    if (!isHost || !upload) return;
+    if (upload.status !== 'uploaded') return;
+    if (!upload.image_paths || upload.image_paths.length === 0) return;
+    if (hasAnyExtractedItems || hasAnySavedVisitDishes) return;
+
+    didAutoExtractRef.current = true;
+    void runExtraction();
+  }, [hasAnyExtractedItems, hasAnySavedVisitDishes, isHost, runExtraction, upload]);
 
   const addRow = () => {
     setItems((prev) => [
@@ -487,16 +539,44 @@ export default function UploadDetailPage() {
       {isHost && (
         <div className="card-surface space-y-3">
           <h2 className="section-label">Share this visit</h2>
-          <div className="flex gap-2">
-            <Input
-              value={shareEmail}
-              onChange={(event) => setShareEmail(event.target.value)}
-              placeholder="friend@example.com"
-              type="email"
-            />
-            <Button type="button" variant="secondary" fullWidth={false} onClick={addParticipant} disabled={shareLoading}>
-              Add
-            </Button>
+          <div className="relative">
+            <div className="flex gap-2">
+              <Input
+                value={shareEmail}
+                onFocus={() => setShareFocused(true)}
+                onBlur={() => window.setTimeout(() => setShareFocused(false), 120)}
+                onChange={(event) => setShareEmail(event.target.value)}
+                placeholder="Type a friend email"
+                type="email"
+              />
+              <Button type="button" variant="secondary" fullWidth={false} onClick={addParticipant} disabled={shareLoading}>
+                Add
+              </Button>
+            </div>
+            {shareFocused && shareEmail.trim().length >= 2 && (
+              <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-app-border bg-app-card shadow-sm">
+                {shareSuggestLoading && <p className="p-3 text-xs text-app-muted">Searching users...</p>}
+                {!shareSuggestLoading && shareSuggestions.length === 0 && (
+                  <p className="p-3 text-xs text-app-muted">No user match. You can still invite this email.</p>
+                )}
+                {!shareSuggestLoading &&
+                  shareSuggestions.map((user) => (
+                    <button
+                      key={user.id}
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        setShareEmail(user.email);
+                        setShareSuggestions([]);
+                        setShareFocused(false);
+                      }}
+                      className="w-full border-b border-app-border px-3 py-2 text-left last:border-b-0"
+                    >
+                      <p className="text-sm text-app-text">{user.email}</p>
+                    </button>
+                  ))}
+              </div>
+            )}
           </div>
           {shareError && <p className="text-xs text-rose-700 dark:text-rose-300">{shareError}</p>}
           <div className="space-y-2">
@@ -524,6 +604,16 @@ export default function UploadDetailPage() {
               ))
             )}
           </div>
+        </div>
+      )}
+
+      {showExtractionPrompt && (
+        <div className="card-surface space-y-3">
+          <h2 className="section-label">Extraction</h2>
+          <p className="text-sm text-app-muted">Run extraction to generate dishes for review and personal annotation.</p>
+          <Button type="button" variant="secondary" onClick={runExtraction}>
+            Run extraction
+          </Button>
         </div>
       )}
 
@@ -806,5 +896,16 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
 
 
