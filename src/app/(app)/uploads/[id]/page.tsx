@@ -520,7 +520,10 @@ export default function UploadDetailPage() {
   }
 
   const visitDate = formatDate(upload.visited_at ?? upload.created_at);
+  const isSharedVisit = Boolean(upload.is_shared);
   const isReviewable = upload.status === 'needs_review' && isHost;
+  const showHostShareSection = isHost && isSharedVisit;
+  const showStandaloneExperience = isSharedVisit && (!isHost || !isReviewable);
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4 pb-8">
@@ -536,9 +539,9 @@ export default function UploadDetailPage() {
         <p className="text-xs text-app-muted">Visit ID: {upload.id}</p>
       </div>
 
-      {isHost && (
+      {showHostShareSection && (
         <div className="card-surface space-y-3">
-          <h2 className="section-label">Share this visit</h2>
+          <h2 className="section-label">Share this visit (optional)</h2>
           <div className="relative">
             <div className="flex gap-2">
               <Input
@@ -546,7 +549,7 @@ export default function UploadDetailPage() {
                 onFocus={() => setShareFocused(true)}
                 onBlur={() => window.setTimeout(() => setShareFocused(false), 120)}
                 onChange={(event) => setShareEmail(event.target.value)}
-                placeholder="Type a friend email"
+                placeholder="Search by email or type full email"
                 type="email"
               />
               <Button type="button" variant="secondary" fullWidth={false} onClick={addParticipant} disabled={shareLoading}>
@@ -581,7 +584,7 @@ export default function UploadDetailPage() {
           {shareError && <p className="text-xs text-rose-700 dark:text-rose-300">{shareError}</p>}
           <div className="space-y-2">
             {participants.length === 0 ? (
-              <p className="text-xs text-app-muted">Not shared yet.</p>
+              <p className="text-xs text-app-muted">No participants yet.</p>
             ) : (
               participants.map((participant) => (
                 <div key={participant.id} className="flex items-center justify-between gap-3 rounded-xl border border-app-border bg-app-card px-3 py-2">
@@ -610,7 +613,7 @@ export default function UploadDetailPage() {
       {showExtractionPrompt && (
         <div className="card-surface space-y-3">
           <h2 className="section-label">Extraction</h2>
-          <p className="text-sm text-app-muted">Run extraction to generate dishes for review and personal annotation.</p>
+          <p className="text-sm text-app-muted">{isSharedVisit ? 'Run extraction to generate dishes for review and shared experience.' : 'Run extraction to generate dishes for quick review.'}</p>
           <Button type="button" variant="secondary" onClick={runExtraction}>
             Run extraction
           </Button>
@@ -653,7 +656,27 @@ export default function UploadDetailPage() {
             </div>
           </div>
 
-          <h3 className="section-label">Extracted dishes (host review)</h3>
+          <h3 className="section-label">{isSharedVisit ? 'Dishes (review + your experience)' : 'Extracted dishes (host review)'}</h3>
+          {isSharedVisit && (
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                fullWidth={false}
+                onClick={() =>
+                  setPersonalDrafts((prev) =>
+                    prev.map((dish) => ({
+                      ...dish,
+                      had_it: true,
+                    })),
+                  )
+                }
+              >
+                Mark all as had it
+              </Button>
+            </div>
+          )}
           {items.length === 0 ? (
             <p className="rounded-2xl border border-dashed border-app-border p-4 text-sm text-app-muted">
               No extracted dishes yet. You can still save the visit note, then approve.
@@ -662,6 +685,10 @@ export default function UploadDetailPage() {
             <div className="space-y-3">
               {items.map((item, index) => {
                 const noteOpen = openItemNotes[item.id] || Boolean(item.comment);
+                const dishName = item.name_final || item.name_raw;
+                const draftDishKey = toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`);
+                const draftIndex = personalDrafts.findIndex((entry) => entry.dish_key === draftDishKey);
+                const personalDraft = draftIndex >= 0 ? personalDrafts[draftIndex] : null;
 
                 return (
                   <div key={item.id} className="rounded-2xl border border-app-border p-4 space-y-3">
@@ -709,45 +736,117 @@ export default function UploadDetailPage() {
 
                     <IdentitySelector
                       value={item.identity_tag}
-                      onChange={(value) =>
+                      onChange={(value) => {
                         setItems((prev) =>
                           prev.map((entry, itemIndex) =>
                             itemIndex === index ? { ...entry, identity_tag: value } : entry,
                           ),
-                        )
-                      }
+                        );
+
+                        if (isSharedVisit && draftIndex >= 0) {
+                          setPersonalDrafts((prev) =>
+                            prev.map((entry, i) =>
+                              i === draftIndex
+                                ? {
+                                    ...entry,
+                                    identity_tag: value,
+                                  }
+                                : entry,
+                            ),
+                          );
+                        }
+                      }}
                     />
 
                     <div className="space-y-2">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        fullWidth={false}
-                        className="h-8 px-1 text-xs underline underline-offset-2"
-                        onClick={() =>
-                          setOpenItemNotes((prev) => ({
-                            ...prev,
-                            [item.id]: !noteOpen,
-                          }))
-                        }
-                      >
-                        {noteOpen ? 'Hide dish note' : 'Add note'}
-                      </Button>
+                      {isSharedVisit ? (
+                        <>
+                          <div className="flex items-center justify-between rounded-xl border border-app-border px-3 py-2">
+                            <p className="text-sm text-app-text">I had this dish</p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (draftIndex < 0) return;
+                                setPersonalDrafts((prev) =>
+                                  prev.map((entry, i) =>
+                                    i === draftIndex
+                                      ? {
+                                          ...entry,
+                                          had_it: !entry.had_it,
+                                        }
+                                      : entry,
+                                  ),
+                                );
+                              }}
+                              className={`inline-flex h-8 items-center rounded-full border px-3 text-xs font-medium transition-colors duration-200 ${
+                                personalDraft?.had_it
+                                  ? 'border-app-primary bg-app-primary text-app-primary-text'
+                                  : 'border-app-border bg-app-card text-app-muted'
+                              }`}
+                            >
+                              {personalDraft?.had_it ? 'Had it' : "Didn't have it"}
+                            </button>
+                          </div>
+                          <Input
+                            value={item.comment ?? ''}
+                            maxLength={140}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setItems((prev) =>
+                                prev.map((entry, itemIndex) =>
+                                  itemIndex === index ? { ...entry, comment: value } : entry,
+                                ),
+                              );
 
-                      {noteOpen && (
-                        <Input
-                          value={item.comment ?? ''}
-                          maxLength={140}
-                          onChange={(e) =>
-                            setItems((prev) =>
-                              prev.map((entry, itemIndex) =>
-                                itemIndex === index ? { ...entry, comment: e.target.value } : entry,
-                              ),
-                            )
-                          }
-                          placeholder="Optional dish note"
-                        />
+                              if (draftIndex >= 0) {
+                                setPersonalDrafts((prev) =>
+                                  prev.map((entry, i) =>
+                                    i === draftIndex
+                                      ? {
+                                          ...entry,
+                                          comment: value,
+                                        }
+                                      : entry,
+                                  ),
+                                );
+                              }
+                            }}
+                            placeholder="Optional dish note"
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            fullWidth={false}
+                            className="h-8 px-1 text-xs underline underline-offset-2"
+                            onClick={() =>
+                              setOpenItemNotes((prev) => ({
+                                ...prev,
+                                [item.id]: !noteOpen,
+                              }))
+                            }
+                          >
+                            {noteOpen ? 'Hide dish note' : 'Add note'}
+                          </Button>
+
+                          {noteOpen && (
+                            <Input
+                              value={item.comment ?? ''}
+                              maxLength={140}
+                              onChange={(e) =>
+                                setItems((prev) =>
+                                  prev.map((entry, itemIndex) =>
+                                    itemIndex === index ? { ...entry, comment: e.target.value } : entry,
+                                  ),
+                                )
+                              }
+                              placeholder="Optional dish note"
+                            />
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
@@ -770,6 +869,7 @@ export default function UploadDetailPage() {
         </div>
       )}
 
+      {showStandaloneExperience && (
       <div className="card-surface space-y-3">
         <h2 className="section-label">Your experience</h2>
         {personalDrafts.length === 0 ? (
@@ -877,6 +977,7 @@ export default function UploadDetailPage() {
           </>
         )}
       </div>
+      )}
 
       {visitDishes.length > 0 && (
         <div className="card-surface space-y-3">
@@ -896,6 +997,21 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

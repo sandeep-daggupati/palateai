@@ -46,6 +46,7 @@ export default function AddPage() {
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isSharedVisit, setIsSharedVisit] = useState(false);
   const [progress, setProgress] = useState(0);
 
   const receiptPickerRef = useRef<HTMLInputElement | null>(null);
@@ -244,6 +245,8 @@ export default function AddPage() {
           type: uploadType,
           image_paths: [],
           visited_at: new Date().toISOString(),
+          is_shared: isSharedVisit,
+          share_visibility: 'private',
           visit_lat: userLocation?.lat ?? null,
           visit_lng: userLocation?.lng ?? null,
         })
@@ -351,6 +354,33 @@ export default function AddPage() {
         </div>
 
         <div className="space-y-2">
+          <label className={fieldLabelClass}>Who is this for?</label>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant={!isSharedVisit ? 'primary' : 'secondary'}
+              size="sm"
+              onClick={() => setIsSharedVisit(false)}
+            >
+              Just me
+            </Button>
+            <Button
+              type="button"
+              variant={isSharedVisit ? 'primary' : 'secondary'}
+              size="sm"
+              onClick={() => setIsSharedVisit(true)}
+            >
+              Shared with friends
+            </Button>
+          </div>
+          <p className="text-xs text-app-muted">
+            {isSharedVisit
+              ? 'Invite friends on the next screen. Everyone can log their own experience.'
+              : 'Private flow: extract, review, and save in one quick pass.'}
+          </p>
+        </div>
+
+        <div className="space-y-2">
           <label className={fieldLabelClass}>Upload Type</label>
           <select
             className="h-11 w-full rounded-xl border border-app-border bg-app-card px-3 text-base leading-6 text-app-text outline-none transition-colors duration-200 focus:border-app-primary focus:ring-2 focus:ring-app-accent/60"
@@ -434,3 +464,6 @@ export default function AddPage() {
     </div>
   );
 }
+
+
+
