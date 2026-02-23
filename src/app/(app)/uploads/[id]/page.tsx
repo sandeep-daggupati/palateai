@@ -683,7 +683,7 @@ export default function UploadDetailPage() {
       <div className="card-surface space-y-3">
         <h2 className="section-label">Your experience</h2>
         {personalDrafts.length === 0 ? (
-          <p className="empty-surface">No dishes available for personal annotation yet.</p>
+          <p className="empty-surface">No dishes available for personal annotation yet. Run extraction first.</p>
         ) : (
           <>
             <div className="flex gap-2">
@@ -806,4 +806,5 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
 
