@@ -142,6 +142,11 @@ export type Database = {
           price_final: number | null;
           confidence: number | null;
           included: boolean;
+          quantity: number | null;
+          unit_price: number | null;
+          group_key: string | null;
+          grouped: boolean | null;
+          duplicate_of: string | null;
           rating: number | null;
           comment: string | null;
           created_at: string;
@@ -155,6 +160,11 @@ export type Database = {
           price_final?: number | null;
           confidence?: number | null;
           included?: boolean;
+          quantity?: number | null;
+          unit_price?: number | null;
+          group_key?: string | null;
+          grouped?: boolean | null;
+          duplicate_of?: string | null;
           rating?: number | null;
           comment?: string | null;
           created_at?: string;
@@ -168,6 +178,11 @@ export type Database = {
           price_final?: number | null;
           confidence?: number | null;
           included?: boolean;
+          quantity?: number | null;
+          unit_price?: number | null;
+          group_key?: string | null;
+          grouped?: boolean | null;
+          duplicate_of?: string | null;
           rating?: number | null;
           comment?: string | null;
           created_at?: string;
@@ -183,6 +198,7 @@ export type Database = {
           price_original: number | null;
           currency_original: string;
           price_usd: number | null;
+          quantity: number | null;
           eaten_at: string | null;
           source_upload_id: string;
           dish_key: string;
@@ -200,6 +216,7 @@ export type Database = {
           price_original?: number | null;
           currency_original: string;
           price_usd?: number | null;
+          quantity?: number | null;
           eaten_at?: string | null;
           source_upload_id: string;
           dish_key: string;
@@ -217,6 +234,7 @@ export type Database = {
           price_original?: number | null;
           currency_original?: string;
           price_usd?: number | null;
+          quantity?: number | null;
           eaten_at?: string | null;
           source_upload_id?: string;
           dish_key?: string;
@@ -224,6 +242,33 @@ export type Database = {
           rating?: number | null;
           comment?: string | null;
           had_it?: boolean | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      dish_name_mappings: {
+        Row: {
+          id: string;
+          user_id: string;
+          restaurant_id: string | null;
+          raw_name: string;
+          normalized_name: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          restaurant_id?: string | null;
+          raw_name: string;
+          normalized_name: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          restaurant_id?: string | null;
+          raw_name?: string;
+          normalized_name?: string;
           created_at?: string;
         };
         Relationships: [];

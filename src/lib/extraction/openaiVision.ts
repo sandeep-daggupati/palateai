@@ -16,6 +16,16 @@ type ParsedResponse = {
   notes?: unknown;
 };
 
+type NameRepair = {
+  raw_name?: unknown;
+  repaired_name?: unknown;
+  confidence?: unknown;
+};
+
+type ParsedNameRepair = {
+  items?: NameRepair[];
+};
+
 type ResponsesOutput = {
   output_text?: unknown;
   output?: Array<{
@@ -50,14 +60,14 @@ function getResponseText(data: ResponsesOutput): string | null {
   return null;
 }
 
-function parseModelJson(modelText: string): ParsedResponse {
+function parseModelJson<T>(modelText: string): T {
   try {
-    return JSON.parse(modelText) as ParsedResponse;
+    return JSON.parse(modelText) as T;
   } catch {
     const start = modelText.indexOf("{");
     const end = modelText.lastIndexOf("}");
     if (start >= 0 && end > start) {
-      return JSON.parse(modelText.slice(start, end + 1)) as ParsedResponse;
+      return JSON.parse(modelText.slice(start, end + 1)) as T;
     }
 
     throw new Error("OpenAI response did not contain valid JSON output");
@@ -75,6 +85,48 @@ function redactImageUrl(url: string): string {
   } catch {
     return "invalid-url";
   }
+}
+
+async function callJsonResponse(params: {
+  traceId: string;
+  payload: Record<string, unknown>;
+}): Promise<string> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is not set");
+  }
+
+  const resp = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(params.payload),
+  });
+
+  console.info(`[extract:${params.traceId}] openai.response`, {
+    status: resp.status,
+    ok: resp.ok,
+  });
+
+  if (!resp.ok) {
+    const msg = await resp.text();
+    console.error(`[extract:${params.traceId}] openai.httpError`, {
+      status: resp.status,
+      body: truncate(msg),
+    });
+    throw new Error(`OpenAI error ${resp.status}: ${msg}`);
+  }
+
+  const data = (await resp.json()) as ResponsesOutput;
+  const modelText = getResponseText(data);
+
+  if (!modelText) {
+    throw new Error("OpenAI returned no parseable text output");
+  }
+
+  return modelText;
 }
 
 export async function extractLineItemsFromImage(params: {
@@ -110,13 +162,9 @@ Rules:
 - "price" must be a number like 15.95 (no currency symbols).
 - Keep names as printed but trim whitespace.`;
 
-  const resp = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
+  const modelText = await callJsonResponse({
+    traceId,
+    payload: {
       model: "gpt-4o-mini",
       input: [
         {
@@ -128,38 +176,15 @@ Rules:
         },
       ],
       text: { format: { type: "json_object" } },
-    }),
+    },
   });
-
-  console.info(`[extract:${traceId}] openaiVision.response`, {
-    status: resp.status,
-    ok: resp.ok,
-  });
-
-  if (!resp.ok) {
-    const msg = await resp.text();
-    console.error(`[extract:${traceId}] openaiVision.httpError`, {
-      status: resp.status,
-      body: truncate(msg),
-    });
-    throw new Error(`OpenAI error ${resp.status}: ${msg}`);
-  }
-
-  const data = (await resp.json()) as ResponsesOutput;
-  const modelText = getResponseText(data);
 
   console.info(`[extract:${traceId}] openaiVision.payload`, {
-    hasOutputText: typeof data.output_text === "string",
-    outputGroups: Array.isArray(data.output) ? data.output.length : 0,
     hasModelText: Boolean(modelText),
-    modelTextPreview: modelText ? truncate(modelText, 180) : null,
+    modelTextPreview: truncate(modelText, 180),
   });
 
-  if (!modelText) {
-    throw new Error("OpenAI returned no parseable text output");
-  }
-
-  const parsed = parseModelJson(modelText);
+  const parsed = parseModelJson<ParsedResponse>(modelText);
 
   const items = Array.isArray(parsed.items) ? parsed.items : [];
   const cleaned: Extracted["items"] = [];
@@ -186,4 +211,80 @@ Rules:
     currency: typeof parsed.currency === "string" ? parsed.currency : null,
     notes: typeof parsed.notes === "string" ? parsed.notes : null,
   };
+}
+
+export async function repairLineItemNamesText(params: {
+  traceId?: string;
+  flaggedRawNames: string[];
+  restaurantContext: string | null;
+  allNames: string[];
+}): Promise<Array<{ raw_name: string; repaired_name: string; confidence: number }>> {
+  if (params.flaggedRawNames.length === 0) return [];
+
+  const traceId = params.traceId ?? "no-trace";
+
+  const contextBlock = params.restaurantContext ? `Restaurant context: ${params.restaurantContext}` : "Restaurant context: unknown";
+  const allNamesBlock = params.allNames.length > 0 ? params.allNames.join("\n") : "none";
+  const flaggedBlock = params.flaggedRawNames.join("\n");
+
+  const instructions = `
+Repair abbreviated/truncated restaurant line-item names.
+
+Return ONLY JSON:
+{
+  "items": [
+    {"raw_name": string, "repaired_name": string, "confidence": number}
+  ]
+}
+
+Rules:
+- Input list is authoritative. Do not invent or add items.
+- Keep repaired_name semantically close to raw_name.
+- Use title case for repaired_name.
+- If unsure, keep repaired_name same as raw_name and set low confidence.
+- confidence must be between 0 and 1.
+
+${contextBlock}
+
+All extracted names:
+${allNamesBlock}
+
+Flagged names to repair:
+${flaggedBlock}
+`;
+
+  const modelText = await callJsonResponse({
+    traceId,
+    payload: {
+      model: "gpt-4o-mini",
+      input: [
+        {
+          role: "user",
+          content: [{ type: "input_text", text: instructions }],
+        },
+      ],
+      text: { format: { type: "json_object" } },
+    },
+  });
+
+  const parsed = parseModelJson<ParsedNameRepair>(modelText);
+  const entries = Array.isArray(parsed.items) ? parsed.items : [];
+
+  const cleaned: Array<{ raw_name: string; repaired_name: string; confidence: number }> = [];
+  for (const entry of entries) {
+    const rawName = typeof entry.raw_name === "string" ? entry.raw_name.trim() : "";
+    const repairedName = typeof entry.repaired_name === "string" ? entry.repaired_name.trim() : "";
+    const confidence = typeof entry.confidence === "number" ? entry.confidence : -1;
+
+    if (!rawName || !repairedName) continue;
+    if (!Number.isFinite(confidence)) continue;
+
+    cleaned.push({
+      raw_name: rawName,
+      repaired_name: repairedName,
+      confidence: Math.max(0, Math.min(1, confidence)),
+    });
+  }
+
+  return cleaned;
 }

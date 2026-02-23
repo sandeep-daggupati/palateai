@@ -1,7 +1,14 @@
 // src/app/api/extract/route.ts
 import { NextResponse } from "next/server";
+import { postProcessExtractedItems } from "@/lib/extraction/postprocess";
+import { extractLineItemsFromImage, repairLineItemNamesText } from "@/lib/extraction/openaiVision";
 import { getServiceSupabaseClient } from "@/lib/supabase/server";
-import { extractLineItemsFromImage } from "@/lib/extraction/openaiVision";
+
+type MappingRow = {
+  raw_name: string;
+  normalized_name: string;
+  restaurant_id: string | null;
+};
 
 function firstNonEmptyPath(value: unknown): string | null {
   if (Array.isArray(value)) {
@@ -45,10 +52,7 @@ export async function POST(req: Request) {
     const uploadIdValue = uploadId;
 
     {
-      const { error } = await supabase
-        .from("receipt_uploads")
-        .update({ status: "processing" })
-        .eq("id", uploadIdValue);
+      const { error } = await supabase.from("receipt_uploads").update({ status: "processing" }).eq("id", uploadIdValue);
 
       if (error) {
         console.error(`[extract:${traceId}] setProcessing.failed`, { error: error.message });
@@ -59,7 +63,7 @@ export async function POST(req: Request) {
 
     const { data: upload, error: uploadError } = await supabase
       .from("receipt_uploads")
-      .select("id,user_id,image_paths,currency_detected")
+      .select("id,user_id,restaurant_id,image_paths,currency_detected")
       .eq("id", uploadIdValue)
       .single();
 
@@ -78,9 +82,7 @@ export async function POST(req: Request) {
       throw new Error("No image paths found for upload");
     }
 
-    const { data: signed, error: signedErr } = await supabase.storage
-      .from("uploads")
-      .createSignedUrl(imagePath, 60);
+    const { data: signed, error: signedErr } = await supabase.storage.from("uploads").createSignedUrl(imagePath, 60);
 
     if (signedErr) {
       console.error(`[extract:${traceId}] signedUrl.failed`, { error: signedErr.message, imagePath: sanitizePath(imagePath) });
@@ -91,8 +93,44 @@ export async function POST(req: Request) {
       throw new Error("Failed to create signed URL");
     }
 
+    const restaurant = upload.restaurant_id
+      ? await supabase.from("restaurants").select("name,address").eq("id", upload.restaurant_id).single()
+      : { data: null, error: null };
+
+    if (restaurant.error) {
+      console.warn(`[extract:${traceId}] restaurantLookup.failed`, { error: restaurant.error.message });
+    }
+
+    const [scopedMappingsResult, globalMappingsResult] = await Promise.all([
+      upload.restaurant_id
+        ? supabase
+            .from("dish_name_mappings")
+            .select("raw_name,normalized_name,restaurant_id")
+            .eq("user_id", upload.user_id)
+            .eq("restaurant_id", upload.restaurant_id)
+        : Promise.resolve({ data: [], error: null }),
+      supabase
+        .from("dish_name_mappings")
+        .select("raw_name,normalized_name,restaurant_id")
+        .eq("user_id", upload.user_id)
+        .is("restaurant_id", null),
+    ]);
+
+    if (scopedMappingsResult.error) {
+      console.warn(`[extract:${traceId}] scopedMappings.failed`, { error: scopedMappingsResult.error.message });
+    }
+    if (globalMappingsResult.error) {
+      console.warn(`[extract:${traceId}] globalMappings.failed`, { error: globalMappingsResult.error.message });
+    }
+
+    const mappings = [
+      ...((scopedMappingsResult.data ?? []) as MappingRow[]),
+      ...((globalMappingsResult.data ?? []) as MappingRow[]),
+    ];
+
     console.info(`[extract:${traceId}] signedUrl.ok`, {
       imagePath: sanitizePath(imagePath),
+      mappingCount: mappings.length,
     });
 
     const extracted = await extractLineItemsFromImage({ imageUrl: signed.signedUrl, traceId });
@@ -102,24 +140,44 @@ export async function POST(req: Request) {
       currency: extracted.currency,
     });
 
-    const { error: deleteErr } = await supabase
-      .from("extracted_line_items")
-      .delete()
-      .eq("upload_id", uploadIdValue);
+    const restaurantName = (restaurant.data as { name?: string; address?: string } | null)?.name ?? null;
+    const restaurantAddress = (restaurant.data as { name?: string; address?: string } | null)?.address ?? null;
+    const restaurantContext = [restaurantName, restaurantAddress].filter(Boolean).join(" - ") || null;
+
+    const processed = await postProcessExtractedItems({
+      items: extracted.items,
+      currency: extracted.currency ?? upload.currency_detected,
+      mappings,
+      restaurantContext,
+      repairNames: async ({ flaggedRawNames, restaurantContext: ctx, allNames }) =>
+        repairLineItemNamesText({
+          traceId,
+          flaggedRawNames,
+          restaurantContext: ctx,
+          allNames,
+        }),
+    });
+
+    const { error: deleteErr } = await supabase.from("extracted_line_items").delete().eq("upload_id", uploadIdValue);
 
     if (deleteErr) {
       console.error(`[extract:${traceId}] clearExisting.failed`, { error: deleteErr.message });
       throw deleteErr;
     }
 
-    const rows = extracted.items.map((it) => ({
+    const rows = processed.map((it) => ({
       upload_id: uploadIdValue,
-      name_raw: it.name,
-      price_raw: it.price,
-      name_final: it.name,
-      price_final: it.price,
-      confidence: 0.75,
-      included: true,
+      name_raw: it.name_raw,
+      price_raw: it.price_raw,
+      name_final: it.name_final,
+      price_final: it.price_final,
+      confidence: it.confidence,
+      included: it.included,
+      quantity: it.quantity,
+      unit_price: it.unit_price,
+      group_key: it.group_key,
+      grouped: it.grouped,
+      duplicate_of: it.duplicate_of,
     }));
 
     if (rows.length > 0) {
@@ -150,10 +208,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, count: rows.length, traceId });
   } catch (err: unknown) {
     if (uploadId) {
-      const { error: failErr } = await supabase
-        .from("receipt_uploads")
-        .update({ status: "failed" })
-        .eq("id", uploadId);
+      const { error: failErr } = await supabase.from("receipt_uploads").update({ status: "failed" }).eq("id", uploadId);
 
       if (failErr) {
         console.error(`[extract:${traceId}] markFailed.failed`, {
@@ -168,6 +223,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: message, traceId }, { status: 500 });
   }
 }
-
-
-

@@ -10,6 +10,7 @@ import { StatusChip } from '@/components/StatusChip';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { DishEntry, DishIdentityTag, ExtractedLineItem, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
 import { toDishKey } from '@/lib/utils';
+import { buildGroupKey, normalizeName } from '@/lib/extraction/normalize';
 
 const QUICK_NOTE_CHIPS = ['Great value', 'Would repeat', 'Too salty', 'Spicy', 'Slow service', 'Amazing dessert'];
 const VISIT_NOTE_MAX = 140;
@@ -24,9 +25,18 @@ type PersonalDishDraft = {
   dish_key: string;
   dish_name: string;
   price: number | null;
+  quantity: number;
   identity_tag: DishIdentityTag | null;
   comment: string;
   had_it: boolean;
+};
+
+type ReviewRenderRow = {
+  key: string;
+  baseGroupKey: string;
+  itemIndexes: number[];
+  quantity: number;
+  split: boolean;
 };
 
 type ShareUserSuggestion = {
@@ -46,6 +56,17 @@ function formatDate(value: string | null): string {
 function formatPrice(value: number | null): string {
   if (value == null) return 'Price unavailable';
   return `$${value.toFixed(2)}`;
+}
+
+function getReviewGroupKey(item: ReviewItem, fallbackCurrency: string | null): string {
+  if (item.group_key) return item.group_key;
+  const normalized = normalizeName(item.name_final || item.name_raw);
+  const unitPrice = item.unit_price ?? item.price_final;
+  return buildGroupKey({
+    normalizedName: normalized || (item.name_final || item.name_raw).toLowerCase(),
+    unitPrice,
+    currency: fallbackCurrency,
+  });
 }
 
 function IdentitySelector({
@@ -98,6 +119,7 @@ export default function UploadDetailPage() {
 
   const [visitNote, setVisitNote] = useState('');
   const [openItemNotes, setOpenItemNotes] = useState<Record<string, boolean>>({});
+  const [splitGroupKeys, setSplitGroupKeys] = useState<Record<string, boolean>>({});
 
   const [participants, setParticipants] = useState<VisitParticipant[]>([]);
   const [shareEmail, setShareEmail] = useState('');
@@ -124,6 +146,42 @@ export default function UploadDetailPage() {
   const showExtractionPrompt = Boolean(
     isHost && upload && upload.status !== 'needs_review' && !hasAnyExtractedItems && !hasAnySavedVisitDishes,
   );
+
+  const reviewRows = useMemo<ReviewRenderRow[]>(() => {
+    const buckets = new Map<string, number[]>();
+
+    items.forEach((item, index) => {
+      const key = getReviewGroupKey(item, upload?.currency_detected ?? null);
+      const existing = buckets.get(key);
+      if (existing) {
+        existing.push(index);
+      } else {
+        buckets.set(key, [index]);
+      }
+    });
+
+    const rows: ReviewRenderRow[] = [];
+    buckets.forEach((indexes, key) => {
+      const shouldSplit = splitGroupKeys[key];
+      if (indexes.length <= 1 || shouldSplit) {
+        indexes.forEach((itemIndex) => {
+          rows.push({
+            key: `${key}-${itemIndex}`,
+            baseGroupKey: key,
+            itemIndexes: [itemIndex],
+            quantity: Math.max(1, items[itemIndex].quantity ?? 1),
+            split: shouldSplit,
+          });
+        });
+        return;
+      }
+
+      const totalQty = indexes.reduce((sum, itemIndex) => sum + Math.max(1, items[itemIndex].quantity ?? 1), 0);
+      rows.push({ key, baseGroupKey: key, itemIndexes: indexes, quantity: totalQty, split: false });
+    });
+
+    return rows;
+  }, [items, splitGroupKeys, upload?.currency_detected]);
 
   const getAuthHeader = useCallback(async (): Promise<Record<string, string>> => {
     const supabase = getBrowserSupabaseClient();
@@ -181,7 +239,7 @@ export default function UploadDetailPage() {
         .order('created_at', { ascending: false }),
       supabase
         .from('dish_entries')
-        .select('dish_name,dish_key,identity_tag,comment,had_it,price_original')
+        .select('dish_name,dish_key,identity_tag,comment,had_it,price_original,quantity')
         .eq('source_upload_id', uploadId)
         .eq('user_id', user.id),
       typedUpload.restaurant_id
@@ -192,17 +250,32 @@ export default function UploadDetailPage() {
     const typedItems = (itemData.data ?? []) as ExtractedLineItem[];
     const typedVisitDishes = (dishData.data ?? []) as VisitDish[];
     const personalEntries = (personalEntryData.data ?? []) as Array<
-      Pick<DishEntry, 'dish_name' | 'dish_key' | 'identity_tag' | 'comment' | 'had_it' | 'price_original'>
+      Pick<DishEntry, 'dish_name' | 'dish_key' | 'identity_tag' | 'comment' | 'had_it' | 'price_original' | 'quantity'>
     >;
 
     const restaurantName = (restaurantData.data as Pick<Restaurant, 'name' | 'address'> | null)?.name ?? 'unknown-restaurant';
 
-    const baseDishes =
-      typedItems.filter((item) => item.included).map((item) => ({
-        dish_name: item.name_final || item.name_raw,
-        dish_key: toDishKey(`${restaurantName} ${item.name_final || item.name_raw}`),
-        price: item.price_final,
-      })) || [];
+    const baseDishMap = new Map<string, { dish_name: string; dish_key: string; price: number | null; quantity: number }>();
+    typedItems
+      .filter((item) => item.included)
+      .forEach((item) => {
+        const dishName = item.name_final || item.name_raw;
+        const dishKey = toDishKey(`${restaurantName} ${dishName}`);
+        const quantity = Math.max(1, item.quantity ?? 1);
+        const existing = baseDishMap.get(dishKey);
+
+        if (!existing) {
+          baseDishMap.set(dishKey, {
+            dish_name: dishName,
+            dish_key: dishKey,
+            price: item.unit_price ?? item.price_final,
+            quantity,
+          });
+          return;
+        }
+
+        existing.quantity += quantity;
+      });
 
     const fallbackFromVisitDishes = typedVisitDishes
       .filter((dish) => dish.user_id === typedUpload.user_id)
@@ -210,11 +283,10 @@ export default function UploadDetailPage() {
         dish_name: dish.dish_name,
         dish_key: dish.dish_key,
         price: null as number | null,
+        quantity: 1,
       }));
 
-    const mergedBase = (baseDishes.length > 0 ? baseDishes : fallbackFromVisitDishes).filter(
-      (row, index, list) => list.findIndex((entry) => entry.dish_key === row.dish_key) === index,
-    );
+    const mergedBase = baseDishMap.size > 0 ? Array.from(baseDishMap.values()) : fallbackFromVisitDishes;
 
     const drafts: PersonalDishDraft[] = mergedBase.map((base) => {
       const existing = personalEntries.find((entry) => entry.dish_key === base.dish_key);
@@ -222,13 +294,25 @@ export default function UploadDetailPage() {
         dish_key: base.dish_key,
         dish_name: base.dish_name,
         price: existing?.price_original ?? base.price,
+        quantity: existing?.quantity ?? base.quantity,
         identity_tag: existing?.identity_tag ?? null,
         comment: existing?.comment ?? '',
         had_it: existing?.had_it ?? true,
       };
     });
 
-    setItems(typedItems.map((item) => ({ ...item, identity_tag: null })));
+    setSplitGroupKeys({});
+    setItems(
+      typedItems.map((item) => ({
+        ...item,
+        quantity: item.quantity ?? 1,
+        unit_price: item.unit_price ?? item.price_final,
+        grouped: item.grouped ?? false,
+        group_key: item.group_key ?? null,
+        duplicate_of: item.duplicate_of ?? null,
+        identity_tag: null,
+      })),
+    );
     setVisitDishes(typedVisitDishes);
     setPersonalDrafts(drafts);
     setRestaurant((restaurantData.data ?? null) as Pick<Restaurant, 'name' | 'address'> | null);
@@ -300,6 +384,11 @@ export default function UploadDetailPage() {
         price_final: null,
         confidence: 1,
         included: true,
+        quantity: 1,
+        unit_price: null,
+        group_key: null,
+        grouped: false,
+        duplicate_of: null,
         rating: null,
         comment: null,
         identity_tag: null,
@@ -323,6 +412,11 @@ export default function UploadDetailPage() {
         price_final: item.price_final,
         confidence: item.confidence,
         included: item.included,
+        quantity: item.quantity,
+        unit_price: item.unit_price ?? item.price_final,
+        group_key: item.group_key,
+        grouped: item.grouped,
+        duplicate_of: item.duplicate_of,
         comment: item.comment,
       })),
     );
@@ -357,8 +451,13 @@ export default function UploadDetailPage() {
             price_raw: item.price_final,
             price_final: item.price_final,
             confidence: item.confidence,
-            included: item.included,
-            comment: item.comment,
+        included: item.included,
+        quantity: item.quantity,
+        unit_price: item.unit_price ?? item.price_final,
+        group_key: item.group_key,
+        grouped: item.grouped,
+        duplicate_of: item.duplicate_of,
+        comment: item.comment,
           })
           .select('*')
           .single();
@@ -374,6 +473,11 @@ export default function UploadDetailPage() {
             .update({
               name_final: item.name_final,
               price_final: item.price_final,
+              quantity: item.quantity,
+              unit_price: item.unit_price ?? item.price_final,
+              group_key: item.group_key,
+              grouped: item.grouped,
+              duplicate_of: item.duplicate_of,
               included: item.included,
               comment: item.comment,
             })
@@ -420,6 +524,7 @@ export default function UploadDetailPage() {
         price_original: dish.price,
         currency_original: upload.currency_detected || 'USD',
         price_usd: dish.price,
+        quantity: dish.quantity,
         eaten_at: upload.visited_at ?? upload.created_at,
         source_upload_id: upload.id,
         dish_key: dish.dish_key,
@@ -683,22 +788,48 @@ export default function UploadDetailPage() {
             </p>
           ) : (
             <div className="space-y-3">
-              {items.map((item, index) => {
-                const noteOpen = openItemNotes[item.id] || Boolean(item.comment);
-                const dishName = item.name_final || item.name_raw;
+              {reviewRows.map((row) => {
+                const firstIndex = row.itemIndexes[0];
+                const firstItem = items[firstIndex];
+                const dishName = firstItem.name_final || firstItem.name_raw;
                 const draftDishKey = toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`);
                 const draftIndex = personalDrafts.findIndex((entry) => entry.dish_key === draftDishKey);
                 const personalDraft = draftIndex >= 0 ? personalDrafts[draftIndex] : null;
+                const noteOpen = openItemNotes[row.key] || Boolean(firstItem.comment);
+                const included = row.itemIndexes.every((itemIndex) => items[itemIndex].included);
+                const identityValue = row.itemIndexes.map((itemIndex) => items[itemIndex].identity_tag).find((value) => value != null) ?? null;
+                const hasDuplicates = row.itemIndexes.length > 1 || (reviewRows.some((entry) => entry.baseGroupKey === row.baseGroupKey) && row.split);
 
                 return (
-                  <div key={item.id} className="rounded-2xl border border-app-border p-4 space-y-3">
+                  <div key={row.key} className="rounded-2xl border border-app-border p-4 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs text-app-muted">{row.quantity > 1 ? `Auto-grouped x${row.quantity}` : 'Single line item'}</p>
+                      {hasDuplicates && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          fullWidth={false}
+                          className="h-7 px-2 text-xs"
+                          onClick={() =>
+                            setSplitGroupKeys((prev) => ({
+                              ...prev,
+                              [row.baseGroupKey]: !prev[row.baseGroupKey],
+                            }))
+                          }
+                        >
+                          {splitGroupKeys[row.baseGroupKey] ? 'Undo split' : 'Split'}
+                        </Button>
+                      )}
+                    </div>
+
                     <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr,120px,84px]">
                       <Input
-                        value={item.name_final ?? ''}
+                        value={firstItem.name_final ?? ''}
                         onChange={(e) =>
                           setItems((prev) =>
                             prev.map((entry, itemIndex) =>
-                              itemIndex === index ? { ...entry, name_final: e.target.value } : entry,
+                              row.itemIndexes.includes(itemIndex) ? { ...entry, name_final: e.target.value, group_key: row.baseGroupKey } : entry,
                             ),
                           )
                         }
@@ -706,16 +837,17 @@ export default function UploadDetailPage() {
                       />
                       <Input
                         type="number"
-                        value={item.price_final ?? ''}
-                        onChange={(e) =>
+                        value={firstItem.price_final ?? ''}
+                        onChange={(e) => {
+                          const value = Number.parseFloat(e.target.value) || null;
                           setItems((prev) =>
                             prev.map((entry, itemIndex) =>
-                              itemIndex === index
-                                ? { ...entry, price_final: Number.parseFloat(e.target.value) || null }
+                              row.itemIndexes.includes(itemIndex)
+                                ? { ...entry, price_final: value, unit_price: value, group_key: row.baseGroupKey }
                                 : entry,
                             ),
-                          )
-                        }
+                          );
+                        }}
                         placeholder="Price"
                       />
                       <button
@@ -723,27 +855,27 @@ export default function UploadDetailPage() {
                         onClick={() =>
                           setItems((prev) =>
                             prev.map((entry, itemIndex) =>
-                              itemIndex === index ? { ...entry, included: !entry.included } : entry,
+                              row.itemIndexes.includes(itemIndex) ? { ...entry, included: !included } : entry,
                             ),
                           )
                         }
                         className={`inline-flex h-11 items-center justify-center rounded-xl border px-3 text-sm font-medium transition-colors duration-200 ${
-                          item.included
+                          included
                             ? 'border-app-primary bg-app-primary text-app-primary-text'
                             : 'border-app-border bg-app-card text-app-muted'
                         }`}
-                        aria-pressed={item.included}
+                        aria-pressed={included}
                       >
-                        {item.included ? 'Included' : 'Excluded'}
+                        {included ? 'Included' : 'Excluded'}
                       </button>
                     </div>
 
                     <IdentitySelector
-                      value={item.identity_tag}
+                      value={identityValue}
                       onChange={(value) => {
                         setItems((prev) =>
                           prev.map((entry, itemIndex) =>
-                            itemIndex === index ? { ...entry, identity_tag: value } : entry,
+                            row.itemIndexes.includes(itemIndex) ? { ...entry, identity_tag: value } : entry,
                           ),
                         );
 
@@ -792,13 +924,13 @@ export default function UploadDetailPage() {
                             </button>
                           </div>
                           <Input
-                            value={item.comment ?? ''}
+                            value={firstItem.comment ?? ''}
                             maxLength={140}
                             onChange={(e) => {
                               const value = e.target.value;
                               setItems((prev) =>
                                 prev.map((entry, itemIndex) =>
-                                  itemIndex === index ? { ...entry, comment: value } : entry,
+                                  row.itemIndexes.includes(itemIndex) ? { ...entry, comment: value } : entry,
                                 ),
                               );
 
@@ -829,7 +961,7 @@ export default function UploadDetailPage() {
                             onClick={() =>
                               setOpenItemNotes((prev) => ({
                                 ...prev,
-                                [item.id]: !noteOpen,
+                                [row.key]: !noteOpen,
                               }))
                             }
                           >
@@ -838,12 +970,12 @@ export default function UploadDetailPage() {
 
                           {noteOpen && (
                             <Input
-                              value={item.comment ?? ''}
+                              value={firstItem.comment ?? ''}
                               maxLength={140}
                               onChange={(e) =>
                                 setItems((prev) =>
                                   prev.map((entry, itemIndex) =>
-                                    itemIndex === index ? { ...entry, comment: e.target.value } : entry,
+                                    row.itemIndexes.includes(itemIndex) ? { ...entry, comment: e.target.value } : entry,
                                   ),
                                 )
                               }
