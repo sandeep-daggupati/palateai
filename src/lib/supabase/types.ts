@@ -47,18 +47,24 @@ export type Database = {
           id: string;
           display_name: string | null;
           avatar_url: string | null;
+          email: string | null;
+          updated_at: string;
           created_at: string;
         };
         Insert: {
           id: string;
           display_name?: string | null;
           avatar_url?: string | null;
+          email?: string | null;
+          updated_at?: string;
           created_at?: string;
         };
         Update: {
           id?: string;
           display_name?: string | null;
           avatar_url?: string | null;
+          email?: string | null;
+          updated_at?: string;
           created_at?: string;
         };
         Relationships: [];
@@ -313,3 +319,4 @@ export type DishEntry = Database['public']['Tables']['dish_entries']['Row'];
 export type TableRow<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
 export type TableInsert<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Insert'];
 export type TableUpdate<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Update'];
+

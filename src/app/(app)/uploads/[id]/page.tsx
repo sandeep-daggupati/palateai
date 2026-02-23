@@ -41,6 +41,8 @@ type ReviewRenderRow = {
 
 type CrewMember = VisitParticipant & {
   display_name: string | null;
+  avatar_url: string | null;
+  email: string | null;
 };
 
 type ShareUserSuggestion = {
@@ -698,8 +700,8 @@ export default function UploadDetailPage() {
               participants.map((participant) => (
                 <div key={participant.id} className="flex items-center justify-between gap-3 rounded-xl border border-app-border bg-app-card px-3 py-2">
                   <div>
-                    <p className="text-sm text-app-text">{participant.display_name ?? participant.invited_email ?? 'Unknown buddy'}</p>
-                    <p className="text-xs text-app-muted">{participant.status === 'invited' ? 'Invite pending' : 'Active buddy'}</p>
+                    <p className="text-sm text-app-text">{participant.display_name ?? participant.invited_email ?? participant.email ?? 'Crew member'}</p>
+                    <p className="text-xs text-app-muted">{participant.status === 'invited' && !participant.user_id ? 'Invite pending' : 'In your crew'}</p>
                   </div>
                   <Button
                     type="button"
@@ -1137,6 +1139,7 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
 
 
 

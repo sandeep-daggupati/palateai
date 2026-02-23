@@ -47,8 +47,8 @@ export default function LoginPage() {
             <span>Palate</span>
             <span className="text-brand-accent dark:text-brand-accent-dark">AI</span>
           </h1>
-          <p className="text-sm text-app-text">Log the meals you want to remember.</p>
-          <p className="text-sm text-app-muted">Upload a receipt or menu, then save your hangout recap.</p>
+          <p className="text-sm text-app-text">Remember every meal you love.</p>
+          <p className="text-sm text-app-muted">Drop in a receipt or menu. PalateAI builds your food memories, one meal at a time..</p>
         </div>
 
         <Button onClick={onLogin} disabled={loading} size="md">

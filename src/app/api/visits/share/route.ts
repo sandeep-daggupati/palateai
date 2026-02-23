@@ -5,6 +5,14 @@ import { getServiceSupabaseClient } from '@/lib/supabase/server';
 
 type CrewMember = VisitParticipant & {
   display_name: string | null;
+  avatar_url: string | null;
+  email: string | null;
+};
+
+type ProfileLookup = {
+  display_name: string | null;
+  avatar_url: string | null;
+  email: string | null;
 };
 
 function getAnonSupabaseClient() {
@@ -87,6 +95,12 @@ async function findUserByEmail(service: ReturnType<typeof getServiceSupabaseClie
   return null;
 }
 
+function emailPrefix(email: string | null): string | null {
+  if (!email) return null;
+  const prefix = email.split('@')[0]?.trim();
+  return prefix || null;
+}
+
 async function attachDisplayNames(
   service: ReturnType<typeof getServiceSupabaseClient>,
   participants: VisitParticipant[],
@@ -94,16 +108,31 @@ async function attachDisplayNames(
   const userIds = participants.map((row) => row.user_id).filter((id): id is string => Boolean(id));
 
   if (userIds.length === 0) {
-    return participants.map((row) => ({ ...row, display_name: null }));
+    return participants.map((row) => ({ ...row, display_name: null, avatar_url: null, email: null }));
   }
 
-  const { data: profileRows } = await service.from('profiles').select('id,display_name').in('id', userIds);
-  const nameById = new Map((profileRows ?? []).map((row) => [row.id, row.display_name]));
+  const { data: profileRows } = await service.from('profiles').select('id,display_name,avatar_url,email').in('id', userIds);
+  const byId = new Map<string, ProfileLookup>();
+  for (const row of profileRows ?? []) {
+    byId.set(row.id, {
+      display_name: row.display_name,
+      avatar_url: row.avatar_url,
+      email: row.email,
+    });
+  }
 
-  return participants.map((row) => ({
-    ...row,
-    display_name: row.user_id ? nameById.get(row.user_id) ?? null : null,
-  }));
+  return participants.map((row) => {
+    const profile = row.user_id ? byId.get(row.user_id) : null;
+    const profileEmail = profile?.email ?? null;
+
+    return {
+      ...row,
+      invited_email: row.invited_email ?? profileEmail,
+      email: profileEmail,
+      avatar_url: profile?.avatar_url ?? null,
+      display_name: profile?.display_name ?? emailPrefix(profileEmail),
+    };
+  });
 }
 
 export async function GET(request: Request) {
@@ -125,6 +154,7 @@ export async function GET(request: Request) {
     .from('visit_participants')
     .select('id,visit_id,user_id,role,invited_email,status,created_at')
     .eq('visit_id', visitId)
+    .in('status', ['active', 'invited'])
     .order('created_at', { ascending: true });
 
   const participants = (data ?? []) as VisitParticipant[];
@@ -171,7 +201,7 @@ export async function POST(request: Request) {
     if (existingByUser) {
       const { data: updated, error: updateError } = await auth.service
         .from('visit_participants')
-        .update({ status: 'active', role: 'participant', invited_email: null })
+        .update({ status: 'active', role: 'participant', invited_email: email })
         .eq('id', existingByUser.id)
         .select('id,visit_id,user_id,role,invited_email,status,created_at')
         .single();
@@ -185,6 +215,7 @@ export async function POST(request: Request) {
       const insertPayload: TableInsert<'visit_participants'> = {
         visit_id: body.visitId,
         user_id: matchedUser.id,
+        invited_email: email,
         role: 'participant',
         status: 'active',
       };

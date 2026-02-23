@@ -6,6 +6,7 @@ import { FilterChips } from '@/components/FilterChips';
 import { IdentityTagPill } from '@/components/IdentityTagPill';
 import { StatusChip } from '@/components/StatusChip';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
+import { ensureProfile } from '@/lib/profile/ensureProfile';
 import { DishEntry, DishIdentityTag, ReceiptUpload, ReceiptUploadStatus, Restaurant, VisitParticipant } from '@/lib/supabase/types';
 
 const LIST_LIMIT = 10;
@@ -70,6 +71,8 @@ export default function HomePage() {
         setRestaurantsById({});
         return;
       }
+
+      await ensureProfile();
 
       const {
         data: { session },
@@ -263,3 +266,4 @@ export default function HomePage() {
     </div>
   );
 }
+
