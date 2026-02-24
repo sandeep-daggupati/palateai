@@ -36,6 +36,7 @@ type RestaurantLookup = {
 type InsightEvidenceType = 'dish' | 'restaurant' | 'hangout' | 'summary';
 
 type InsightPayload = {
+  category: 'palate' | 'explore' | 'spend' | 'wildcard';
   insight_text: string;
   evidence_type: InsightEvidenceType;
   evidence: unknown;
@@ -397,3 +398,4 @@ export default function HomePage() {
     </div>
   );
 }
+
