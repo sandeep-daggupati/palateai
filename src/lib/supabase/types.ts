@@ -279,6 +279,7 @@ export type Database = {
           user_id: string;
           insight_text: string;
           metrics_snapshot: Json;
+          category: 'palate' | 'explore' | 'spend';
           evidence_type: 'dish' | 'restaurant' | 'hangout' | 'summary';
           evidence: Json;
           generated_at: string;
@@ -289,6 +290,7 @@ export type Database = {
           user_id: string;
           insight_text: string;
           metrics_snapshot: Json;
+          category: 'palate' | 'explore' | 'spend';
           evidence_type: 'dish' | 'restaurant' | 'hangout' | 'summary';
           evidence: Json;
           generated_at?: string;
@@ -299,10 +301,38 @@ export type Database = {
           user_id?: string;
           insight_text?: string;
           metrics_snapshot?: Json;
+          category?: 'palate' | 'explore' | 'spend';
           evidence_type?: 'dish' | 'restaurant' | 'hangout' | 'summary';
           evidence?: Json;
           generated_at?: string;
           expires_at?: string;
+        };
+        Relationships: [];
+      };
+      daily_insight_history: {
+        Row: {
+          id: string;
+          user_id: string;
+          insight_id: string | null;
+          category: 'palate' | 'explore' | 'spend';
+          insight_text: string;
+          generated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          insight_id?: string | null;
+          category: 'palate' | 'explore' | 'spend';
+          insight_text: string;
+          generated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          insight_id?: string | null;
+          category?: 'palate' | 'explore' | 'spend';
+          insight_text?: string;
+          generated_at?: string;
         };
         Relationships: [];
       };
@@ -353,6 +383,8 @@ export type DailyInsight = Database['public']['Tables']['daily_insights']['Row']
 export type TableRow<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
 export type TableInsert<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Insert'];
 export type TableUpdate<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Update'];
+
+
 
 
 
