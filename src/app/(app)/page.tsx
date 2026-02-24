@@ -33,6 +33,16 @@ type RestaurantLookup = {
   address: string | null;
 };
 
+type InsightEvidenceType = 'dish' | 'restaurant' | 'hangout' | 'summary';
+
+type InsightPayload = {
+  insight_text: string;
+  evidence_type: InsightEvidenceType;
+  evidence: unknown;
+  generated_at: string;
+  expires_at: string;
+};
+
 function formatDate(value: string | null): string {
   if (!value) return 'Unknown date';
   return new Date(value).toLocaleDateString(undefined, {
@@ -48,11 +58,36 @@ function sortByVisitDateDesc(a: ReceiptUpload, b: ReceiptUpload) {
   return bDate - aDate;
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+function readCrewNames(evidence: Record<string, unknown>): string[] {
+  const raw = evidence.crew_preview;
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((entry) => (entry && typeof entry === 'object' ? (entry as Record<string, unknown>).display_name : null))
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .slice(0, 5);
+}
+
+function resolveHangoutPath(type: InsightEvidenceType, evidence: Record<string, unknown>): string | null {
+  const raw = type === 'hangout' ? evidence.hangout_id : evidence.last_hangout_id;
+  if (typeof raw !== 'string' || raw.trim().length === 0) return null;
+  return `/uploads/${raw}`;
+}
+
 export default function HomePage() {
   const [hasAnyVisits, setHasAnyVisits] = useState(false);
   const [dishes, setDishes] = useState<DishEntry[]>([]);
   const [visits, setVisits] = useState<ReceiptUpload[]>([]);
   const [restaurantsById, setRestaurantsById] = useState<Record<string, RestaurantLookup>>({});
+  const [insight, setInsight] = useState<InsightPayload | null>(null);
+  const [insightOpen, setInsightOpen] = useState(false);
 
   const [dishFilter, setDishFilter] = useState<'all' | DishIdentityTag>('all');
   const [activityFilter, setActivityFilter] = useState<'all' | ReceiptUploadStatus>('all');
@@ -69,6 +104,7 @@ export default function HomePage() {
         setDishes([]);
         setVisits([]);
         setRestaurantsById({});
+        setInsight(null);
         return;
       }
 
@@ -85,6 +121,17 @@ export default function HomePage() {
             Authorization: `Bearer ${session.access_token}`,
           },
         }).catch(() => undefined);
+
+        const insightResponse = await fetch('/api/insight', {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }).catch(() => null);
+
+        if (insightResponse?.ok) {
+          const payload = (await insightResponse.json().catch(() => null)) as { insight?: InsightPayload } | null;
+          setInsight(payload?.insight ?? null);
+        }
       }
 
       let dishQuery = supabase
@@ -208,6 +255,10 @@ export default function HomePage() {
     [restaurantsById, visits],
   );
 
+  const evidence = insight ? asRecord(insight.evidence) : {};
+  const crewNames = readCrewNames(evidence);
+  const hangoutPath = insight ? resolveHangoutPath(insight.evidence_type, evidence) : null;
+
   return (
     <div className="space-y-4 pb-6">
       <section className="card-surface space-y-3">
@@ -221,6 +272,86 @@ export default function HomePage() {
 
         {!hasAnyVisits && <p className="text-sm text-app-muted">Upload a receipt, review your dishes, and save the hangout.</p>}
       </section>
+
+      {insight && (
+        <button type="button" className="card-surface w-full space-y-2 text-left" onClick={() => setInsightOpen(true)}>
+          <p className="section-label">For you today</p>
+          <p className="text-xs text-app-muted">Based on your logs</p>
+          <p className="text-sm text-app-text">{insight.insight_text}</p>
+        </button>
+      )}
+
+      {insightOpen && insight && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/35">
+          <button type="button" className="absolute inset-0" aria-label="Close" onClick={() => setInsightOpen(false)} />
+
+          <div className="relative w-full max-w-3xl rounded-t-2xl border border-app-border bg-app-card p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-xl">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-app-text">Why this?</h2>
+              <button type="button" className="rounded-lg border border-app-border px-2 py-1 text-xs text-app-text" onClick={() => setInsightOpen(false)}>
+                Close
+              </button>
+            </div>
+
+            <p className="mb-3 text-sm text-app-text">{insight.insight_text}</p>
+
+            {insight.evidence_type === 'dish' && (
+              <div className="space-y-2 rounded-xl border border-app-border p-3 text-sm text-app-text">
+                <p><span className="text-app-muted">Dish:</span> {typeof evidence.dish_name === 'string' ? evidence.dish_name : 'Unknown dish'}</p>
+                <p><span className="text-app-muted">Frequency:</span> {typeof evidence.frequency === 'number' ? evidence.frequency : 0} times in 30 days</p>
+                <p><span className="text-app-muted">Last hangout:</span> {typeof evidence.last_hangout_date === 'string' ? evidence.last_hangout_date : 'Unknown date'}</p>
+                {crewNames.length > 0 && <p><span className="text-app-muted">Crew:</span> {crewNames.join(', ')}</p>}
+              </div>
+            )}
+
+            {insight.evidence_type === 'restaurant' && (
+              <div className="space-y-2 rounded-xl border border-app-border p-3 text-sm text-app-text">
+                <p><span className="text-app-muted">Restaurant:</span> {typeof evidence.restaurant_name === 'string' ? evidence.restaurant_name : 'Unknown restaurant'}</p>
+                <p><span className="text-app-muted">Hangouts:</span> {typeof evidence.hangout_count === 'number' ? evidence.hangout_count : 0} in 30 days</p>
+                <p><span className="text-app-muted">Last hangout:</span> {typeof evidence.last_hangout_date === 'string' ? evidence.last_hangout_date : 'Unknown date'}</p>
+                {crewNames.length > 0 && <p><span className="text-app-muted">Crew:</span> {crewNames.join(', ')}</p>}
+              </div>
+            )}
+
+            {insight.evidence_type === 'hangout' && (
+              <div className="space-y-2 rounded-xl border border-app-border p-3 text-sm text-app-text">
+                <p><span className="text-app-muted">Restaurant:</span> {typeof evidence.restaurant_name === 'string' ? evidence.restaurant_name : 'Unknown restaurant'}</p>
+                <p><span className="text-app-muted">Date:</span> {typeof evidence.hangout_date === 'string' ? evidence.hangout_date : 'Unknown date'}</p>
+                {typeof evidence.top_dish === 'string' && <p><span className="text-app-muted">Top dish:</span> {evidence.top_dish}</p>}
+                {crewNames.length > 0 && <p><span className="text-app-muted">Crew:</span> {crewNames.join(', ')}</p>}
+              </div>
+            )}
+
+            {insight.evidence_type === 'summary' && (
+              <div className="space-y-2 rounded-xl border border-app-border p-3 text-sm text-app-text">
+                {Array.isArray(evidence.metrics) &&
+                  evidence.metrics.slice(0, 3).map((entry, index) => {
+                    const row = asRecord(entry);
+                    const label = typeof row.label === 'string' ? row.label : `Metric ${index + 1}`;
+                    const value = typeof row.value === 'number' || typeof row.value === 'string' ? row.value : 0;
+                    return (
+                      <p key={`${label}-${index}`}>
+                        <span className="text-app-muted">{label}:</span> {value}
+                      </p>
+                    );
+                  })}
+              </div>
+            )}
+
+            {hangoutPath && (
+              <div className="mt-3">
+                <Link
+                  href={hangoutPath}
+                  className="inline-flex h-10 items-center justify-center rounded-xl border border-transparent bg-app-primary px-4 text-sm font-semibold text-app-primary-text"
+                  onClick={() => setInsightOpen(false)}
+                >
+                  Open hangout
+                </Link>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <section className="space-y-2">
         <h2 className="section-label">Recent Dishes</h2>
@@ -266,4 +397,3 @@ export default function HomePage() {
     </div>
   );
 }
-

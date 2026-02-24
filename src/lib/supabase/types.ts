@@ -273,6 +273,39 @@ export type Database = {
         };
         Relationships: [];
       };
+      daily_insights: {
+        Row: {
+          id: string;
+          user_id: string;
+          insight_text: string;
+          metrics_snapshot: Json;
+          evidence_type: 'dish' | 'restaurant' | 'hangout' | 'summary';
+          evidence: Json;
+          generated_at: string;
+          expires_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          insight_text: string;
+          metrics_snapshot: Json;
+          evidence_type: 'dish' | 'restaurant' | 'hangout' | 'summary';
+          evidence: Json;
+          generated_at?: string;
+          expires_at: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          insight_text?: string;
+          metrics_snapshot?: Json;
+          evidence_type?: 'dish' | 'restaurant' | 'hangout' | 'summary';
+          evidence?: Json;
+          generated_at?: string;
+          expires_at?: string;
+        };
+        Relationships: [];
+      };
       dish_name_mappings: {
         Row: {
           id: string;
@@ -315,8 +348,11 @@ export type ReceiptUpload = Database['public']['Tables']['receipt_uploads']['Row
 export type VisitParticipant = Database['public']['Tables']['visit_participants']['Row'];
 export type ExtractedLineItem = Database['public']['Tables']['extracted_line_items']['Row'];
 export type DishEntry = Database['public']['Tables']['dish_entries']['Row'];
+export type DailyInsight = Database['public']['Tables']['daily_insights']['Row'];
 
 export type TableRow<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
 export type TableInsert<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Insert'];
 export type TableUpdate<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Update'];
+
+
 
