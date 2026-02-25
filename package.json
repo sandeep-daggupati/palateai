@@ -9,7 +9,9 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "seed:demo": "node scripts/seed_demo.js",
+    "seed:demo:wipe": "node scripts/seed_demo.js --wipe"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",

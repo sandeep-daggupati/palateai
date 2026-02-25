@@ -160,3 +160,135 @@ Approval flow behavior:
 
 
 
+
+## Demo Data Strategy (Professional Seed)
+
+This project supports a dedicated demo seed workflow that writes to real production tables while keeping data isolated to one demo account.
+
+### Why this approach
+
+- Uses real schema and app queries (no mock layer).
+- Seeds only one dedicated user to avoid polluting real accounts.
+- Uses `seed_tag` on core tables for safe wipe/reseed.
+- Requires explicit guard flags to prevent accidental production writes.
+- Generates realistic 90-day patterns so Home dashboard, Dishes/Hangouts tabs, and Ask intents all have meaningful data.
+
+### Required env vars for seeding
+
+Add these in `.env.local` (and Vercel Preview env if needed):
+
+- `DEMO_SEED_ENABLED=true`
+- `DEMO_SEED_TAG=demo_seed_v1`
+- `DEMO_USER_ID=<demo-user-uuid>` (required)
+- `BUDDY_USER_IDS=<buddy-uuid-1,buddy-uuid-2>` (optional)
+- `DEMO_USER_EMAIL=demo@palateai.local` (for login docs/display only)
+- `SUPABASE_URL=<your-supabase-url>`
+- `SUPABASE_SECRET_KEY=<service-role-key>`
+- `ALLOW_PROD_SEED=false`
+
+Notes:
+
+- Keep service role key server-side only.
+- Do not use `NEXT_PUBLIC_*` for the service role key.
+- Script aborts when `NODE_ENV=production` unless `ALLOW_PROD_SEED=true`.
+
+### Required migrations before seeding
+
+Run these migrations first:
+
+- `supabase/migrations/20260224_demo_seed_tags.sql`
+- `supabase/migrations/20260224_daily_insights.sql`
+- `supabase/migrations/20260224_daily_insights_category_rotation.sql`
+
+`20260224_demo_seed_tags.sql` adds `seed_tag` columns to:
+
+- `restaurants`
+- `receipt_uploads`
+- `dish_entries`
+- `visit_participants`
+- `extracted_line_items`
+
+### Seed commands
+
+- Seed demo data:
+  ```bash
+  npm run seed:demo
+  ```
+- Wipe demo seed data only:
+  ```bash
+  npm run seed:demo:wipe
+  ```
+
+Implementation file:
+
+- `scripts/seed_demo.js`
+
+### What gets seeded
+
+For the dedicated demo user:
+
+- `profiles` (demo + optional buddy users)
+- `restaurants` (upsert only)
+- `receipt_uploads` (30 hangouts over ~90 days, realistic skew)
+- `extracted_line_items` (line-item truth with quantity/unit_price coverage)
+- `dish_entries` (identity tags, ratings, had_it variance)
+- `visit_participants` (crew on shared hangouts)
+
+Pattern goals included in seed:
+
+- Last 14 days has denser activity.
+- `Popeyes` appears repeatedly in recent range.
+- Sushi spot repeats in mid-range.
+- One new place appears inside last 30 days.
+- Quantity and pricing are present often enough for spend insights.
+
+### Idempotency and safety
+
+The script is rerunnable and deterministic:
+
+1. Resolves demo/buddy users by explicit UUID env vars (no user scanning).
+2. Upserts profiles.
+3. Wipes only demo-scoped seed data in strict dependency order:
+   - `extracted_line_items`
+   - `visit_participants`
+   - `dish_entries`
+   - `daily_insights`
+   - `receipt_uploads`
+4. Upserts restaurants and inserts fresh demo data.
+
+The wipe intentionally does **not** delete restaurants to avoid FK/shared-reference issues.
+
+### Demo login
+
+The demo email/password is only for the dedicated demo account used for previews.
+Regular users should continue signing in with Google OAuth.\n\nPreview/local email-password login can be enabled with NEXT_PUBLIC_DEMO_AUTH=true for QA of seeded demo accounts only.\nProduction should keep NEXT_PUBLIC_DEMO_AUTH=false (Google-only UX).
+
+Demo credentials are:
+
+- email: `DEMO_USER_EMAIL`
+- password: your configured demo account password
+
+### Validation checklist after seeding
+
+- Home shows:
+  - `For you today` insight
+  - `Your highlights` (3 mini cards)
+  - `Recent hangouts` chips
+- `/dishes` is populated and filters work.
+- `/hangouts` is populated and status/restaurant filtering works.
+- Ask PalateAI responds with meaningful answers for:
+  - favorite dish
+  - last hangout (e.g., Popeyes)
+  - hangout recap follow-up
+  - most visited restaurant
+  - cheapest logged item (e.g., nuggets)
+- Crew names show display names (no UUIDs).
+
+### Vercel preview usage
+
+For preview demos:
+
+1. Set the same demo env vars in Vercel Preview environment.
+2. Run `npm run seed:demo` from a secure workflow (CI job or trusted environment).
+3. Use the dedicated demo login for QA and product walkthroughs.
+
