@@ -11,6 +11,7 @@ import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { DishEntry, DishIdentityTag, ExtractedLineItem, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
 import { toDishKey } from '@/lib/utils';
 import { buildGroupKey, normalizeName } from '@/lib/extraction/normalize';
+import { getGoogleMapsLink } from '@/lib/google/mapsLinks';
 
 const QUICK_NOTE_CHIPS = ['Great value', 'Would repeat', 'Too salty', 'Spicy', 'Slow service', 'Amazing dessert'];
 const VISIT_NOTE_MAX = 140;
@@ -48,6 +49,43 @@ type ShareUserSuggestion = {
   id: string;
   email: string;
 };
+type RestaurantDirectory = Pick<
+  Restaurant,
+  | 'id'
+  | 'name'
+  | 'address'
+  | 'place_id'
+  | 'phone_number'
+  | 'website'
+  | 'maps_url'
+  | 'opening_hours'
+  | 'utc_offset_minutes'
+  | 'google_rating'
+  | 'price_level'
+  | 'business_status'
+  | 'last_place_sync'
+>;
+
+function isPlaceSyncStale(value: string | null): boolean {
+  if (!value) return true;
+  const stamp = new Date(value).getTime();
+  if (Number.isNaN(stamp)) return true;
+  return Date.now() - stamp > 30 * 24 * 60 * 60 * 1000;
+}
+
+function hasDirectoryData(restaurant: RestaurantDirectory | null): boolean {
+  if (!restaurant) return false;
+  return Boolean(restaurant.phone_number || restaurant.website || restaurant.opening_hours || restaurant.maps_url);
+}
+
+function getTodayHours(openingHours: Restaurant['opening_hours']): string | null {
+  if (!openingHours || typeof openingHours !== 'object' || Array.isArray(openingHours)) return null;
+  const weekdayText = (openingHours as { weekday_text?: unknown }).weekday_text;
+  if (!Array.isArray(weekdayText) || weekdayText.length === 0) return null;
+  const todayIndex = (new Date().getDay() + 6) % 7;
+  const line = weekdayText[todayIndex];
+  return typeof line === 'string' ? line : null;
+}
 
 function formatDate(value: string | null): string {
   if (!value) return 'Unknown date';
@@ -116,7 +154,7 @@ export default function UploadDetailPage() {
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [upload, setUpload] = useState<ReceiptUpload | null>(null);
-  const [restaurant, setRestaurant] = useState<Pick<Restaurant, 'name' | 'address'> | null>(null);
+  const [restaurant, setRestaurant] = useState<RestaurantDirectory | null>(null);
 
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [visitDishes, setVisitDishes] = useState<VisitDish[]>([]);
@@ -136,6 +174,7 @@ export default function UploadDetailPage() {
 
   const [saving, setSaving] = useState(false);
   const [savingExperience, setSavingExperience] = useState(false);
+  const [placeSyncLoading, setPlaceSyncLoading] = useState(false);
   const didAutoExtractRef = useRef(false);
 
   const isHost = Boolean(upload && currentUserId && upload.user_id === currentUserId);
@@ -248,7 +287,7 @@ export default function UploadDetailPage() {
         .eq('source_upload_id', uploadId)
         .eq('user_id', user.id),
       typedUpload.restaurant_id
-        ? supabase.from('restaurants').select('name,address').eq('id', typedUpload.restaurant_id).single()
+        ? supabase.from('restaurants').select('id,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync').eq('id', typedUpload.restaurant_id).single()
         : Promise.resolve({ data: null }),
     ]);
 
@@ -258,7 +297,7 @@ export default function UploadDetailPage() {
       Pick<DishEntry, 'dish_name' | 'dish_key' | 'identity_tag' | 'comment' | 'had_it' | 'price_original' | 'quantity'>
     >;
 
-    const restaurantName = (restaurantData.data as Pick<Restaurant, 'name' | 'address'> | null)?.name ?? 'unknown-restaurant';
+    const restaurantName = (restaurantData.data as RestaurantDirectory | null)?.name ?? 'unknown-restaurant';
 
     const baseDishMap = new Map<string, { dish_name: string; dish_key: string; price: number | null; quantity: number }>();
     typedItems
@@ -320,7 +359,7 @@ export default function UploadDetailPage() {
     );
     setVisitDishes(typedVisitDishes);
     setPersonalDrafts(drafts);
-    setRestaurant((restaurantData.data ?? null) as Pick<Restaurant, 'name' | 'address'> | null);
+    setRestaurant((restaurantData.data ?? null) as RestaurantDirectory | null);
     setVisitNote(typedUpload.visit_note ?? '');
 
     await loadParticipants();
@@ -365,6 +404,41 @@ export default function UploadDetailPage() {
     });
     await load();
   }, [load, uploadId]);
+
+
+  const syncPlaceDirectory = useCallback(async () => {
+    if (!restaurant?.id || !restaurant.place_id) return;
+    if (!isPlaceSyncStale(restaurant.last_place_sync) && hasDirectoryData(restaurant)) return;
+
+    setPlaceSyncLoading(true);
+    try {
+      const headers = {
+        'Content-Type': 'application/json',
+        ...(await getAuthHeader()),
+      };
+
+      const response = await fetch('/api/places/sync', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ restaurant_id: restaurant.id }),
+      });
+
+      if (!response.ok) return;
+
+      const payload = (await response.json()) as { ok?: boolean; restaurant?: RestaurantDirectory };
+      if (payload.ok && payload.restaurant) {
+        setRestaurant(payload.restaurant);
+      }
+    } finally {
+      setPlaceSyncLoading(false);
+    }
+  }, [getAuthHeader, restaurant]);
+
+  useEffect(() => {
+    if (!restaurant?.place_id) return;
+    if (!isPlaceSyncStale(restaurant.last_place_sync) && hasDirectoryData(restaurant)) return;
+    void syncPlaceDirectory();
+  }, [restaurant, syncPlaceDirectory]);
 
   useEffect(() => {
     if (didAutoExtractRef.current) return;
@@ -634,6 +708,12 @@ export default function UploadDetailPage() {
   const isReviewable = upload.status === 'needs_review' && isHost;
   const showHostShareSection = isHost && isSharedVisit;
   const showStandaloneExperience = isSharedVisit && (!isHost || !isReviewable);
+  const directionsHref = getGoogleMapsLink(restaurant?.place_id, restaurant?.address);
+  const todayHours = getTodayHours(restaurant?.opening_hours ?? null);
+  const openNow =
+    restaurant?.opening_hours && typeof restaurant.opening_hours === 'object' && !Array.isArray(restaurant.opening_hours)
+      ? (restaurant.opening_hours as { open_now?: boolean }).open_now
+      : undefined;
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4 pb-6">
@@ -641,11 +721,72 @@ export default function UploadDetailPage() {
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-xl font-semibold text-app-text">Hangout recap</h1>
           <StatusChip status={upload.status} />
-        </div>
-        <p className="text-base text-app-text">{restaurant?.name ?? 'Unknown restaurant'}</p>
-        {restaurant?.address && <p className="text-sm text-app-muted">{restaurant.address}</p>}
+        </div>        <p className="text-base text-app-text">{restaurant?.name ?? 'Unknown restaurant'}</p>
+        {restaurant?.address && directionsHref ? (
+          <a href={directionsHref} target="_blank" rel="noreferrer" className="text-sm text-app-link underline-offset-2 hover:underline">
+            {restaurant.address}
+          </a>
+        ) : restaurant?.address ? (
+          <p className="text-sm text-app-muted">{restaurant.address}</p>
+        ) : null}
         <p className="text-sm text-app-muted">{visitDate}</p>
         {visitNote && <p className="text-sm text-app-text">{visitNote}</p>}
+
+        <div className="rounded-xl border border-app-border bg-app-card p-3 space-y-2">
+          <p className="section-label">Place</p>
+          {restaurant?.address ? (
+            directionsHref ? (
+              <a href={directionsHref} target="_blank" rel="noreferrer" className="text-sm text-app-link underline-offset-2 hover:underline">
+                {restaurant.address}
+              </a>
+            ) : (
+              <p className="text-sm text-app-muted">{restaurant.address}</p>
+            )
+          ) : (
+            <p className="text-sm text-app-muted">Address not available.</p>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            {directionsHref && (
+              <a
+                href={directionsHref}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-10 items-center rounded-xl border border-app-border bg-app-card px-3 text-sm font-medium text-app-text"
+              >
+                Directions
+              </a>
+            )}
+            {restaurant?.phone_number && (
+              <a
+                href={`tel:${restaurant.phone_number}`}
+                className="inline-flex h-10 items-center rounded-xl border border-app-border bg-app-card px-3 text-sm font-medium text-app-text"
+              >
+                Call
+              </a>
+            )}
+            {restaurant?.website && (
+              <a
+                href={restaurant.website}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-10 items-center rounded-xl border border-app-border bg-app-card px-3 text-sm font-medium text-app-text"
+              >
+                Website
+              </a>
+            )}
+          </div>
+
+          {openNow === true && <p className="text-sm text-emerald-700 dark:text-emerald-300">Open now</p>}
+          {openNow === false && <p className="text-sm text-app-muted">Closed now</p>}
+          {todayHours ? (
+            <p className="text-sm text-app-muted">{todayHours}</p>
+          ) : placeSyncLoading ? (
+            <p className="text-sm text-app-muted">Syncing hours...</p>
+          ) : (
+            <p className="text-sm text-app-muted">Hours not available yet.</p>
+          )}
+        </div>
         
       </div>
 
@@ -1138,6 +1279,16 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
 
 
 

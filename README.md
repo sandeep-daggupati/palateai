@@ -31,7 +31,7 @@ Dish Tracker is a mobile-first Next.js PWA for personal dish logging using recei
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SECRET_KEY`
 - `OPENAI_API_KEY`
-- `GOOGLE_MAPS_API_KEY` (server-only; do not prefix with `NEXT_PUBLIC`)
+- `GOOGLE_PLACES_API_KEY` (server-only; do not prefix with `NEXT_PUBLIC`)
 
 ## Supabase auth notes
 
@@ -49,6 +49,7 @@ Dish Tracker is a mobile-first Next.js PWA for personal dish logging using recei
 - `src/app/api/approve` - approve API route
 - `src/app/api/places/autocomplete` - server-side Places autocomplete
 - `src/app/api/places/details` - server-side Place details
+- `src/app/api/places/sync` - cached Place directory enrichment sync
 - `src/lib/supabase` - browser and server clients
 - `src/lib/storage` - image/audio upload helpers
 - `src/lib/extraction` - OpenAI vision extraction helpers
@@ -70,7 +71,7 @@ And one storage bucket:
 
 1. In Google Cloud, enable Places API (Web Service).
 2. Create an API key restricted for server usage.
-3. Add `GOOGLE_MAPS_API_KEY` in local `.env.local` and Vercel env vars.
+3. Add `GOOGLE_PLACES_API_KEY` in local `.env.local` and Vercel env vars.
 4. All Places calls are server-side routes so the key is not exposed in the browser.
 
 ## Migration for Places + Visit Location
@@ -291,4 +292,6 @@ For preview demos:
 1. Set the same demo env vars in Vercel Preview environment.
 2. Run `npm run seed:demo` from a secure workflow (CI job or trusted environment).
 3. Use the dedicated demo login for QA and product walkthroughs.
+
+
 

@@ -18,6 +18,12 @@ type AskMessage = {
   text: string;
 };
 
+type CannedIntent = {
+  intent: 'favorite_dish' | 'most_visited_restaurant' | 'last_hangout' | 'cheapest_item' | 'go_tos_lately';
+  timeframe?: 'last_30_days' | 'last_60_days' | 'last_90_days' | null;
+  source: 'canned';
+};
+
 type AskResponse = {
   answer: string;
   meta: {
@@ -39,10 +45,11 @@ const DEFAULT_CONTEXT: AskContext = {
   lastIntent: null,
 };
 
-const SUGGESTED_QUESTIONS = [
-  "What's my favorite dish?",
-  'When was my last hangout at Popeyes?',
-  "What are my GO-TOs lately?",
+const CANNED_ACTIONS: Array<{ label: string; intent: CannedIntent }> = [
+  { label: '\u2764\uFE0F Favorite dish', intent: { intent: 'favorite_dish', timeframe: 'last_30_days', source: 'canned' } },
+  { label: '\u{1F4CD} Last hangout', intent: { intent: 'last_hangout', timeframe: null, source: 'canned' } },
+  { label: '\u{1F525} Most ordered lately', intent: { intent: 'go_tos_lately', timeframe: 'last_30_days', source: 'canned' } },
+  { label: '\u{1F4B8} Cheapest logged item', intent: { intent: 'cheapest_item', timeframe: 'last_90_days', source: 'canned' } },
 ];
 
 export function AskPalateAI() {
@@ -55,12 +62,11 @@ export function AskPalateAI() {
   const canAsk = question.trim().length > 0 && !loading;
   const title = useMemo(() => (loading ? 'Thinking...' : 'Ask PalateAI'), [loading]);
 
-  const ask = async (value: string) => {
-    const trimmed = value.trim();
-    if (!trimmed || loading) return;
+  const requestAsk = async (payload: { source: 'free_form'; question: string } | { source: 'canned'; ask_intent: CannedIntent }, userText: string) => {
+    if (loading) return;
 
     setLoading(true);
-    setMessages((prev) => [...prev, { role: 'user', text: trimmed }]);
+    setMessages((prev) => [...prev, { role: 'user', text: userText }]);
 
     try {
       const supabase = getBrowserSupabaseClient();
@@ -76,10 +82,15 @@ export function AskPalateAI() {
         headers.Authorization = `Bearer ${session.access_token}`;
       }
 
+      const body =
+        payload.source === 'free_form'
+          ? { source: 'free_form', question: payload.question, context }
+          : { source: 'canned', ask_intent: payload.ask_intent, context };
+
       const response = await fetch('/api/ask', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ question: trimmed, context }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -88,13 +99,13 @@ export function AskPalateAI() {
         return;
       }
 
-      const payload = (await response.json()) as AskResponse;
-      setContext(payload.meta?.context_update ?? DEFAULT_CONTEXT);
+      const result = (await response.json()) as AskResponse;
+      setContext(result.meta?.context_update ?? DEFAULT_CONTEXT);
       setMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          text: payload.answer || "I don't have that in your logs yet. Add a hangout and I'll learn.",
+          text: result.answer || "I don't have that in your logs yet. Add a hangout and I'll learn.",
         },
       ]);
     } finally {
@@ -103,8 +114,14 @@ export function AskPalateAI() {
   };
 
   const onSubmit = async () => {
-    await ask(question);
+    const trimmed = question.trim();
+    if (!trimmed) return;
+    await requestAsk({ source: 'free_form', question: trimmed }, trimmed);
     setQuestion('');
+  };
+
+  const onCannedClick = async (action: (typeof CANNED_ACTIONS)[number]) => {
+    await requestAsk({ source: 'canned', ask_intent: action.intent }, action.label);
   };
 
   const clearAll = () => {
@@ -141,18 +158,17 @@ export function AskPalateAI() {
             </div>
 
             <div className="mb-3 flex flex-wrap gap-2">
-              {SUGGESTED_QUESTIONS.map((chip) => (
+              {CANNED_ACTIONS.map((action) => (
                 <button
-                  key={chip}
+                  key={action.label}
                   type="button"
-                  className="rounded-full border border-app-border bg-app-card px-3 py-1.5 text-xs text-app-text"
+                  className="inline-flex h-9 items-center rounded-full border border-app-border bg-app-card px-3 text-xs font-medium text-app-text"
                   onClick={() => {
-                    setQuestion(chip);
-                    void ask(chip);
+                    void onCannedClick(action);
                   }}
                   disabled={loading}
                 >
-                  {chip}
+                  {action.label}
                 </button>
               ))}
             </div>
@@ -196,3 +212,4 @@ export function AskPalateAI() {
     </>
   );
 }
+

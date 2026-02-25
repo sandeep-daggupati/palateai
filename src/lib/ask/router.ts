@@ -9,12 +9,16 @@ import { identitySummaryHandler } from '@/lib/ask/handlers/identitySummary';
 import { lastHangoutHandler } from '@/lib/ask/handlers/lastHangout';
 import { mostVisitedRestaurantHandler } from '@/lib/ask/handlers/mostVisitedRestaurant';
 import {
+  AskCannedIntentPayload,
   AskContext,
   AskHandlerInput,
   AskIntent,
   AskResponsePayload,
+  AskSource,
+  Classification,
   CLARIFICATION_HANGOUT,
   CLARIFICATION_RESTAURANT,
+  DEFAULT_CLASSIFICATION_PARAMS,
   DEFAULT_CONTEXT,
   PARSE_FALLBACK_MESSAGE,
   ResolvedParams,
@@ -67,6 +71,22 @@ function buildResponse(
   };
 }
 
+function timeframeTokenToDays(value: AskCannedIntentPayload['timeframe']): number | null {
+  if (value === 'last_30_days') return 30;
+  if (value === 'last_60_days') return 60;
+  if (value === 'last_90_days') return 90;
+  return null;
+}
+
+function cannedDefaults(intent: AskCannedIntentPayload['intent']): { intent: AskIntent; timeframe_days: number | null } {
+  if (intent === 'favorite_dish') return { intent: 'favorite_dish', timeframe_days: 30 };
+  if (intent === 'most_visited_restaurant') return { intent: 'most_visited_restaurant', timeframe_days: 60 };
+  if (intent === 'last_hangout') return { intent: 'last_hangout', timeframe_days: null };
+  if (intent === 'cheapest_item') return { intent: 'cheapest_logged_item', timeframe_days: 90 };
+  if (intent === 'go_tos_lately') return { intent: 'go_tos_lately', timeframe_days: 30 };
+  return { intent: 'unsupported', timeframe_days: null };
+}
+
 async function findLastHangoutId(
   service: ReturnType<typeof getServiceSupabaseClient>,
   userId: string,
@@ -100,6 +120,7 @@ async function resolveParams(
     use_context_restaurant: boolean;
     use_context_hangout: boolean;
   },
+  source: AskSource,
 ): Promise<{ resolved: ResolvedParams; clarification: string | null }> {
   let restaurantName = params.restaurant_name;
   let usedContextRestaurant = false;
@@ -140,6 +161,10 @@ async function resolveParams(
     used_context_hangout: usedContextHangout,
   };
 
+  if (source === 'canned') {
+    return { resolved, clarification: null };
+  }
+
   if ((intent === 'last_hangout' || intent === 'dishes_at_restaurant') && !resolved.restaurant_name) {
     return { resolved, clarification: CLARIFICATION_RESTAURANT };
   }
@@ -148,18 +173,72 @@ async function resolveParams(
     return { resolved, clarification: CLARIFICATION_HANGOUT };
   }
 
-  if (intent === 'cheapest_logged_item' && !resolved.dish_keyword) {
-    return { resolved, clarification: "What dish should I check? Try something like 'cheapest chicken nuggets'." };
-  }
-
   return { resolved, clarification: null };
 }
 
-export async function routeAsk(question: string, contextInput: Partial<AskContext> | null | undefined, userId: string): Promise<AskResponsePayload> {
-  const service = getServiceSupabaseClient();
-  const baseContext = toSafeContext(contextInput);
+function freeFormDefaultTimeframe(intent: AskIntent): number | null {
+  if (intent === 'favorite_dish') return 30;
+  if (intent === 'go_tos_lately') return 30;
+  if (intent === 'most_visited_restaurant') return 60;
+  if (intent === 'cheapest_logged_item') return 90;
+  return null;
+}
 
-  const classification = await classifyQuestion(question, baseContext);
+function hardRouteFreeForm(question: string): Classification | null {
+  const trimmed = question.trim();
+  if (!trimmed) return null;
+
+  if (!/\blast\s+hangout\b/i.test(trimmed)) {
+    return null;
+  }
+
+  const restaurantMatch = trimmed.match(/\b(?:at|in)\s+([^?.!,]+)(?:[?.!,]|$)/i);
+  const restaurantName = restaurantMatch?.[1]?.trim() ?? null;
+
+  return {
+    intent: 'last_hangout',
+    confidence: 0.99,
+    params: {
+      ...DEFAULT_CLASSIFICATION_PARAMS,
+      restaurant_name: restaurantName,
+      use_context_restaurant: !restaurantName,
+    },
+    needs_clarification: false,
+    clarification_question: null,
+  };
+}
+export async function routeAsk(input: {
+  question?: string;
+  source: AskSource;
+  cannedIntent?: AskCannedIntentPayload | null;
+  contextInput?: Partial<AskContext> | null | undefined;
+  userId: string;
+}): Promise<AskResponsePayload> {
+  const service = getServiceSupabaseClient();
+  const baseContext = toSafeContext(input.contextInput);
+
+  let classification;
+
+  if (input.source === 'canned' && input.cannedIntent) {
+    const defaults = cannedDefaults(input.cannedIntent.intent);
+    const mappedTimeframe = timeframeTokenToDays(input.cannedIntent.timeframe) ?? defaults.timeframe_days;
+    classification = {
+      intent: defaults.intent,
+      confidence: 1,
+      params: {
+        restaurant_name: null,
+        dish_keyword: input.cannedIntent.intent === 'cheapest_item' ? baseContext.lastDishName ?? null : null,
+        timeframe_days: mappedTimeframe,
+        use_context_restaurant: false,
+        use_context_hangout: defaults.intent === 'last_hangout' ? true : false,
+      },
+      needs_clarification: false,
+      clarification_question: null,
+    };
+  } else {
+    const question = (input.question ?? '').trim();
+    classification = hardRouteFreeForm(question) ?? (await classifyQuestion(question, baseContext));
+  }
 
   if (!classification) {
     const fallback = mergeContext(baseContext, { lastIntent: 'unsupported' });
@@ -170,26 +249,36 @@ export async function routeAsk(question: string, contextInput: Partial<AskContex
     const updated = mergeContext(baseContext, { lastIntent: 'unsupported' });
     return buildResponse(UNSUPPORTED_MESSAGE, 'unsupported', classification.confidence, updated, false, false);
   }
-
-  if (classification.needs_clarification) {
-    const updated = mergeContext(baseContext, { lastIntent: classification.intent });
-    return buildResponse(classification.clarification_question ?? PARSE_FALLBACK_MESSAGE, classification.intent, classification.confidence, updated, false, false);
+  if (input.source === 'free_form' && !classification.params.timeframe_days) {
+    const defaultTimeframe = freeFormDefaultTimeframe(classification.intent);
+    if (defaultTimeframe) {
+      classification = {
+        ...classification,
+        needs_clarification: false,
+        clarification_question: null,
+        params: {
+          ...classification.params,
+          timeframe_days: defaultTimeframe,
+        },
+      };
+    }
   }
 
-  const { resolved, clarification } = await resolveParams(service, userId, classification.intent, baseContext, classification.params);
+  const { resolved, clarification } = await resolveParams(service, input.userId, classification.intent, baseContext, classification.params, input.source);
   if (clarification) {
     const updated = mergeContext(baseContext, { lastIntent: classification.intent });
     return buildResponse(clarification, classification.intent, classification.confidence, updated, resolved.used_context_restaurant, resolved.used_context_hangout);
   }
 
-  const handler = handlers[classification.intent];
+  const resolvedIntent = classification.intent as Exclude<AskIntent, 'unsupported'>;
+  const handler = handlers[resolvedIntent];
   if (!handler) {
     const updated = mergeContext(baseContext, { lastIntent: 'unsupported' });
     return buildResponse(UNSUPPORTED_MESSAGE, 'unsupported', classification.confidence, updated, false, false);
   }
 
   const result = await handler({
-    userId,
+    userId: input.userId,
     service,
     params: resolved,
     context: baseContext,
@@ -213,3 +302,9 @@ export async function routeAsk(question: string, contextInput: Partial<AskContex
 export function normalizeAskContext(context: Partial<AskContext> | null | undefined): AskContext {
   return context ? toSafeContext(context) : DEFAULT_CONTEXT;
 }
+
+
+
+
+
+

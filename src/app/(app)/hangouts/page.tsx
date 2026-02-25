@@ -7,6 +7,7 @@ import { FilterChips } from '@/components/FilterChips';
 import { StatusChip } from '@/components/StatusChip';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { ReceiptUpload, ReceiptUploadStatus, Restaurant, VisitParticipant } from '@/lib/supabase/types';
+import { getGoogleMapsLink } from '@/lib/google/mapsLinks';
 
 const LIST_LIMIT = 30;
 
@@ -21,6 +22,7 @@ const ACTIVITY_FILTER_OPTIONS: Array<{ label: string; value: 'all' | ReceiptUplo
 type RestaurantLookup = {
   name: string;
   address: string | null;
+  place_id: string | null;
 };
 
 function formatDate(value: string | null): string {
@@ -120,13 +122,14 @@ export default function HangoutsPage() {
 
       let restaurantLookup: Record<string, RestaurantLookup> = {};
       if (restaurantIds.length > 0) {
-        const { data: restaurantRows } = await supabase.from('restaurants').select('id,name,address').in('id', restaurantIds);
+        const { data: restaurantRows } = await supabase.from('restaurants').select('id,name,address,place_id').in('id', restaurantIds);
 
-        restaurantLookup = ((restaurantRows ?? []) as Pick<Restaurant, 'id' | 'name' | 'address'>[]).reduce(
+        restaurantLookup = ((restaurantRows ?? []) as Pick<Restaurant, 'id' | 'name' | 'address' | 'place_id'>[]).reduce(
           (acc, row) => {
             acc[row.id] = {
               name: row.name,
               address: row.address,
+              place_id: row.place_id,
             };
             return acc;
           },
@@ -146,7 +149,9 @@ export default function HangoutsPage() {
       ...visit,
       restaurantName: visit.restaurant_id ? restaurantsById[visit.restaurant_id]?.name ?? 'Unknown restaurant' : 'Unknown restaurant',
       address: visit.restaurant_id ? restaurantsById[visit.restaurant_id]?.address ?? null : null,
+      placeId: visit.restaurant_id ? restaurantsById[visit.restaurant_id]?.place_id ?? null : null,
       dateLabel: formatDate(visit.visited_at ?? visit.created_at),
+      directionsHref: getGoogleMapsLink(visit.restaurant_id ? restaurantsById[visit.restaurant_id]?.place_id ?? null : null, visit.restaurant_id ? restaurantsById[visit.restaurant_id]?.address ?? null : null),
     }));
 
     if (!queryParam) return base;
@@ -187,3 +192,6 @@ export default function HangoutsPage() {
     </div>
   );
 }
+
+
+
