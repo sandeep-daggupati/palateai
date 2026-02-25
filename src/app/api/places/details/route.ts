@@ -25,9 +25,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'placeId is required' }, { status: 400 });
   }
 
-  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY ?? process.env.GOOGLE_MAPS_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: 'GOOGLE_MAPS_API_KEY is not configured' }, { status: 500 });
+    return NextResponse.json({ error: 'GOOGLE_PLACES_API_KEY is not configured' }, { status: 500 });
   }
 
   const params = new URLSearchParams({
@@ -65,3 +65,5 @@ export async function GET(request: Request) {
     googleMapsUrl: data.result.url ?? null,
   });
 }
+
+

@@ -18,6 +18,15 @@ export type Database = {
           address: string | null;
           lat: number | null;
           lng: number | null;
+          phone_number: string | null;
+          website: string | null;
+          maps_url: string | null;
+          opening_hours: Json | null;
+          utc_offset_minutes: number | null;
+          google_rating: number | null;
+          price_level: number | null;
+          business_status: string | null;
+          last_place_sync: string | null;
           created_at: string;
         };
         Insert: {
@@ -28,6 +37,15 @@ export type Database = {
           address?: string | null;
           lat?: number | null;
           lng?: number | null;
+          phone_number?: string | null;
+          website?: string | null;
+          maps_url?: string | null;
+          opening_hours?: Json | null;
+          utc_offset_minutes?: number | null;
+          google_rating?: number | null;
+          price_level?: number | null;
+          business_status?: string | null;
+          last_place_sync?: string | null;
           created_at?: string;
         };
         Update: {
@@ -38,6 +56,15 @@ export type Database = {
           address?: string | null;
           lat?: number | null;
           lng?: number | null;
+          phone_number?: string | null;
+          website?: string | null;
+          maps_url?: string | null;
+          opening_hours?: Json | null;
+          utc_offset_minutes?: number | null;
+          google_rating?: number | null;
+          price_level?: number | null;
+          business_status?: string | null;
+          last_place_sync?: string | null;
           created_at?: string;
         };
         Relationships: [];
@@ -383,6 +410,9 @@ export type DailyInsight = Database['public']['Tables']['daily_insights']['Row']
 export type TableRow<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
 export type TableInsert<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Insert'];
 export type TableUpdate<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Update'];
+
+
+
 
 
 
