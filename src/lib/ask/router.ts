@@ -15,8 +15,11 @@ import {
   AskIntent,
   AskResponsePayload,
   AskSource,
+  Classification,
   CLARIFICATION_HANGOUT,
-  CLARIFICATION_RESTAURANT,  DEFAULT_CONTEXT,
+  CLARIFICATION_RESTAURANT,
+  DEFAULT_CLASSIFICATION_PARAMS,
+  DEFAULT_CONTEXT,
   PARSE_FALLBACK_MESSAGE,
   ResolvedParams,
   UNSUPPORTED_MESSAGE,
@@ -181,6 +184,29 @@ function freeFormDefaultTimeframe(intent: AskIntent): number | null {
   return null;
 }
 
+function hardRouteFreeForm(question: string): Classification | null {
+  const trimmed = question.trim();
+  if (!trimmed) return null;
+
+  if (!/\blast\s+hangout\b/i.test(trimmed)) {
+    return null;
+  }
+
+  const restaurantMatch = trimmed.match(/\b(?:at|in)\s+([^?.!,]+)(?:[?.!,]|$)/i);
+  const restaurantName = restaurantMatch?.[1]?.trim() ?? null;
+
+  return {
+    intent: 'last_hangout',
+    confidence: 0.99,
+    params: {
+      ...DEFAULT_CLASSIFICATION_PARAMS,
+      restaurant_name: restaurantName,
+      use_context_restaurant: !restaurantName,
+    },
+    needs_clarification: false,
+    clarification_question: null,
+  };
+}
 export async function routeAsk(input: {
   question?: string;
   source: AskSource;
@@ -211,7 +237,7 @@ export async function routeAsk(input: {
     };
   } else {
     const question = (input.question ?? '').trim();
-    classification = await classifyQuestion(question, baseContext);
+    classification = hardRouteFreeForm(question) ?? (await classifyQuestion(question, baseContext));
   }
 
   if (!classification) {
@@ -276,6 +302,9 @@ export async function routeAsk(input: {
 export function normalizeAskContext(context: Partial<AskContext> | null | undefined): AskContext {
   return context ? toSafeContext(context) : DEFAULT_CONTEXT;
 }
+
+
+
 
 
 
