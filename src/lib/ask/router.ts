@@ -16,9 +16,7 @@ import {
   AskResponsePayload,
   AskSource,
   CLARIFICATION_HANGOUT,
-  CLARIFICATION_RESTAURANT,
-  CLARIFICATION_TIMEFRAME,
-  DEFAULT_CONTEXT,
+  CLARIFICATION_RESTAURANT,  DEFAULT_CONTEXT,
   PARSE_FALLBACK_MESSAGE,
   ResolvedParams,
   UNSUPPORTED_MESSAGE,
@@ -172,15 +170,15 @@ async function resolveParams(
     return { resolved, clarification: CLARIFICATION_HANGOUT };
   }
 
-  if (intent === 'cheapest_logged_item' && !resolved.dish_keyword) {
-    return { resolved, clarification: "What dish should I check? Try something like 'cheapest chicken nuggets'." };
-  }
-
   return { resolved, clarification: null };
 }
 
-function requiresTimeframeClarification(intent: AskIntent): boolean {
-  return intent === 'favorite_dish' || intent === 'go_tos_lately' || intent === 'most_visited_restaurant' || intent === 'identity_summary' || intent === 'cheapest_logged_item';
+function freeFormDefaultTimeframe(intent: AskIntent): number | null {
+  if (intent === 'favorite_dish') return 30;
+  if (intent === 'go_tos_lately') return 30;
+  if (intent === 'most_visited_restaurant') return 60;
+  if (intent === 'cheapest_logged_item') return 90;
+  return null;
 }
 
 export async function routeAsk(input: {
@@ -225,15 +223,19 @@ export async function routeAsk(input: {
     const updated = mergeContext(baseContext, { lastIntent: 'unsupported' });
     return buildResponse(UNSUPPORTED_MESSAGE, 'unsupported', classification.confidence, updated, false, false);
   }
-
-  if (input.source === 'free_form' && requiresTimeframeClarification(classification.intent) && !classification.params.timeframe_days) {
-    const updated = mergeContext(baseContext, { lastIntent: classification.intent });
-    return buildResponse(CLARIFICATION_TIMEFRAME, classification.intent, classification.confidence, updated, false, false);
-  }
-
-  if (input.source === 'free_form' && classification.needs_clarification) {
-    const updated = mergeContext(baseContext, { lastIntent: classification.intent });
-    return buildResponse(classification.clarification_question ?? PARSE_FALLBACK_MESSAGE, classification.intent, classification.confidence, updated, false, false);
+  if (input.source === 'free_form' && !classification.params.timeframe_days) {
+    const defaultTimeframe = freeFormDefaultTimeframe(classification.intent);
+    if (defaultTimeframe) {
+      classification = {
+        ...classification,
+        needs_clarification: false,
+        clarification_question: null,
+        params: {
+          ...classification.params,
+          timeframe_days: defaultTimeframe,
+        },
+      };
+    }
   }
 
   const { resolved, clarification } = await resolveParams(service, input.userId, classification.intent, baseContext, classification.params, input.source);
@@ -242,7 +244,8 @@ export async function routeAsk(input: {
     return buildResponse(clarification, classification.intent, classification.confidence, updated, resolved.used_context_restaurant, resolved.used_context_hangout);
   }
 
-  const handler = handlers[classification.intent];
+  const resolvedIntent = classification.intent as Exclude<AskIntent, 'unsupported'>;
+  const handler = handlers[resolvedIntent];
   if (!handler) {
     const updated = mergeContext(baseContext, { lastIntent: 'unsupported' });
     return buildResponse(UNSUPPORTED_MESSAGE, 'unsupported', classification.confidence, updated, false, false);
@@ -273,3 +276,6 @@ export async function routeAsk(input: {
 export function normalizeAskContext(context: Partial<AskContext> | null | undefined): AskContext {
   return context ? toSafeContext(context) : DEFAULT_CONTEXT;
 }
+
+
+
