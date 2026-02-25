@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Database } from '@/lib/supabase/types';
-import { AskRequestPayload, PARSE_FALLBACK_MESSAGE } from '@/lib/ask/types';
+import { AskRequestPayload, AskSource, PARSE_FALLBACK_MESSAGE } from '@/lib/ask/types';
 import { routeAsk } from '@/lib/ask/router';
 
 function getAnonSupabaseClient() {
@@ -52,13 +52,25 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
   }
 
+  const source: AskSource = body.source === 'canned' ? 'canned' : 'free_form';
   const question = typeof body.question === 'string' ? body.question.trim() : '';
-  if (!question) {
+
+  if (source === 'free_form' && !question) {
     return NextResponse.json({ error: 'Question is required.' }, { status: 400 });
   }
 
+  if (source === 'canned' && !body.ask_intent) {
+    return NextResponse.json({ error: 'ask_intent is required for canned requests.' }, { status: 400 });
+  }
+
   try {
-    const response = await routeAsk(question, body.context, auth.user.id);
+    const response = await routeAsk({
+      question,
+      source,
+      cannedIntent: body.ask_intent,
+      contextInput: body.context,
+      userId: auth.user.id,
+    });
     return NextResponse.json(response);
   } catch {
     return NextResponse.json(

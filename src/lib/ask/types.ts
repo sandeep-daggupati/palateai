@@ -8,11 +8,6 @@ export type AskContext = {
   lastIntent: string | null;
 };
 
-export type AskRequestPayload = {
-  question: string;
-  context?: Partial<AskContext> | null;
-};
-
 export type AskIntent =
   | 'favorite_dish'
   | 'go_tos_lately'
@@ -23,6 +18,30 @@ export type AskIntent =
   | 'identity_summary'
   | 'cheapest_logged_item'
   | 'unsupported';
+
+export type AskSource = 'free_form' | 'canned';
+
+export type CannedIntentKind =
+  | 'favorite_dish'
+  | 'most_visited_restaurant'
+  | 'last_hangout'
+  | 'cheapest_item'
+  | 'go_tos_lately';
+
+export type CannedTimeframe = 'last_30_days' | 'last_60_days' | 'last_90_days' | null;
+
+export type AskCannedIntentPayload = {
+  intent: CannedIntentKind;
+  timeframe?: CannedTimeframe;
+  source: 'canned';
+};
+
+export type AskRequestPayload = {
+  question?: string;
+  ask_intent?: AskCannedIntentPayload;
+  source?: AskSource;
+  context?: Partial<AskContext> | null;
+};
 
 export type ClassificationParams = {
   restaurant_name: string | null;
@@ -104,3 +123,4 @@ export const NO_PRICE_DATA_MESSAGE =
 
 export const CLARIFICATION_HANGOUT = "Which hangout do you mean? Try: 'last hangout at Popeyes'.";
 export const CLARIFICATION_RESTAURANT = 'Which restaurant should I check?';
+export const CLARIFICATION_TIMEFRAME = 'What timeframe should I use? Try "last 30 days".';

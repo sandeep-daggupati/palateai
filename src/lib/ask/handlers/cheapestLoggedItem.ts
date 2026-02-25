@@ -2,21 +2,19 @@ import { AskHandlerInput, AskHandlerOutput, NO_PRICE_DATA_MESSAGE } from '@/lib/
 import { formatDate, getRestaurantNameById } from '@/lib/ask/handlers/_shared';
 
 export async function cheapestLoggedItemHandler(input: AskHandlerInput): Promise<AskHandlerOutput> {
-  const keyword = input.params.dish_keyword?.trim();
-  if (!keyword) {
-    return {
-      answer: "What dish should I check? Try something like 'cheapest chicken nuggets'.",
-    };
-  }
+  const keyword = input.params.dish_keyword?.trim() ?? null;
 
   let query = input.service
     .from('dish_entries')
     .select('dish_name,price_original,currency_original,source_upload_id,restaurant_id,eaten_at,created_at')
     .eq('user_id', input.userId)
     .not('price_original', 'is', null)
-    .ilike('dish_name', `%${keyword}%`)
     .order('price_original', { ascending: true })
     .limit(25);
+
+  if (keyword) {
+    query = query.ilike('dish_name', `%${keyword}%`);
+  }
 
   if (input.params.restaurant_id) {
     query = query.eq('restaurant_id', input.params.restaurant_id);
@@ -36,9 +34,11 @@ export async function cheapestLoggedItemHandler(input: AskHandlerInput): Promise
   const dateLabel = formatDate(cheapest.eaten_at ?? cheapest.created_at);
 
   return {
-    answer: `Your cheapest logged ${keyword} is ${cheapest.dish_name} for ${currency} ${price.toFixed(2)}${restaurantName ? ` at ${restaurantName}` : ''} on ${dateLabel}.`,
+    answer: keyword
+      ? `Your cheapest logged ${keyword} is ${cheapest.dish_name} for ${currency} ${price.toFixed(2)}${restaurantName ? ` at ${restaurantName}` : ''} on ${dateLabel}.`
+      : `Your cheapest logged item is ${cheapest.dish_name} for ${currency} ${price.toFixed(2)}${restaurantName ? ` at ${restaurantName}` : ''} on ${dateLabel}.`,
     context_update: {
-      lastDishName: keyword,
+      lastDishName: keyword ?? cheapest.dish_name,
       lastHangoutId: cheapest.source_upload_id,
       lastRestaurantId: cheapest.restaurant_id ?? null,
       lastRestaurantName: restaurantName,
