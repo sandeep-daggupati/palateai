@@ -300,7 +300,42 @@ export type Database = {
         };
         Relationships: [];
       };
-      daily_insights: {
+      photos: {
+        Row: {
+          id: string;
+          user_id: string;
+          hangout_id: string | null;
+          dish_entry_id: string | null;
+          kind: 'hangout' | 'dish';
+          storage_original: string;
+          storage_medium: string;
+          storage_thumb: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          hangout_id?: string | null;
+          dish_entry_id?: string | null;
+          kind: 'hangout' | 'dish';
+          storage_original: string;
+          storage_medium: string;
+          storage_thumb: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          hangout_id?: string | null;
+          dish_entry_id?: string | null;
+          kind?: 'hangout' | 'dish';
+          storage_original?: string;
+          storage_medium?: string;
+          storage_thumb?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };      daily_insights: {
         Row: {
           id: string;
           user_id: string;
@@ -406,10 +441,12 @@ export type VisitParticipant = Database['public']['Tables']['visit_participants'
 export type ExtractedLineItem = Database['public']['Tables']['extracted_line_items']['Row'];
 export type DishEntry = Database['public']['Tables']['dish_entries']['Row'];
 export type DailyInsight = Database['public']['Tables']['daily_insights']['Row'];
+export type Photo = Database['public']['Tables']['photos']['Row'];
 
 export type TableRow<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
 export type TableInsert<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Insert'];
 export type TableUpdate<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Update'];
+
 
 
 
