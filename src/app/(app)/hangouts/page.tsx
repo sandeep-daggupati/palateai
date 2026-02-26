@@ -145,14 +145,20 @@ export default function HangoutsPage() {
   }, [activityFilter, restaurantParam]);
 
   const filteredRows = useMemo(() => {
-    const base = visits.map((visit) => ({
-      ...visit,
-      restaurantName: visit.restaurant_id ? restaurantsById[visit.restaurant_id]?.name ?? 'Unknown restaurant' : 'Unknown restaurant',
-      address: visit.restaurant_id ? restaurantsById[visit.restaurant_id]?.address ?? null : null,
-      placeId: visit.restaurant_id ? restaurantsById[visit.restaurant_id]?.place_id ?? null : null,
-      dateLabel: formatDate(visit.visited_at ?? visit.created_at),
-      directionsHref: getGoogleMapsLink(visit.restaurant_id ? restaurantsById[visit.restaurant_id]?.place_id ?? null : null, visit.restaurant_id ? restaurantsById[visit.restaurant_id]?.address ?? null : null),
-    }));
+    const base = visits.map((visit) => {
+      const restaurantName = visit.restaurant_id ? restaurantsById[visit.restaurant_id]?.name ?? 'Unknown restaurant' : 'Unknown restaurant';
+      const address = visit.restaurant_id ? restaurantsById[visit.restaurant_id]?.address ?? null : null;
+      const placeId = visit.restaurant_id ? restaurantsById[visit.restaurant_id]?.place_id ?? null : null;
+
+      return {
+        ...visit,
+        restaurantName,
+        address,
+        placeId,
+        dateLabel: formatDate(visit.visited_at ?? visit.created_at),
+        directionsHref: getGoogleMapsLink(placeId, address, restaurantName),
+      };
+    });
 
     if (!queryParam) return base;
     return base.filter((row) => row.restaurantName.toLowerCase().includes(queryParam));
@@ -192,6 +198,9 @@ export default function HangoutsPage() {
     </div>
   );
 }
+
+
+
 
 
 
