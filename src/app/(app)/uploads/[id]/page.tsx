@@ -708,7 +708,7 @@ export default function UploadDetailPage() {
   const isReviewable = upload.status === 'needs_review' && isHost;
   const showHostShareSection = isHost && isSharedVisit;
   const showStandaloneExperience = isSharedVisit && (!isHost || !isReviewable);
-  const directionsHref = getGoogleMapsLink(restaurant?.place_id, restaurant?.address);
+  const directionsHref = getGoogleMapsLink(restaurant?.place_id, restaurant?.address, restaurant?.name);
   const todayHours = getTodayHours(restaurant?.opening_hours ?? null);
   const openNow =
     restaurant?.opening_hours && typeof restaurant.opening_hours === 'object' && !Array.isArray(restaurant.opening_hours)
@@ -1279,6 +1279,7 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
 
 
 
