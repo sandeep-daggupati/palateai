@@ -14,6 +14,7 @@ import { toDishKey } from '@/lib/utils';
 import { buildGroupKey, normalizeName } from '@/lib/extraction/normalize';
 import { getGoogleMapsLink } from '@/lib/google/mapsLinks';
 import { SignedPhoto } from '@/lib/photos/types';
+import { uploadOriginalPhotoDirect } from '@/lib/photos/clientUpload';
 
 const QUICK_NOTE_CHIPS = ['Great value', 'Would repeat', 'Too salty', 'Spicy', 'Slow service', 'Amazing dessert'];
 const VISIT_NOTE_MAX = 140;
@@ -307,20 +308,21 @@ export default function UploadDetailPage() {
     async (file: File, kind: 'hangout' | 'dish', targetId: string) => {
       setPhotoUploadLoading(`${kind}:${targetId}`);
       try {
-        const headers = await getAuthHeader();
-        const form = new FormData();
-        form.append('file', file);
-        form.append('kind', kind);
-        if (kind === 'hangout') {
-          form.append('hangout_id', targetId);
-        } else {
-          form.append('dish_entry_id', targetId);
-        }
+        const storageOriginal = await uploadOriginalPhotoDirect({ file, kind });
+        const headers = {
+          'Content-Type': 'application/json',
+          ...(await getAuthHeader()),
+        };
 
         const response = await fetch('/api/photos/upload', {
           method: 'POST',
           headers,
-          body: form,
+          body: JSON.stringify({
+            kind,
+            hangout_id: kind === 'hangout' ? targetId : null,
+            dish_entry_id: kind === 'dish' ? targetId : null,
+            storage_original: storageOriginal,
+          }),
         });
 
         if (!response.ok) {
@@ -1500,6 +1502,8 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
+
 
 
 

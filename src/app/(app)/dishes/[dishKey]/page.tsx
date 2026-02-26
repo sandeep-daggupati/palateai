@@ -8,6 +8,7 @@ import { Button } from '@/components/Button';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { DishEntry } from '@/lib/supabase/types';
 import { SignedPhoto } from '@/lib/photos/types';
+import { uploadOriginalPhotoDirect } from '@/lib/photos/clientUpload';
 
 function truncate(value: string, max = 100): string {
   return value.length <= max ? value : `${value.slice(0, max)}...`;
@@ -82,15 +83,18 @@ export default function DishProfilePage() {
 
     setUploadingEntryId(dishEntryId);
     try {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('kind', 'dish');
-      form.append('dish_entry_id', dishEntryId);
-
+      const storageOriginal = await uploadOriginalPhotoDirect({ file, kind: 'dish' });
       const response = await fetch('/api/photos/upload', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        body: form,
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          kind: 'dish',
+          dish_entry_id: dishEntryId,
+          storage_original: storageOriginal,
+        }),
       });
 
       if (response.ok) {
@@ -194,4 +198,7 @@ export default function DishProfilePage() {
     </div>
   );
 }
+
+
+
 

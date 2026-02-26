@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import path from 'node:path';
 import sharp from 'sharp';
 import { authorizeRequest } from '@/lib/api/auth';
 import { getServiceSupabaseClient } from '@/lib/supabase/server';
@@ -7,19 +8,15 @@ export const runtime = 'nodejs';
 
 const STORAGE_BUCKET = 'uploads';
 
-function normalizeKind(raw: string | null): 'hangout' | 'dish' | null {
-  if (raw === 'hangout' || raw === 'dish') return raw;
-  return null;
-}
+type UploadBody = {
+  kind?: 'hangout' | 'dish';
+  hangout_id?: string | null;
+  dish_entry_id?: string | null;
+  storage_original?: string;
+};
 
-function getExtension(contentType: string | null, filename: string): string {
-  const fromName = filename.includes('.') ? filename.split('.').pop()?.toLowerCase() : null;
-  if (fromName && /^[a-z0-9]+$/.test(fromName)) return fromName;
-  if (!contentType) return 'jpg';
-  if (contentType.includes('png')) return 'png';
-  if (contentType.includes('webp')) return 'webp';
-  if (contentType.includes('heic')) return 'heic';
-  return 'jpg';
+function normalizeKind(raw: unknown): 'hangout' | 'dish' | null {
+  return raw === 'hangout' || raw === 'dish' ? raw : null;
 }
 
 async function validateOwnership(params: {
@@ -51,29 +48,37 @@ async function validateOwnership(params: {
   return Boolean(data?.id);
 }
 
-async function signVariant(path: string): Promise<string | null> {
+async function signVariant(pathValue: string): Promise<string | null> {
   const supabase = getServiceSupabaseClient();
-  const { data, error } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(path, 60 * 30);
+  const { data, error } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(pathValue, 60 * 30);
   if (error || !data?.signedUrl) return null;
   return data.signedUrl;
+}
+
+function deriveVariantPaths(originalPath: string): { mediumPath: string; thumbPath: string } {
+  const dir = path.posix.dirname(originalPath);
+  return {
+    mediumPath: `${dir}/medium.jpg`,
+    thumbPath: `${dir}/thumb.jpg`,
+  };
 }
 
 export async function POST(request: Request) {
   const auth = await authorizeRequest(request);
   if ('error' in auth) return auth.error;
 
-  const form = await request.formData();
-  const file = form.get('file');
-  const kind = normalizeKind((form.get('kind') as string | null) ?? null);
-  const hangoutId = ((form.get('hangout_id') as string | null) ?? null)?.trim() || null;
-  const dishEntryId = ((form.get('dish_entry_id') as string | null) ?? null)?.trim() || null;
-
-  if (!(file instanceof File)) {
-    return NextResponse.json({ error: 'file is required' }, { status: 400 });
-  }
+  const body = (await request.json().catch(() => null)) as UploadBody | null;
+  const kind = normalizeKind(body?.kind);
+  const hangoutId = (body?.hangout_id ?? null)?.trim() || null;
+  const dishEntryId = (body?.dish_entry_id ?? null)?.trim() || null;
+  const storageOriginal = (body?.storage_original ?? '').trim();
 
   if (!kind) {
     return NextResponse.json({ error: 'kind must be hangout or dish' }, { status: 400 });
+  }
+
+  if (!storageOriginal) {
+    return NextResponse.json({ error: 'storage_original is required' }, { status: 400 });
   }
 
   if (kind === 'hangout' && (!hangoutId || dishEntryId)) {
@@ -82,6 +87,10 @@ export async function POST(request: Request) {
 
   if (kind === 'dish' && (!dishEntryId || hangoutId)) {
     return NextResponse.json({ error: 'dish kind requires dish_entry_id only' }, { status: 400 });
+  }
+
+  if (!storageOriginal.startsWith(`${auth.userId}/photos/${kind}/`)) {
+    return NextResponse.json({ error: 'Invalid storage path' }, { status: 400 });
   }
 
   const ownsTarget = await validateOwnership({
@@ -95,13 +104,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Target not found' }, { status: 404 });
   }
 
-  const sourceBuffer = Buffer.from(await file.arrayBuffer());
-  const originalExtension = getExtension(file.type, file.name);
-  const objectId = crypto.randomUUID();
-  const basePath = `${auth.userId}/photos/${kind}/${objectId}`;
-  const originalPath = `${basePath}/original.${originalExtension}`;
-  const mediumPath = `${basePath}/medium.jpg`;
-  const thumbPath = `${basePath}/thumb.jpg`;
+  const supabase = getServiceSupabaseClient();
+
+  const { data: originalFile, error: downloadError } = await supabase.storage.from(STORAGE_BUCKET).download(storageOriginal);
+  if (downloadError || !originalFile) {
+    return NextResponse.json({ error: 'Failed to read uploaded original' }, { status: 500 });
+  }
+
+  const sourceBuffer = Buffer.from(await originalFile.arrayBuffer());
 
   const mediumBuffer = await sharp(sourceBuffer)
     .rotate()
@@ -115,20 +125,16 @@ export async function POST(request: Request) {
     .jpeg({ quality: 76, mozjpeg: true })
     .toBuffer();
 
-  const supabase = getServiceSupabaseClient();
+  const { mediumPath, thumbPath } = deriveVariantPaths(storageOriginal);
 
   const uploads = await Promise.all([
-    supabase.storage.from(STORAGE_BUCKET).upload(originalPath, sourceBuffer, {
-      contentType: file.type || 'application/octet-stream',
-      upsert: false,
-    }),
     supabase.storage.from(STORAGE_BUCKET).upload(mediumPath, mediumBuffer, {
       contentType: 'image/jpeg',
-      upsert: false,
+      upsert: true,
     }),
     supabase.storage.from(STORAGE_BUCKET).upload(thumbPath, thumbBuffer, {
       contentType: 'image/jpeg',
-      upsert: false,
+      upsert: true,
     }),
   ]);
 
@@ -143,34 +149,25 @@ export async function POST(request: Request) {
       kind,
       hangout_id: kind === 'hangout' ? hangoutId : null,
       dish_entry_id: kind === 'dish' ? dishEntryId : null,
-      storage_original: originalPath,
+      storage_original: storageOriginal,
       storage_medium: mediumPath,
       storage_thumb: thumbPath,
     })
-    .select('*')
+    .select('id,kind,dish_entry_id,hangout_id,storage_thumb,storage_medium')
     .single();
 
   if (insertError || !inserted) {
     return NextResponse.json({ error: 'Failed to save photo' }, { status: 500 });
   }
-  const insertedPhoto = inserted as {
-    id: string;
-    kind: 'hangout' | 'dish';
-    dish_entry_id: string | null;
-    hangout_id: string | null;
-    storage_thumb: string;
-    storage_medium: string;
-  };
 
-
-  const [thumbUrl, mediumUrl] = await Promise.all([signVariant(insertedPhoto.storage_thumb), signVariant(insertedPhoto.storage_medium)]);
+  const [thumbUrl, mediumUrl] = await Promise.all([signVariant(inserted.storage_thumb), signVariant(inserted.storage_medium)]);
 
   return NextResponse.json({
     photo: {
-      id: insertedPhoto.id,
-      kind: insertedPhoto.kind,
-      dish_entry_id: insertedPhoto.dish_entry_id,
-      hangout_id: insertedPhoto.hangout_id,
+      id: inserted.id,
+      kind: inserted.kind,
+      dish_entry_id: inserted.dish_entry_id,
+      hangout_id: inserted.hangout_id,
       signedUrls: {
         thumb: thumbUrl,
         medium: mediumUrl,
@@ -178,5 +175,3 @@ export async function POST(request: Request) {
     },
   });
 }
-
-
