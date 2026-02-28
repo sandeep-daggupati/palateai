@@ -40,7 +40,7 @@ async function authorize(request: Request) {
     return { error: NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 }) };
   }
 
-  return { user };
+  return { user, anon, token };
 }
 
 function isFresh(lastSync: string | null): boolean {
@@ -68,14 +68,25 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: 'restaurant_id or place_id is required' }, { status: 400 });
   }
 
-  const service = getServiceSupabaseClient();
+  // Use a client authenticated as the user to fetch the restaurant.
+  // This allows RLS to enforce who can read the restaurant (users and active participants).
+  const userClient = createClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    {
+      global: {
+        headers: {
+          Authorization: `Bearer ${auth.token}`,
+        },
+      },
+    }
+  );
 
-  let restaurantQuery = service
+  let restaurantQuery = userClient
     .from('restaurants')
     .select(
       'id,user_id,name,place_id,address,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync',
     )
-    .eq('user_id', auth.user.id)
     .limit(1);
 
   if (restaurantId) {
@@ -103,6 +114,11 @@ export async function POST(request: Request) {
   try {
     const details = await fetchPlaceDetails(restaurant.place_id);
 
+    // Use service client to update the restaurant, as the requesting user
+    // might not be the owner (e.g., they are a shared participant). RLS
+    // blocks non-owners from updating, but they still need to be able to sync.
+    const service = getServiceSupabaseClient();
+    
     const { data: updatedRestaurant, error: updateError } = await service
       .from('restaurants')
       .update({
@@ -117,7 +133,6 @@ export async function POST(request: Request) {
         last_place_sync: new Date().toISOString(),
       })
       .eq('id', restaurant.id)
-      .eq('user_id', auth.user.id)
       .select(
         'id,user_id,name,place_id,address,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync',
       )
