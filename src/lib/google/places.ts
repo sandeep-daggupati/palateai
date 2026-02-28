@@ -22,7 +22,7 @@ type GooglePlaceDetailsResponse = {
       open_now?: boolean;
       weekday_text?: string[];
     };
-    utc_offset_minutes?: number;
+    utc_offset?: number;
     rating?: number;
     price_level?: number;
     business_status?: string;
@@ -42,7 +42,7 @@ export async function fetchPlaceDetails(placeId: string): Promise<PlaceDirectory
   const apiKey = getPlacesApiKey();
   const params = new URLSearchParams({
     place_id: placeId,
-    fields: 'formatted_phone_number,website,url,opening_hours,utc_offset_minutes,rating,price_level,business_status',
+    fields: 'formatted_phone_number,website,url,opening_hours,utc_offset,rating,price_level,business_status',
     key: apiKey,
   });
 
@@ -65,11 +65,11 @@ export async function fetchPlaceDetails(placeId: string): Promise<PlaceDirectory
     maps_url: payload.result.url ?? null,
     opening_hours: payload.result.opening_hours
       ? {
-          open_now: payload.result.opening_hours.open_now,
-          weekday_text: payload.result.opening_hours.weekday_text,
-        }
+        open_now: payload.result.opening_hours.open_now,
+        weekday_text: payload.result.opening_hours.weekday_text,
+      }
       : null,
-    utc_offset_minutes: payload.result.utc_offset_minutes ?? null,
+    utc_offset_minutes: payload.result.utc_offset ?? null,
     google_rating: payload.result.rating ?? null,
     price_level: payload.result.price_level ?? null,
     business_status: payload.result.business_status ?? null,
