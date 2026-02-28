@@ -118,7 +118,7 @@ export async function POST(request: Request) {
     // might not be the owner (e.g., they are a shared participant). RLS
     // blocks non-owners from updating, but they still need to be able to sync.
     const service = getServiceSupabaseClient();
-    
+
     const { data: updatedRestaurant, error: updateError } = await service
       .from('restaurants')
       .update({
@@ -143,7 +143,8 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ ok: true, cached: false, restaurant: updatedRestaurant });
-  } catch {
+  } catch (err) {
+    console.error('Failed to sync place details:', err);
     const hasCached = Boolean(restaurant.phone_number || restaurant.website || restaurant.maps_url || restaurant.opening_hours);
     if (hasCached) {
       return NextResponse.json({ ok: true, cached: true, restaurant });
