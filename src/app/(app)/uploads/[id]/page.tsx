@@ -28,6 +28,19 @@ type UnifiedDishRow = {
   myEntry: Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'> | null;
 };
 
+type LegacyLineItem = {
+  id: string;
+  upload_id: string;
+  name_raw: string;
+  name_final: string | null;
+  quantity: number | null;
+  unit_price: number | null;
+  price_final: number | null;
+  confidence: number | null;
+  included: boolean;
+  created_at: string;
+};
+
 type CrewMember = VisitParticipant & {
   display_name: string | null;
   avatar_url: string | null;
@@ -264,27 +277,67 @@ export default function UploadDetailPage() {
       return;
     }
 
-    const [hangoutItemsResult, myDishEntriesResult, restaurantData] = await Promise.all([
-      supabase
-        .from('hangout_items')
-        .select('*')
-        .eq('hangout_id', uploadId)
-        .eq('included', true)
-        .order('created_at', { ascending: true }),
-      supabase
-        .from('dish_entries')
-        .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
-        .eq('hangout_id', uploadId)
-        .eq('user_id', user.id),
-      typedUpload.restaurant_id
-        ? supabase.from('restaurants').select('id,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync').eq('id', typedUpload.restaurant_id).single()
-        : Promise.resolve({ data: null }),
-    ]);
+    const restaurantPromise = typedUpload.restaurant_id
+      ? supabase.from('restaurants').select('id,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync').eq('id', typedUpload.restaurant_id).single()
+      : Promise.resolve({ data: null });
 
-    const hangoutItems = (hangoutItemsResult.data ?? []) as HangoutItem[];
-    const myEntries = (myDishEntriesResult.data ?? []) as Array<
-      Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>
-    >;
+    const hangoutItemsResult = await supabase
+      .from('hangout_items')
+      .select('*')
+      .eq('hangout_id', uploadId)
+      .eq('included', true)
+      .order('created_at', { ascending: true });
+
+    let hangoutItems = (hangoutItemsResult.data ?? []) as HangoutItem[];
+    if (hangoutItemsResult.error) {
+      const legacyItemsResult = await supabase
+        .from('extracted_line_items')
+        .select('id,upload_id,name_raw,name_final,quantity,unit_price,price_final,confidence,included,created_at')
+        .eq('upload_id', uploadId)
+        .eq('included', true)
+        .order('created_at', { ascending: true });
+
+      const legacyRows = (legacyItemsResult.data ?? []) as LegacyLineItem[];
+      hangoutItems = legacyRows.map((row) => ({
+        id: row.id,
+        hangout_id: row.upload_id,
+        source_id: null,
+        name_raw: row.name_raw,
+        name_final: row.name_final,
+        quantity: Math.max(1, row.quantity ?? 1),
+        unit_price: row.unit_price ?? row.price_final,
+        currency: typedUpload.currency_detected ?? 'USD',
+        line_total: null,
+        confidence: row.confidence,
+        included: row.included,
+        created_at: row.created_at,
+      }));
+    }
+
+    let myEntries = [] as Array<Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>>;
+    const myEntriesPrimary = await supabase
+      .from('dish_entries')
+      .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
+      .eq('hangout_id', uploadId)
+      .eq('user_id', user.id);
+
+    if (myEntriesPrimary.error) {
+      const myEntriesFallback = await supabase
+        .from('dish_entries')
+        .select('id,dish_name,dish_key,identity_tag,comment')
+        .eq('source_upload_id', uploadId)
+        .eq('user_id', user.id);
+
+      myEntries = ((myEntriesFallback.data ?? []) as Array<Pick<DishEntry, 'id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>>).map(
+        (entry) => ({ ...entry, hangout_item_id: null }),
+      );
+    } else {
+      myEntries = (myEntriesPrimary.data ?? []) as Array<
+        Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>
+      >;
+    }
+
+    const restaurantData = await restaurantPromise;
 
     const byItemId = new Map<string, Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>>();
     const byName = new Map<string, Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>>();
@@ -431,15 +484,32 @@ export default function UploadDetailPage() {
       };
 
       const supabase = getBrowserSupabaseClient();
-      const { data, error } = await supabase
+      let saved: Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'> | null = null;
+      const primaryResult = await supabase
         .from('dish_entries')
         .upsert(payload, { onConflict: 'user_id,hangout_item_id' })
         .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
         .single();
 
-      if (error || !data) return;
+      if (!primaryResult.error && primaryResult.data) {
+        saved = primaryResult.data as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
+      } else {
+        const fallbackPayload = {
+          ...payload,
+          hangout_item_id: undefined,
+        };
+        const fallbackResult = await supabase
+          .from('dish_entries')
+          .upsert(fallbackPayload, { onConflict: 'user_id,source_upload_id,dish_key' })
+          .select('id,dish_name,dish_key,identity_tag,comment')
+          .single();
+        if (!fallbackResult.error && fallbackResult.data) {
+          const row = fallbackResult.data as Pick<DishEntry, 'id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
+          saved = { ...row, hangout_item_id: null };
+        }
+      }
 
-      const saved = data as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
+      if (!saved) return;
       setDishes((prev) =>
         prev.map((entry) =>
           entry.hangoutItem.id === row.hangoutItem.id
@@ -870,7 +940,6 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
 
 
 

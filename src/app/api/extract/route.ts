@@ -63,7 +63,7 @@ export async function POST(req: Request) {
 
     const { data: upload, error: uploadError } = await supabase
       .from("receipt_uploads")
-      .select("id,user_id,restaurant_id,image_paths,currency_detected")
+      .select("id,user_id,restaurant_id,image_paths,currency_detected,visited_at,created_at,visit_note,processed_at")
       .eq("id", uploadIdValue)
       .single();
 
@@ -192,6 +192,75 @@ export async function POST(req: Request) {
       console.info(`[extract:${traceId}] insertRows.ok`, { rowCount: rows.length });
     } else {
       console.warn(`[extract:${traceId}] insertRows.skipped`, { reason: "no_items_after_cleaning" });
+    }
+
+    // Canonical write path: ensure hangout + receipt source + shared hangout items.
+    const { error: hangoutUpsertError } = await supabase.from("hangouts").upsert({
+      id: uploadIdValue,
+      owner_user_id: upload.user_id,
+      restaurant_id: upload.restaurant_id,
+      occurred_at: upload.visited_at ?? upload.created_at,
+      note: upload.visit_note ?? null,
+    });
+    if (hangoutUpsertError) {
+      console.warn(`[extract:${traceId}] hangoutUpsert.failed`, { error: hangoutUpsertError.message });
+    } else {
+      await supabase.from("hangout_participants").upsert(
+        { hangout_id: uploadIdValue, user_id: upload.user_id },
+        { onConflict: "hangout_id,user_id" },
+      );
+    }
+
+    const { data: existingSource } = await supabase
+      .from("hangout_sources")
+      .select("id")
+      .eq("hangout_id", uploadIdValue)
+      .eq("type", "receipt")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    let sourceId = existingSource?.id ?? null;
+    if (!sourceId) {
+      const { data: insertedSource, error: sourceInsertError } = await supabase
+        .from("hangout_sources")
+        .insert({
+          hangout_id: uploadIdValue,
+          type: "receipt",
+          storage_path: imagePath,
+          extractor: "openai",
+          extracted_at: new Date().toISOString(),
+          extraction_version: "v1",
+          raw_extraction: null,
+        })
+        .select("id")
+        .single();
+      if (sourceInsertError) {
+        console.warn(`[extract:${traceId}] sourceInsert.failed`, { error: sourceInsertError.message });
+      } else {
+        sourceId = insertedSource.id;
+      }
+    }
+
+    if (sourceId) {
+      await supabase.from("hangout_items").delete().eq("hangout_id", uploadIdValue).eq("source_id", sourceId);
+      if (processed.length > 0) {
+        const canonicalRows = processed.map((it) => ({
+          hangout_id: uploadIdValue,
+          source_id: sourceId,
+          name_raw: it.name_raw,
+          name_final: it.name_final,
+          quantity: Math.max(1, it.quantity ?? 1),
+          unit_price: it.unit_price ?? it.price_final ?? null,
+          currency: extracted.currency ?? upload.currency_detected ?? "USD",
+          confidence: it.confidence,
+          included: it.included,
+        }));
+        const { error: canonicalInsertErr } = await supabase.from("hangout_items").insert(canonicalRows);
+        if (canonicalInsertErr) {
+          console.warn(`[extract:${traceId}] canonicalInsert.failed`, { error: canonicalInsertErr.message });
+        }
+      }
     }
 
     const { error: doneErr } = await supabase
