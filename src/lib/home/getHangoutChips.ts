@@ -11,11 +11,10 @@ export type HangoutChip = {
 
 type UploadRow = {
   id: string;
-  user_id: string;
+  owner_user_id: string;
   restaurant_id: string | null;
-  visited_at: string | null;
+  occurred_at: string | null;
   created_at: string;
-  status: string;
 };
 
 type RestaurantRow = {
@@ -43,28 +42,25 @@ export async function getHangoutChips(
   const now = new Date();
 
   const { data: participantRows } = await supabase
-    .from('visit_participants')
-    .select('visit_id,status')
+    .from('hangout_participants')
+    .select('hangout_id')
     .eq('user_id', userId)
-    .eq('status', 'active')
     .limit(300);
 
-  const sharedIds = Array.from(new Set((participantRows ?? []).map((row) => row.visit_id)));
+  const sharedIds = Array.from(new Set((participantRows ?? []).map((row) => row.hangout_id)));
 
   const { data: ownRowsRaw } = await supabase
-    .from('receipt_uploads')
-    .select('id,user_id,restaurant_id,visited_at,created_at,status')
-    .eq('user_id', userId)
-    .neq('status', 'failed')
+    .from('hangouts')
+    .select('id,owner_user_id,restaurant_id,occurred_at,created_at')
+    .eq('owner_user_id', userId)
     .limit(1000);
 
   let sharedRows: UploadRow[] = [];
   if (sharedIds.length > 0) {
     const { data: sharedRowsRaw } = await supabase
-      .from('receipt_uploads')
-      .select('id,user_id,restaurant_id,visited_at,created_at,status')
+      .from('hangouts')
+      .select('id,owner_user_id,restaurant_id,occurred_at,created_at')
       .in('id', sharedIds)
-      .neq('status', 'failed')
       .limit(1000);
 
     sharedRows = (sharedRowsRaw ?? []) as UploadRow[];
@@ -85,11 +81,11 @@ export async function getHangoutChips(
     }
   }
 
-  const rows30 = rows.filter((row) => withinDays(row.visited_at ?? row.created_at, now, 30) && Boolean(row.restaurant_id));
+  const rows30 = rows.filter((row) => withinDays(row.occurred_at ?? row.created_at, now, 30) && Boolean(row.restaurant_id));
 
   const priorRestaurantIds = new Set(
     rows
-      .filter((row) => !withinDays(row.visited_at ?? row.created_at, now, 30))
+      .filter((row) => !withinDays(row.occurred_at ?? row.created_at, now, 30))
       .map((row) => row.restaurant_id)
       .filter((id): id is string => Boolean(id)),
   );

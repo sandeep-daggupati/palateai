@@ -205,7 +205,7 @@ export default function AddPage() {
   };
 
   const onSubmit = async () => {
-    if (!receiptFile) return;
+    if (!receiptFile && !dishFile) return;
     setLoading(true);
 
     try {
@@ -236,36 +236,87 @@ export default function AddPage() {
         finalRestaurantId = createdRestaurant.id;
       }
 
-      const { data: createdUpload, error: uploadError } = await supabase
-        .from('receipt_uploads')
+      const { data: createdHangout, error: hangoutError } = await supabase
+        .from('hangouts')
         .insert({
-          user_id: user.id,
+          owner_user_id: user.id,
           restaurant_id: finalRestaurantId,
-          status: 'uploaded',
-          type: uploadType,
-          image_paths: [],
-          visited_at: new Date().toISOString(),
-          is_shared: isSharedVisit,
-          share_visibility: 'private',
-          visit_lat: userLocation?.lat ?? null,
-          visit_lng: userLocation?.lng ?? null,
+          occurred_at: new Date().toISOString(),
+          note: null,
         })
         .select('id')
         .single();
 
-      if (uploadError) throw uploadError;
+      if (hangoutError) throw hangoutError;
 
-      const uploadId = createdUpload.id as string;
-      const receiptPath = await uploadImage({
-        file: receiptFile,
-        userId: user.id,
-        uploadId,
-        category: uploadType,
-        onProgress: setProgress,
-      });
+      const uploadId = createdHangout.id as string;
+      await supabase.from('hangout_participants').upsert(
+        { hangout_id: uploadId, user_id: user.id },
+        { onConflict: 'hangout_id,user_id' },
+      );
+
+      let receiptPath: string | null = null;
+      if (receiptFile) {
+        receiptPath = await uploadImage({
+          file: receiptFile,
+          userId: user.id,
+          uploadId,
+          category: uploadType,
+          onProgress: setProgress,
+        });
+
+        await supabase.from('hangout_sources').insert({
+          hangout_id: uploadId,
+          type: 'receipt',
+          storage_path: receiptPath,
+          extractor: null,
+        });
+
+        await supabase.from('photos').insert({
+          user_id: user.id,
+          kind: 'hangout',
+          hangout_id: uploadId,
+          storage_original: receiptPath,
+          storage_medium: receiptPath,
+          storage_thumb: receiptPath,
+        });
+      }
 
       if (dishFile) {
-        await uploadImage({ file: dishFile, userId: user.id, uploadId, category: 'dish' });
+        const dishPath = await uploadImage({ file: dishFile, userId: user.id, uploadId, category: 'dish' });
+        await supabase.from('hangout_sources').insert({
+          hangout_id: uploadId,
+          type: 'dish_photo',
+          storage_path: dishPath,
+          extractor: null,
+        });
+
+        const { data: dishEntry } = await supabase
+          .from('dish_entries')
+          .insert({
+            user_id: user.id,
+            restaurant_id: finalRestaurantId,
+            hangout_id: uploadId,
+            source_upload_id: uploadId,
+            dish_name: 'Dish photo',
+            dish_key: `dish-photo-${crypto.randomUUID()}`,
+            currency_original: 'USD',
+            had_it: true,
+            eaten_at: new Date().toISOString(),
+          })
+          .select('id')
+          .single();
+
+        if (!dishEntry?.id) throw new Error('Could not create dish entry for dish photo');
+
+        await supabase.from('photos').insert({
+          user_id: user.id,
+          kind: 'dish',
+          dish_entry_id: dishEntry.id,
+          storage_original: dishPath,
+          storage_medium: dishPath,
+          storage_thumb: dishPath,
+        });
       }
 
       let audioPath: string | null = null;
@@ -273,15 +324,14 @@ export default function AddPage() {
         audioPath = await uploadAudio({ blob: audioBlob, userId: user.id, uploadId });
       }
 
-      const { error: finalizeError } = await supabase
-        .from('receipt_uploads')
-        .update({
-          image_paths: [receiptPath],
-          audio_path: audioPath,
-        })
-        .eq('id', uploadId);
-
-      if (finalizeError) throw finalizeError;
+      if (audioPath) {
+        await supabase.from('hangout_sources').insert({
+          hangout_id: uploadId,
+          type: 'manual',
+          storage_path: audioPath,
+          extractor: null,
+        });
+      }
 
       router.push(`/uploads/${uploadId}`);
     } finally {
@@ -457,14 +507,12 @@ export default function AddPage() {
 
         {loading && <p className="text-sm text-app-muted">Uploading... {Math.round(progress)}%</p>}
 
-        <Button type="button" variant="primary" size="lg" onClick={onSubmit} disabled={!receiptFile || loading}>
-          {loading ? 'Saving...' : 'Save upload'}
+        <Button type="button" variant="primary" size="lg" onClick={onSubmit} disabled={(!receiptFile && !dishFile) || loading}>
+          {loading ? 'Saving...' : 'Save hangout'}
         </Button>
       </div>
     </div>
   );
 }
-
-
 
 
