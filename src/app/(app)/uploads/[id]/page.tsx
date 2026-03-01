@@ -137,10 +137,10 @@ function EmojiRatingSelector({
             type="button"
             onClick={() => onChange(active ? null : option.value)}
             aria-label={`Rate as ${option.value.replace('_', ' ')}`}
-            className={`inline-flex h-11 min-w-11 items-center justify-center rounded-full border text-xl transition-colors duration-200 ${
+            className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-base transition-all duration-150 ${
               active
-                ? 'border-app-primary bg-app-primary/10 text-app-text'
-                : 'border-app-border bg-app-card text-app-muted hover:text-app-text'
+                ? 'scale-105 bg-app-primary/12 text-app-text'
+                : 'text-app-text opacity-50 hover:opacity-80'
             }`}
           >
             {IDENTITY_EMOJI[option.value]}
@@ -984,7 +984,7 @@ export default function UploadDetailPage() {
           </div>
 
           {isReviewable && visibleReviewRows.length > 0 ? (
-            <div className="space-y-2">
+            <div className="divide-y divide-app-border/60">
               {visibleReviewRows.map((row) => {
                 const firstIndex = row.itemIndexes[0];
                 const firstItem = items[firstIndex];
@@ -994,13 +994,16 @@ export default function UploadDetailPage() {
                 const noteOpen = openItemNotes[row.key] || Boolean(firstItem.comment);
                 const identityValue = row.itemIndexes.map((itemIndex) => items[itemIndex].identity_tag).find((value) => value != null) ?? null;
                 const unitPrice = firstItem.unit_price ?? firstItem.price_final;
+                const isNeverAgain = identityValue === 'never_again';
 
                 return (
-                  <div key={row.key} className="rounded-xl border border-app-border bg-app-card p-3 space-y-2">
+                  <div key={row.key} className={`space-y-1.5 p-2 ${isNeverAgain ? 'opacity-60' : ''}`}>
                     <div className="flex min-h-11 items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold leading-5 text-app-text">{dishName}</p>
-                        {row.quantity > 1 && <p className="text-xs leading-4 text-app-muted">×{row.quantity}</p>}
+                        <p className={`truncate text-sm font-semibold leading-5 text-app-text ${isNeverAgain ? 'line-through' : ''}`}>
+                          {dishName}
+                          {row.quantity > 1 ? ` ×${row.quantity}` : ''}
+                        </p>
                       </div>
                       <p className="text-sm font-medium leading-5 text-app-text">{formatPrice(unitPrice)}</p>
                     </div>
@@ -1075,15 +1078,18 @@ export default function UploadDetailPage() {
               })}
             </div>
           ) : showStandaloneExperience && personalDrafts.length > 0 ? (
-            <div className="space-y-2">
+            <div className="divide-y divide-app-border/60">
               {personalDrafts.map((dish, index) => {
                 const noteOpen = openItemNotes[dish.dish_key] || Boolean(dish.comment);
+                const isNeverAgain = dish.identity_tag === 'never_again';
                 return (
-                  <div key={dish.dish_key} className="rounded-xl border border-app-border bg-app-card p-3 space-y-2">
+                  <div key={dish.dish_key} className={`space-y-1.5 p-2 ${isNeverAgain ? 'opacity-60' : ''}`}>
                     <div className="flex min-h-11 items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold leading-5 text-app-text">{dish.dish_name}</p>
-                        {dish.quantity > 1 && <p className="text-xs leading-4 text-app-muted">×{dish.quantity}</p>}
+                        <p className={`truncate text-sm font-semibold leading-5 text-app-text ${isNeverAgain ? 'line-through' : ''}`}>
+                          {dish.dish_name}
+                          {dish.quantity > 1 ? ` ×${dish.quantity}` : ''}
+                        </p>
                       </div>
                       <p className="text-sm font-medium leading-5 text-app-text">{formatPrice(dish.price)}</p>
                     </div>
@@ -1232,7 +1238,6 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
 
 
 
