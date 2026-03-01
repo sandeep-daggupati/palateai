@@ -44,7 +44,7 @@ export function ForYouTodayCard({ insight }: { insight: InsightPayload | null })
 
   if (!insight) {
     return (
-      <section className="card-surface space-y-2">
+      <section className="card-surface space-y-1.5">
         <div className="flex items-center justify-between gap-3">
           <p className="section-label">For you today</p>
           <span className="text-xs text-app-muted">Based on your logs</span>
@@ -56,13 +56,13 @@ export function ForYouTodayCard({ insight }: { insight: InsightPayload | null })
 
   return (
     <>
-      <button type="button" className="card-surface w-full space-y-2 text-left" onClick={() => setOpen(true)}>
+      <button type="button" className="card-surface w-full space-y-1.5 text-left" onClick={() => setOpen(true)}>
         <div className="flex items-center justify-between gap-3">
           <p className="section-label">For you today</p>
           <span className="text-xs text-app-muted">See details</span>
         </div>
         <p className="text-xs text-app-muted">Based on your logs</p>
-        <p className="text-sm text-app-text">{insight.insight_text}</p>
+        <p className="text-sm font-medium leading-5 text-app-text">{insight.insight_text}</p>
       </button>
 
       {open && (

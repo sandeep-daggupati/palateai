@@ -137,8 +137,8 @@ export default function DishesPage() {
   }, [dishes, photoByDishEntryId, queryParam, restaurantsById]);
 
   return (
-    <div className="space-y-3 pb-6">
-      <section className="card-surface space-y-2">
+    <div className="space-y-2.5 pb-5">
+      <section className="card-surface space-y-1.5">
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-xl font-semibold text-app-text">Dishes</h1>
           <Link href="/" className="text-xs font-medium text-app-link">
@@ -148,7 +148,7 @@ export default function DishesPage() {
         <p className="text-sm text-app-muted">Your dish history with identity filters.</p>
       </section>
 
-      <section className="space-y-2">
+      <section className="space-y-1.5">
         <div className="flex items-center justify-between gap-2">
           <FilterChips options={DISH_FILTER_OPTIONS} selected={dishFilter} onChange={setDishFilter} />
           <div className="inline-flex rounded-lg border border-app-border p-1">
@@ -174,7 +174,7 @@ export default function DishesPage() {
         ) : viewMode === 'list' ? (
           <div className="divide-y divide-app-border rounded-2xl border border-app-border bg-app-card">
             {filteredRows.map((dish) => (
-              <Link key={dish.id} href={dish.dish_key ? `/dishes/${dish.dish_key}` : `/uploads/${dish.source_upload_id}`} className="block px-3 py-3">
+              <Link key={dish.id} href={dish.dish_key ? `/dishes/${dish.dish_key}` : `/uploads/${dish.source_upload_id}`} className="block px-2.5 py-2">
                 <div className="flex items-start gap-3">
                   {dish.photo?.signedUrls.thumb ? (
                     <Image
@@ -191,12 +191,12 @@ export default function DishesPage() {
                     </div>
                   )}
                   <div className="min-w-0 flex-1">
-                    <div className="mb-1 flex items-center justify-between gap-3">
-                      <p className="font-medium text-app-text">{dish.dish_name}</p>
+                    <div className="mb-0.5 flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold leading-5 text-app-text">{dish.dish_name}</p>
                       {dish.identity_tag && <IdentityTagPill tag={dish.identity_tag} />}
                     </div>
-                    <p className="text-sm text-app-muted">{dish.restaurantName}</p>
-                    <p className="text-xs text-app-muted">{dish.dateLabel}</p>
+                    <p className="text-xs leading-4 text-app-muted">{dish.restaurantName}</p>
+                    <p className="text-xs leading-4 text-app-muted">{dish.dateLabel}</p>
                   </div>
                 </div>
               </Link>

@@ -4,29 +4,29 @@ import { HighlightCard } from '@/lib/home/getHighlights';
 function HighlightCardItem({ card }: { card: HighlightCard }) {
   const content = (
     <>
-      <div className="mb-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-app-primary/10 text-xs font-semibold text-app-text">
+      <div className="mb-1 inline-flex h-7 w-7 items-center justify-center rounded-full bg-app-primary/10 text-xs font-semibold text-app-text">
         {card.image_label}
       </div>
       <p className="text-xs uppercase tracking-wide text-app-muted">{card.title}</p>
-      <p className="mt-1 text-sm font-medium text-app-text">{card.body}</p>
-      <p className="mt-1 text-xs text-app-muted">{card.hint}</p>
+      <p className="mt-0.5 text-sm font-semibold leading-5 text-app-text">{card.body}</p>
+      <p className="mt-0.5 text-xs leading-4 text-app-muted">{card.hint}</p>
     </>
   );
 
   if (card.href) {
     return (
-      <Link href={card.href} className="min-w-[220px] max-w-[220px] rounded-xl border border-app-border bg-app-card p-3">
+      <Link href={card.href} className="min-w-[210px] max-w-[210px] rounded-xl border border-app-border bg-app-card p-2.5">
         {content}
       </Link>
     );
   }
 
-  return <div className="min-w-[220px] max-w-[220px] rounded-xl border border-app-border bg-app-card p-3">{content}</div>;
+  return <div className="min-w-[210px] max-w-[210px] rounded-xl border border-app-border bg-app-card p-2.5">{content}</div>;
 }
 
 export function HighlightsCard({ highlights }: { highlights: HighlightCard[] }) {
   return (
-    <section className="card-surface space-y-3">
+    <section className="card-surface space-y-2">
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="section-label">Your highlights</p>
@@ -37,7 +37,7 @@ export function HighlightsCard({ highlights }: { highlights: HighlightCard[] }) 
         </Link>
       </div>
 
-      <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1">
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
         {highlights.slice(0, 3).map((card) => (
           <HighlightCardItem key={card.key} card={card} />
         ))}

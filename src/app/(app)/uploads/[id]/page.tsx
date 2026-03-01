@@ -861,21 +861,21 @@ export default function UploadDetailPage() {
     hangoutPhotos.find((photo) => photo.id === selectedHangoutPhotoId) ?? hangoutPhotos[0] ?? null;
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 pb-6">
-      <div className="card-surface space-y-3">
-        <div className="flex items-center justify-between gap-3">
+    <div className="mx-auto w-full max-w-3xl space-y-3 pb-5">
+      <div className="card-surface space-y-2">
+        <div className="flex items-center justify-between gap-2">
           <h1 className="text-xl font-semibold text-app-text">Hangout recap</h1>
           <p className="text-xs text-app-muted">With {Math.max(1, participants.length)}</p>
         </div>
-        <p className="text-base text-app-text">{restaurant?.name ?? 'Unknown restaurant'}</p>
-        <p className="text-sm text-app-muted">{visitDate}</p>
-        {visitNote && <p className="text-sm text-app-text">{visitNote}</p>}
+        <p className="text-sm font-semibold leading-5 text-app-text">{restaurant?.name ?? 'Unknown restaurant'}</p>
+        <p className="text-xs leading-4 text-app-muted">{visitDate}</p>
+        {visitNote && <p className="text-xs leading-4 text-app-text">{visitNote}</p>}
 
-        <div className="rounded-xl border border-app-border bg-app-card p-3 space-y-3">
+        <div className="rounded-xl border border-app-border bg-app-card p-2.5 space-y-2">
           {restaurant?.address ? (
-            <p className="text-sm text-app-muted">📍 {restaurant.address}</p>
+            <p className="text-xs leading-4 text-app-muted">📍 {restaurant.address}</p>
           ) : (
-            <p className="text-sm text-app-muted">📍 Address not available.</p>
+            <p className="text-xs leading-4 text-app-muted">📍 Address not available.</p>
           )}
 
           <div className="flex flex-wrap gap-2">
@@ -912,18 +912,18 @@ export default function UploadDetailPage() {
             )}
           </div>
 
-          {openNow === true && <p className="text-sm text-emerald-700 dark:text-emerald-300">🟢 Open now</p>}
-          {openNow === false && <p className="text-sm text-app-muted">🔴 Closed now</p>}
+          {openNow === true && <p className="text-xs leading-4 text-emerald-700 dark:text-emerald-300">🟢 Open now</p>}
+          {openNow === false && <p className="text-xs leading-4 text-app-muted">🔴 Closed now</p>}
           {todayHours ? (
-            <p className="text-sm text-app-muted">🕒 {todayHours}</p>
+            <p className="text-xs leading-4 text-app-muted">🕒 {todayHours}</p>
           ) : placeSyncLoading ? (
-            <p className="text-sm text-app-muted">🕒 Syncing hours...</p>
+            <p className="text-xs leading-4 text-app-muted">🕒 Syncing hours...</p>
           ) : (
-            <p className="text-sm text-app-muted">🕒 Hours not available yet.</p>
+            <p className="text-xs leading-4 text-app-muted">🕒 Hours not available yet.</p>
           )}
         </div>
       </div>
-      <div className="card-surface space-y-3">
+      <div className="card-surface space-y-2">
         <div className="flex items-center justify-between gap-2">
           <h2 className="section-label">Hangout photos</h2>
           <div className="flex gap-2">
@@ -997,7 +997,7 @@ export default function UploadDetailPage() {
         )}
       </div>
       {showHostShareSection && (
-        <div className="card-surface space-y-3">
+        <div className="card-surface space-y-2">
           <h2 className="section-label">Who was in your crew?</h2>
           <div className="relative">
             <div className="flex gap-2">
@@ -1039,15 +1039,15 @@ export default function UploadDetailPage() {
             )}
           </div>
           {shareError && <p className="text-xs text-rose-700 dark:text-rose-300">{shareError}</p>}
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {participants.length === 0 ? (
               <p className="text-xs text-app-muted">No crew yet. Add your buddies.</p>
             ) : (
               participants.map((participant) => (
-                <div key={participant.id} className="flex items-center justify-between gap-3 rounded-xl border border-app-border bg-app-card px-3 py-2">
+                <div key={participant.id} className="flex items-center justify-between gap-2 rounded-xl border border-app-border bg-app-card px-2.5 py-2">
                   <div>
-                    <p className="text-sm text-app-text">{participant.display_name ?? 'Crew member'}</p>
-                    <p className="text-xs text-app-muted">In your crew</p>
+                    <p className="text-sm font-semibold leading-5 text-app-text">{participant.display_name ?? 'Crew member'}</p>
+                    <p className="text-xs leading-4 text-app-muted">In your crew</p>
                   </div>
                   <Button
                     type="button"
@@ -1068,7 +1068,7 @@ export default function UploadDetailPage() {
       )}
 
       {showExtractionPrompt && (
-        <div className="card-surface space-y-3">
+        <div className="card-surface space-y-2">
           <h2 className="section-label">Extraction</h2>
           <p className="text-sm text-app-muted">{isSharedVisit ? 'Run extraction to generate dishes for your crew.' : 'Run extraction to generate dishes for your hangout.'}</p>
           <Button type="button" variant="secondary" onClick={runExtraction}>
@@ -1078,15 +1078,15 @@ export default function UploadDetailPage() {
       )}
 
       {isReviewable && (
-        <div className="card-surface space-y-3">
+        <div className="card-surface space-y-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-app-text">Review dishes</h2>
 
           <Button type="button" variant="secondary" onClick={runExtraction}>
             Run extraction
           </Button>
 
-          <div className="rounded-2xl border border-app-border p-4 space-y-3">
-            <div className="space-y-2">
+          <div className="rounded-2xl border border-app-border p-2.5 space-y-2">
+            <div className="space-y-1.5">
               <label className="section-label">Vibe (optional)</label>
               <Input
                 value={visitNote}
@@ -1139,7 +1139,7 @@ export default function UploadDetailPage() {
               No extracted dishes yet. You can still save the vibe and come back to scan a receipt later.
             </p>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {reviewRows.map((row) => {
                 const firstIndex = row.itemIndexes[0];
                 const firstItem = items[firstIndex];
@@ -1153,7 +1153,7 @@ export default function UploadDetailPage() {
                 const hasDuplicates = row.itemIndexes.length > 1 || (reviewRows.some((entry) => entry.baseGroupKey === row.baseGroupKey) && row.split);
 
                 return (
-                  <div key={row.key} className="rounded-2xl border border-app-border p-4 space-y-3">
+                  <div key={row.key} className="rounded-2xl border border-app-border p-2.5 space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs text-app-muted">{row.quantity > 1 ? `Auto-grouped x${row.quantity}` : 'Single line item'}</p>
                       {hasDuplicates && (
@@ -1358,7 +1358,7 @@ export default function UploadDetailPage() {
       )}
 
       {showStandaloneExperience && (
-      <div className="card-surface space-y-3">
+      <div className="card-surface space-y-2">
         <h2 className="section-label">Your experience</h2>
         {personalDrafts.length === 0 ? (
           <p className="empty-surface">No dishes available for personal annotation yet. Run extraction first.</p>
@@ -1383,9 +1383,9 @@ export default function UploadDetailPage() {
               </Button>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-2">
               {personalDrafts.map((dish, index) => (
-                <div key={dish.dish_key} className="rounded-2xl border border-app-border bg-app-card p-4 space-y-3">
+                <div key={dish.dish_key} className="rounded-2xl border border-app-border bg-app-card p-2.5 space-y-2">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="font-medium text-app-text">{dish.dish_name}</p>
@@ -1468,7 +1468,7 @@ export default function UploadDetailPage() {
       )}
 
       {visitDishes.length > 0 && (
-        <div className="card-surface space-y-3">
+        <div className="card-surface space-y-2">
           <h2 className="section-label">Hangout dishes (saved)</h2>
 
           <input
@@ -1515,13 +1515,13 @@ export default function UploadDetailPage() {
                       </button>
                     )}
                     <div>
-                      <p className="font-medium text-app-text">{dish.dish_name}</p>
-                      <p className="text-xs text-app-muted">{formatDate(dish.eaten_at ?? dish.created_at)}</p>
+                      <p className="text-sm font-semibold leading-5 text-app-text">{dish.dish_name}</p>
+                      <p className="text-xs leading-4 text-app-muted">{formatDate(dish.eaten_at ?? dish.created_at)}</p>
                     </div>
                   </div>
                   <IdentityTagPill tag={dish.identity_tag} />
                 </div>
-                {dish.comment && <p className="text-xs text-app-muted">{dish.comment}</p>}
+                {dish.comment && <p className="text-xs leading-4 text-app-muted">{dish.comment}</p>}
               </Link>
             );
           })}
@@ -1530,7 +1530,6 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
 
 
 
