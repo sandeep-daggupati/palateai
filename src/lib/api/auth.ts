@@ -18,7 +18,7 @@ export function getAnonSupabaseClient() {
   });
 }
 
-export async function authorizeRequest(request: Request): Promise<{ userId: string } | { error: NextResponse }> {
+export async function authorizeRequest(request: Request): Promise<{ userId: string; token: string } | { error: NextResponse }> {
   const authHeader = request.headers.get('authorization');
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : null;
 
@@ -36,5 +36,6 @@ export async function authorizeRequest(request: Request): Promise<{ userId: stri
     return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
   }
 
-  return { userId: user.id };
+  return { userId: user.id, token };
 }
+
