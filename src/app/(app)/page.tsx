@@ -107,8 +107,8 @@ export default function HomePage() {
   }, []);
 
   return (
-    <div className="space-y-3 pb-5">
-      <section className="card-surface space-y-1.5">
+    <div className="space-y-2 pb-4">
+      <section className="card-surface p-3 space-y-1.5">
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-xl font-semibold text-app-text">What did you eat today?</h1>
           <Link

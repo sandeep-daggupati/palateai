@@ -3,7 +3,7 @@ import { HangoutChip } from '@/lib/home/getHangoutChips';
 
 export function RecentHangoutsCard({ chips }: { chips: HangoutChip[] }) {
   return (
-    <section className="card-surface space-y-2">
+    <section className="card-surface p-3 space-y-1.5">
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="section-label">Recent hangouts</p>
