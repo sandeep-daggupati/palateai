@@ -7,7 +7,6 @@ import { useParams, useRouter } from 'next/navigation';
 import { IdentityTagPill, identityTagOptions } from '@/components/IdentityTagPill';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
-import { StatusChip } from '@/components/StatusChip';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { DishEntry, DishIdentityTag, ExtractedLineItem, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
 import { toDishKey } from '@/lib/utils';
@@ -196,8 +195,11 @@ export default function UploadDetailPage() {
   const canViewVisit = isHost || isActiveParticipant;
   const hasAnyExtractedItems = items.some((item) => item.included);
   const hasAnySavedVisitDishes = visitDishes.length > 0;
+  const hasSavedPersonalExperience = Boolean(
+    currentUserId && visitDishes.some((entry) => entry.user_id === currentUserId),
+  );
   const showExtractionPrompt = Boolean(
-    isHost && upload && upload.status !== 'needs_review' && !hasAnyExtractedItems && !hasAnySavedVisitDishes,
+    isHost && upload && !hasAnyExtractedItems && !hasAnySavedVisitDishes,
   );
 
   const reviewRows = useMemo<ReviewRenderRow[]>(() => {
@@ -545,7 +547,6 @@ export default function UploadDetailPage() {
   useEffect(() => {
     if (didAutoExtractRef.current) return;
     if (!isHost || !upload) return;
-    if (upload.status !== 'uploaded') return;
     if (!upload.image_paths || upload.image_paths.length === 0) return;
     if (hasAnyExtractedItems || hasAnySavedVisitDishes) return;
 
@@ -681,7 +682,7 @@ export default function UploadDetailPage() {
       });
 
       if (!approveResponse.ok) {
-        throw new Error('Could not save approved dishes for this hangout.');
+        throw new Error('Could not save dishes for this hangout.');
       }
 
       await load();
@@ -807,9 +808,9 @@ export default function UploadDetailPage() {
 
   const visitDate = formatDate(upload.visited_at ?? upload.created_at);
   const isSharedVisit = Boolean(upload.is_shared);
-  const isReviewable = upload.status === 'needs_review' && isHost;
+  const isReviewable = isHost;
   const showHostShareSection = isHost && isSharedVisit;
-  const showStandaloneExperience = isSharedVisit && (!isHost || !isReviewable);
+  const showStandaloneExperience = isSharedVisit && (!isHost || !isReviewable) && !hasSavedPersonalExperience;
   const directionsHref = getGoogleMapsLink(restaurant?.place_id, restaurant?.address, restaurant?.name);
   const todayHours = getTodayHours(restaurant?.opening_hours ?? null);
   const openNow =
@@ -824,7 +825,6 @@ export default function UploadDetailPage() {
       <div className="card-surface space-y-2">
         <div className="flex items-center justify-between gap-2">
           <h1 className="text-xl font-semibold text-app-text">Hangout recap</h1>
-          <StatusChip status={upload.status} />
         </div>
         <p className="text-sm font-semibold leading-5 text-app-text">{restaurant?.name ?? 'Unknown restaurant'}</p>
         <p className="text-xs leading-4 text-app-muted">{visitDate}</p>
@@ -1095,7 +1095,7 @@ export default function UploadDetailPage() {
           )}
           {items.length === 0 ? (
             <p className="rounded-2xl border border-dashed border-app-border p-4 text-sm text-app-muted">
-              No extracted dishes yet. You can still save the vibe, then approve.
+              No extracted dishes yet. You can still save the vibe.
             </p>
           ) : (
             <div className="space-y-2">
@@ -1310,7 +1310,7 @@ export default function UploadDetailPage() {
               Save added rows
             </Button>
             <Button type="button" onClick={approve} disabled={saving}>
-              {saving ? 'Saving...' : 'Approve & Save'}
+              {saving ? 'Saving...' : 'Save'}
             </Button>
           </div>
         </div>
@@ -1489,7 +1489,6 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
 
 
 
