@@ -29,13 +29,21 @@ async function validateOwnership(params: {
 
   if (params.kind === 'hangout') {
     if (!params.hangoutId) return false;
-    const { data } = await supabase
+    const { data: canonical } = await supabase
+      .from('hangouts')
+      .select('id')
+      .eq('id', params.hangoutId)
+      .eq('owner_user_id', params.userId)
+      .maybeSingle();
+    if (canonical?.id) return true;
+
+    const { data: legacy } = await supabase
       .from('receipt_uploads')
       .select('id')
       .eq('id', params.hangoutId)
       .eq('user_id', params.userId)
       .maybeSingle();
-    return Boolean(data?.id);
+    return Boolean(legacy?.id);
   }
 
   if (!params.dishEntryId) return false;
@@ -46,6 +54,31 @@ async function validateOwnership(params: {
     .eq('user_id', params.userId)
     .maybeSingle();
   return Boolean(data?.id);
+}
+
+async function ensureHangoutExistsForLegacyTarget(params: { hangoutId: string; userId: string }) {
+  const supabase = getServiceSupabaseClient();
+  const { data: existing } = await supabase.from('hangouts').select('id').eq('id', params.hangoutId).maybeSingle();
+  if (existing?.id) return;
+
+  const { data: legacy } = await supabase
+    .from('receipt_uploads')
+    .select('id,user_id,restaurant_id,visited_at,created_at,visit_note')
+    .eq('id', params.hangoutId)
+    .eq('user_id', params.userId)
+    .maybeSingle();
+  if (!legacy?.id) return;
+
+  await supabase.from('hangouts').upsert({
+    id: legacy.id,
+    owner_user_id: legacy.user_id,
+    restaurant_id: legacy.restaurant_id,
+    occurred_at: legacy.visited_at ?? legacy.created_at,
+    note: legacy.visit_note ?? null,
+  });
+  await supabase
+    .from('hangout_participants')
+    .upsert({ hangout_id: legacy.id, user_id: legacy.user_id }, { onConflict: 'hangout_id,user_id' });
 }
 
 async function signVariant(pathValue: string): Promise<string | null> {
@@ -104,6 +137,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Target not found' }, { status: 404 });
   }
 
+  if (kind === 'hangout' && hangoutId) {
+    await ensureHangoutExistsForLegacyTarget({ hangoutId, userId: auth.userId });
+  }
+
   const supabase = getServiceSupabaseClient();
 
   const { data: originalFile, error: downloadError } = await supabase.storage.from(STORAGE_BUCKET).download(storageOriginal);
@@ -157,7 +194,7 @@ export async function POST(request: Request) {
     .single();
 
   if (insertError || !inserted) {
-    return NextResponse.json({ error: 'Failed to save photo' }, { status: 500 });
+    return NextResponse.json({ error: insertError?.message ?? 'Failed to save photo' }, { status: 500 });
   }
 
   const [thumbUrl, mediumUrl] = await Promise.all([signVariant(inserted.storage_thumb), signVariant(inserted.storage_medium)]);
