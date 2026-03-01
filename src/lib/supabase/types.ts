@@ -249,6 +249,7 @@ export type Database = {
           user_id: string;
           restaurant_id: string | null;
           hangout_id: string | null;
+          hangout_item_id: string | null;
           dish_name: string;
           price_original: number | null;
           currency_original: string;
@@ -268,6 +269,7 @@ export type Database = {
           user_id: string;
           restaurant_id?: string | null;
           hangout_id?: string | null;
+          hangout_item_id?: string | null;
           dish_name: string;
           price_original?: number | null;
           currency_original: string;
@@ -287,6 +289,7 @@ export type Database = {
           user_id?: string;
           restaurant_id?: string | null;
           hangout_id?: string | null;
+          hangout_item_id?: string | null;
           dish_name?: string;
           price_original?: number | null;
           currency_original?: string;
@@ -580,7 +583,6 @@ export type Photo = Database['public']['Tables']['photos']['Row'];
 export type TableRow<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
 export type TableInsert<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Insert'];
 export type TableUpdate<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Update'];
-
 
 
 

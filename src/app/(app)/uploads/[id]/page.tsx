@@ -1,16 +1,15 @@
 'use client';
 
 import Image from 'next/image';
-import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { IdentityTagPill, identityTagOptions } from '@/components/IdentityTagPill';
+import { useParams } from 'next/navigation';
+import { identityTagOptions } from '@/components/IdentityTagPill';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { DishEntry, DishIdentityTag, ExtractedLineItem, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
+import { DishEntry, DishIdentityTag, HangoutItem, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
 import { toDishKey } from '@/lib/utils';
-import { buildGroupKey, normalizeName } from '@/lib/extraction/normalize';
+import { normalizeName } from '@/lib/extraction/normalize';
 import { getGoogleMapsLink } from '@/lib/google/mapsLinks';
 import { SignedPhoto } from '@/lib/photos/types';
 import { uploadOriginalPhotoDirect } from '@/lib/photos/clientUpload';
@@ -24,28 +23,9 @@ const IDENTITY_EMOJI: Record<DishIdentityTag, string> = {
   never_again: '🚫',
 };
 
-type ReviewItem = ExtractedLineItem & {
-  identity_tag: DishIdentityTag | null;
-};
-
-type VisitDish = Pick<DishEntry, 'id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment' | 'created_at' | 'eaten_at' | 'user_id'>;
-
-type PersonalDishDraft = {
-  dish_key: string;
-  dish_name: string;
-  price: number | null;
-  quantity: number;
-  identity_tag: DishIdentityTag | null;
-  comment: string;
-  had_it: boolean;
-};
-
-type ReviewRenderRow = {
-  key: string;
-  baseGroupKey: string;
-  itemIndexes: number[];
-  quantity: number;
-  split: boolean;
+type UnifiedDishRow = {
+  hangoutItem: HangoutItem;
+  myEntry: Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'> | null;
 };
 
 type CrewMember = VisitParticipant & {
@@ -109,15 +89,8 @@ function formatPrice(value: number | null): string {
   return `$${value.toFixed(2)}`;
 }
 
-function getReviewGroupKey(item: ReviewItem, fallbackCurrency: string | null): string {
-  if (item.group_key) return item.group_key;
-  const normalized = normalizeName(item.name_final || item.name_raw);
-  const unitPrice = item.unit_price ?? item.price_final;
-  return buildGroupKey({
-    normalizedName: normalized || (item.name_final || item.name_raw).toLowerCase(),
-    unitPrice,
-    currency: fallbackCurrency,
-  });
+function normalizeDish(value: string): string {
+  return normalizeName(value) || value.trim().toLowerCase();
 }
 
 function EmojiRatingSelector({
@@ -153,20 +126,16 @@ function EmojiRatingSelector({
 
 export default function UploadDetailPage() {
   const params = useParams<{ id: string }>();
-  const router = useRouter();
   const uploadId = params.id;
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [upload, setUpload] = useState<ReceiptUpload | null>(null);
   const [restaurant, setRestaurant] = useState<RestaurantDirectory | null>(null);
 
-  const [items, setItems] = useState<ReviewItem[]>([]);
-  const [visitDishes, setVisitDishes] = useState<VisitDish[]>([]);
-  const [personalDrafts, setPersonalDrafts] = useState<PersonalDishDraft[]>([]);
+  const [dishes, setDishes] = useState<UnifiedDishRow[]>([]);
 
   const [visitNote, setVisitNote] = useState('');
   const [openItemNotes, setOpenItemNotes] = useState<Record<string, boolean>>({});
-  const [splitGroupKeys, setSplitGroupKeys] = useState<Record<string, boolean>>({});
 
   const [participants, setParticipants] = useState<CrewMember[]>([]);
   const [shareEmail, setShareEmail] = useState('');
@@ -176,17 +145,12 @@ export default function UploadDetailPage() {
   const [shareSuggestLoading, setShareSuggestLoading] = useState(false);
   const [shareFocused, setShareFocused] = useState(false);
 
-  const [saving, setSaving] = useState(false);
-  const [savingExperience, setSavingExperience] = useState(false);
   const [placeSyncLoading, setPlaceSyncLoading] = useState(false);
   const [hangoutPhotos, setHangoutPhotos] = useState<SignedPhoto[]>([]);
   const [selectedHangoutPhotoId, setSelectedHangoutPhotoId] = useState<string | null>(null);
-  const [dishPhotoByEntryId, setDishPhotoByEntryId] = useState<Record<string, SignedPhoto>>({});
   const [photoUploadLoading, setPhotoUploadLoading] = useState<string | null>(null);
   const hangoutCameraInputRef = useRef<HTMLInputElement | null>(null);
   const hangoutUploadInputRef = useRef<HTMLInputElement | null>(null);
-  const dishUploadInputRef = useRef<HTMLInputElement | null>(null);
-  const [dishUploadTargetId, setDishUploadTargetId] = useState<string | null>(null);
   const didAutoExtractRef = useRef(false);
 
   const isHost = Boolean(upload && currentUserId && upload.user_id === currentUserId);
@@ -197,48 +161,8 @@ export default function UploadDetailPage() {
   );
 
   const canViewVisit = isHost || isActiveParticipant;
-  const hasAnyExtractedItems = items.some((item) => item.included);
-  const hasAnySavedVisitDishes = visitDishes.length > 0;
-  const hasSavedPersonalExperience = Boolean(
-    currentUserId && visitDishes.some((entry) => entry.user_id === currentUserId),
-  );
+  const hasAnyExtractedItems = dishes.length > 0;
   const showExtractionPrompt = Boolean(isHost && upload && !hasAnyExtractedItems);
-
-  const reviewRows = useMemo<ReviewRenderRow[]>(() => {
-    const buckets = new Map<string, number[]>();
-
-    items.forEach((item, index) => {
-      const key = getReviewGroupKey(item, upload?.currency_detected ?? null);
-      const existing = buckets.get(key);
-      if (existing) {
-        existing.push(index);
-      } else {
-        buckets.set(key, [index]);
-      }
-    });
-
-    const rows: ReviewRenderRow[] = [];
-    buckets.forEach((indexes, key) => {
-      const shouldSplit = splitGroupKeys[key];
-      if (indexes.length <= 1 || shouldSplit) {
-        indexes.forEach((itemIndex) => {
-          rows.push({
-            key: `${key}-${itemIndex}`,
-            baseGroupKey: key,
-            itemIndexes: [itemIndex],
-            quantity: Math.max(1, items[itemIndex].quantity ?? 1),
-            split: shouldSplit,
-          });
-        });
-        return;
-      }
-
-      const totalQty = indexes.reduce((sum, itemIndex) => sum + Math.max(1, items[itemIndex].quantity ?? 1), 0);
-      rows.push({ key, baseGroupKey: key, itemIndexes: indexes, quantity: totalQty, split: false });
-    });
-
-    return rows;
-  }, [items, splitGroupKeys, upload?.currency_detected]);
 
   const getAuthHeader = useCallback(async (): Promise<Record<string, string>> => {
     const supabase = getBrowserSupabaseClient();
@@ -278,39 +202,11 @@ export default function UploadDetailPage() {
     setSelectedHangoutPhotoId((prev) => prev ?? photos[0]?.id ?? null);
   }, [getAuthHeader, uploadId]);
 
-  const loadDishPhotos = useCallback(
-    async (dishEntryIds: string[]) => {
-      if (dishEntryIds.length === 0) {
-        setDishPhotoByEntryId({});
-        return;
-      }
-
-      const headers = await getAuthHeader();
-      const response = await fetch(`/api/photos/list?kind=dish&dish_entry_ids=${encodeURIComponent(dishEntryIds.join(','))}`, { headers });
-
-      if (!response.ok) {
-        setDishPhotoByEntryId({});
-        return;
-      }
-
-      const payload = (await response.json()) as { photos?: SignedPhoto[] };
-      const map: Record<string, SignedPhoto> = {};
-      for (const photo of payload.photos ?? []) {
-        if (!photo.dish_entry_id) continue;
-        if (!map[photo.dish_entry_id]) {
-          map[photo.dish_entry_id] = photo;
-        }
-      }
-      setDishPhotoByEntryId(map);
-    },
-    [getAuthHeader],
-  );
-
   const uploadPhoto = useCallback(
-    async (file: File, kind: 'hangout' | 'dish', targetId: string) => {
-      setPhotoUploadLoading(`${kind}:${targetId}`);
+    async (file: File, targetId: string) => {
+      setPhotoUploadLoading(`hangout:${targetId}`);
       try {
-        const storageOriginal = await uploadOriginalPhotoDirect({ file, kind });
+        const storageOriginal = await uploadOriginalPhotoDirect({ file, kind: 'hangout' });
         const headers = {
           'Content-Type': 'application/json',
           ...(await getAuthHeader()),
@@ -320,9 +216,9 @@ export default function UploadDetailPage() {
           method: 'POST',
           headers,
           body: JSON.stringify({
-            kind,
-            hangout_id: kind === 'hangout' ? targetId : null,
-            dish_entry_id: kind === 'dish' ? targetId : null,
+            kind: 'hangout',
+            hangout_id: targetId,
+            dish_entry_id: null,
             storage_original: storageOriginal,
           }),
         });
@@ -332,12 +228,11 @@ export default function UploadDetailPage() {
         }
 
         await loadHangoutPhotos();
-        await loadDishPhotos(visitDishes.map((dish) => dish.id));
       } finally {
         setPhotoUploadLoading(null);
       }
     },
-    [getAuthHeader, loadDishPhotos, loadHangoutPhotos, visitDishes],
+    [getAuthHeader, loadHangoutPhotos],
   );
 
   const openHangoutViewer = useCallback(() => {
@@ -363,100 +258,54 @@ export default function UploadDetailPage() {
 
     if (!typedUpload || !user) {
       setRestaurant(null);
-      setItems([]);
-      setVisitDishes([]);
-      setPersonalDrafts([]);
+      setDishes([]);
       setVisitNote('');
       setParticipants([]);
       return;
     }
 
-    const [itemData, dishData, personalEntryData, restaurantData] = await Promise.all([
-      supabase.from('extracted_line_items').select('*').eq('upload_id', uploadId),
+    const [hangoutItemsResult, myDishEntriesResult, restaurantData] = await Promise.all([
+      supabase
+        .from('hangout_items')
+        .select('*')
+        .eq('hangout_id', uploadId)
+        .eq('included', true)
+        .order('created_at', { ascending: true }),
       supabase
         .from('dish_entries')
-        .select('id,user_id,dish_name,dish_key,identity_tag,comment,created_at,eaten_at')
-        .eq('source_upload_id', uploadId)
-        .order('eaten_at', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('dish_entries')
-        .select('dish_name,dish_key,identity_tag,comment,had_it,price_original,quantity')
-        .eq('source_upload_id', uploadId)
+        .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
+        .eq('hangout_id', uploadId)
         .eq('user_id', user.id),
       typedUpload.restaurant_id
         ? supabase.from('restaurants').select('id,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync').eq('id', typedUpload.restaurant_id).single()
         : Promise.resolve({ data: null }),
     ]);
 
-    const typedItems = (itemData.data ?? []) as ExtractedLineItem[];
-    const typedVisitDishes = (dishData.data ?? []) as VisitDish[];
-    const personalEntries = (personalEntryData.data ?? []) as Array<
-      Pick<DishEntry, 'dish_name' | 'dish_key' | 'identity_tag' | 'comment' | 'had_it' | 'price_original' | 'quantity'>
+    const hangoutItems = (hangoutItemsResult.data ?? []) as HangoutItem[];
+    const myEntries = (myDishEntriesResult.data ?? []) as Array<
+      Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>
     >;
 
-    const restaurantName = (restaurantData.data as RestaurantDirectory | null)?.name ?? 'unknown-restaurant';
+    const byItemId = new Map<string, Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>>();
+    const byName = new Map<string, Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>>();
 
-    const baseDishMap = new Map<string, { dish_name: string; dish_key: string; price: number | null; quantity: number }>();
-    typedItems
-      .filter((item) => item.included)
-      .forEach((item) => {
-        const dishName = item.name_final || item.name_raw;
-        const dishKey = toDishKey(`${restaurantName} ${dishName}`);
-        const quantity = Math.max(1, item.quantity ?? 1);
-        const existing = baseDishMap.get(dishKey);
+    for (const entry of myEntries) {
+      if (entry.hangout_item_id) {
+        byItemId.set(entry.hangout_item_id, entry);
+      } else {
+        const key = normalizeDish(entry.dish_name);
+        if (!byName.has(key)) byName.set(key, entry);
+      }
+    }
 
-        if (!existing) {
-          baseDishMap.set(dishKey, {
-            dish_name: dishName,
-            dish_key: dishKey,
-            price: item.unit_price ?? item.price_final,
-            quantity,
-          });
-          return;
-        }
-
-        existing.quantity += quantity;
-      });
-
-    const fallbackFromVisitDishes = typedVisitDishes
-      .filter((dish) => dish.user_id === typedUpload.user_id)
-      .map((dish) => ({
-        dish_name: dish.dish_name,
-        dish_key: dish.dish_key,
-        price: null as number | null,
-        quantity: 1,
-      }));
-
-    const mergedBase = baseDishMap.size > 0 ? Array.from(baseDishMap.values()) : fallbackFromVisitDishes;
-
-    const drafts: PersonalDishDraft[] = mergedBase.map((base) => {
-      const existing = personalEntries.find((entry) => entry.dish_key === base.dish_key);
-      return {
-        dish_key: base.dish_key,
-        dish_name: base.dish_name,
-        price: existing?.price_original ?? base.price,
-        quantity: existing?.quantity ?? base.quantity,
-        identity_tag: existing?.identity_tag ?? null,
-        comment: existing?.comment ?? '',
-        had_it: existing?.had_it ?? true,
-      };
+    const unifiedRows: UnifiedDishRow[] = hangoutItems.map((hangoutItem) => {
+      const direct = byItemId.get(hangoutItem.id) ?? null;
+      if (direct) return { hangoutItem, myEntry: direct };
+      const key = normalizeDish(hangoutItem.name_final || hangoutItem.name_raw);
+      return { hangoutItem, myEntry: byName.get(key) ?? null };
     });
 
-    setSplitGroupKeys({});
-    setItems(
-      typedItems.map((item) => ({
-        ...item,
-        quantity: item.quantity ?? 1,
-        unit_price: item.unit_price ?? item.price_final,
-        grouped: item.grouped ?? false,
-        group_key: item.group_key ?? null,
-        duplicate_of: item.duplicate_of ?? null,
-        identity_tag: null,
-      })),
-    );
-    setVisitDishes(typedVisitDishes);
-    setPersonalDrafts(drafts);
+    setDishes(unifiedRows);
     setRestaurant((restaurantData.data ?? null) as RestaurantDirectory | null);
     setVisitNote(typedUpload.visit_note ?? '');
 
@@ -470,8 +319,7 @@ export default function UploadDetailPage() {
   useEffect(() => {
     if (!upload) return;
     void loadHangoutPhotos();
-    void loadDishPhotos(visitDishes.map((dish) => dish.id));
-  }, [loadDishPhotos, loadHangoutPhotos, upload, visitDishes]);
+  }, [loadHangoutPhotos, upload]);
 
 
   useEffect(() => {
@@ -550,131 +398,61 @@ export default function UploadDetailPage() {
     if (didAutoExtractRef.current) return;
     if (!isHost || !upload) return;
     if (!upload.image_paths || upload.image_paths.length === 0) return;
-    if (hasAnyExtractedItems || hasAnySavedVisitDishes) return;
+    if (hasAnyExtractedItems) return;
 
     didAutoExtractRef.current = true;
     void runExtraction();
-  }, [hasAnyExtractedItems, hasAnySavedVisitDishes, isHost, runExtraction, upload]);
+  }, [hasAnyExtractedItems, isHost, runExtraction, upload]);
 
-  const approve = async () => {
-    if (saving) return;
-    setSaving(true);
+  const upsertMyDishEntry = useCallback(
+    async (row: UnifiedDishRow, patch: { identity_tag?: DishIdentityTag | null; comment?: string }) => {
+      if (!upload || !currentUserId) return;
 
-    try {
-      const supabase = getBrowserSupabaseClient();
-      const persisted = items.filter((item) => !item.id.startsWith('tmp-'));
-      const unsaved = items.filter((item) => item.id.startsWith('tmp-'));
+      const dishName = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+      const dishKey = toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`);
+      const nextIdentity = patch.identity_tag !== undefined ? patch.identity_tag : row.myEntry?.identity_tag ?? null;
+      const nextComment = patch.comment !== undefined ? patch.comment : row.myEntry?.comment ?? null;
 
-      await supabase
-        .from('receipt_uploads')
-        .update({
-          visit_note: visitNote.trim() ? visitNote.trim() : null,
-        })
-        .eq('id', uploadId);
-
-      const insertedReviewItems: ReviewItem[] = [];
-      for (const item of unsaved) {
-        const { data: inserted, error } = await supabase
-          .from('extracted_line_items')
-          .insert({
-            upload_id: uploadId,
-            name_raw: item.name_final ?? item.name_raw,
-            name_final: item.name_final,
-            price_raw: item.price_final,
-            price_final: item.price_final,
-            confidence: item.confidence,
-        included: item.included,
-        quantity: item.quantity,
-        unit_price: item.unit_price ?? item.price_final,
-        group_key: item.group_key,
-        grouped: item.grouped,
-        duplicate_of: item.duplicate_of,
-        comment: item.comment,
-          })
-          .select('*')
-          .single();
-
-        if (error) throw error;
-        insertedReviewItems.push({ ...(inserted as ExtractedLineItem), identity_tag: item.identity_tag });
-      }
-
-      await Promise.all(
-        persisted.map((item) =>
-          supabase
-            .from('extracted_line_items')
-            .update({
-              name_final: item.name_final,
-              price_final: item.price_final,
-              quantity: item.quantity,
-              unit_price: item.unit_price ?? item.price_final,
-              group_key: item.group_key,
-              grouped: item.grouped,
-              duplicate_of: item.duplicate_of,
-              included: item.included,
-              comment: item.comment,
-            })
-            .eq('id', item.id),
-        ),
-      );
-
-      const finalItems = [...persisted, ...insertedReviewItems];
-
-      const approveResponse = await fetch('/api/approve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          uploadId,
-          identities: finalItems.map((item) => ({
-            lineItemId: item.id,
-            identityTag: item.identity_tag,
-          })),
-        }),
-      });
-
-      if (!approveResponse.ok) {
-        throw new Error('Could not save dishes for this hangout.');
-      }
-
-      await load();
-      router.refresh();
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const saveExperience = async () => {
-    if (!upload || !currentUserId || personalDrafts.length === 0) return;
-
-    setSavingExperience(true);
-
-    try {
-      const supabase = getBrowserSupabaseClient();
-      const rows = personalDrafts.map((dish) => ({
+      const payload = {
         user_id: currentUserId,
         restaurant_id: upload.restaurant_id,
-        dish_name: dish.dish_name,
-        price_original: dish.price,
+        hangout_id: upload.id,
+        hangout_item_id: row.hangoutItem.id,
+        dish_name: dishName,
+        price_original: row.hangoutItem.unit_price,
         currency_original: upload.currency_detected || 'USD',
-        price_usd: dish.price,
-        quantity: dish.quantity,
+        price_usd: row.hangoutItem.unit_price,
+        quantity: row.hangoutItem.quantity,
         eaten_at: upload.visited_at ?? upload.created_at,
         source_upload_id: upload.id,
-        dish_key: dish.dish_key,
-        identity_tag: dish.identity_tag,
-        comment: dish.comment.trim() || null,
-        had_it: dish.had_it,
-      }));
+        dish_key: dishKey,
+        identity_tag: nextIdentity,
+        comment: nextComment?.trim() ? nextComment.trim() : null,
+      };
 
-      await supabase.from('dish_entries').upsert(rows, {
-        onConflict: 'user_id,source_upload_id,dish_key',
-      });
+      const supabase = getBrowserSupabaseClient();
+      const { data, error } = await supabase
+        .from('dish_entries')
+        .upsert(payload, { onConflict: 'user_id,hangout_item_id' })
+        .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
+        .single();
 
-      await load();
-      router.refresh();
-    } finally {
-      setSavingExperience(false);
-    }
-  };
+      if (error || !data) return;
+
+      const saved = data as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
+      setDishes((prev) =>
+        prev.map((entry) =>
+          entry.hangoutItem.id === row.hangoutItem.id
+            ? {
+                ...entry,
+                myEntry: saved,
+              }
+            : entry,
+        ),
+      );
+    },
+    [currentUserId, restaurant?.name, upload],
+  );
 
   const addParticipant = async () => {
     const email = shareEmail.trim().toLowerCase();
@@ -749,10 +527,8 @@ export default function UploadDetailPage() {
 
   const visitDate = formatDate(upload.visited_at ?? upload.created_at);
   const isSharedVisit = Boolean(upload.is_shared);
-  const isReviewable = isHost;
   const showHostShareSection = isHost && isSharedVisit;
-  const showStandaloneExperience = isSharedVisit && (!isHost || !isReviewable) && !hasSavedPersonalExperience;
-  const visibleReviewRows = reviewRows.filter((row) => row.itemIndexes.some((itemIndex) => items[itemIndex].included));
+  const visibleDishes = dishes;
   const withNames = participants
     .filter((participant) => participant.status === 'active')
     .map((participant) => participant.display_name ?? 'Buddy');
@@ -841,7 +617,7 @@ export default function UploadDetailPage() {
           onChange={(event) => {
             const file = event.target.files?.[0];
             if (file && upload?.id) {
-              void uploadPhoto(file, 'hangout', upload.id);
+              void uploadPhoto(file, upload.id);
             }
             event.currentTarget.value = '';
           }}
@@ -854,7 +630,7 @@ export default function UploadDetailPage() {
           onChange={(event) => {
             const file = event.target.files?.[0];
             if (file && upload?.id) {
-              void uploadPhoto(file, 'hangout', upload.id);
+              void uploadPhoto(file, upload.id);
             }
             event.currentTarget.value = '';
           }}
@@ -963,204 +739,120 @@ export default function UploadDetailPage() {
         </div>
       )}
 
-      {(isReviewable || showStandaloneExperience) && (
-        <div className="card-surface p-3 space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="section-label">Dishes</h2>
-            {isHost &&
-              (showExtractionPrompt ? (
-                <Button type="button" onClick={runExtraction}>
-                  Scan receipt
-                </Button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => void runExtraction()}
-                  className="inline-flex h-11 items-center text-xs font-medium text-app-link underline underline-offset-2"
-                >
-                  Re-scan receipt
-                </button>
-              ))}
-          </div>
+      <div className="card-surface p-3 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="section-label">Dishes</h2>
+          {isHost &&
+            (showExtractionPrompt ? (
+              <Button type="button" onClick={runExtraction}>
+                Scan receipt
+              </Button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void runExtraction()}
+                className="inline-flex h-11 items-center text-xs font-medium text-app-link underline underline-offset-2"
+              >
+                Re-scan receipt
+              </button>
+            ))}
+        </div>
 
-          {isReviewable && visibleReviewRows.length > 0 ? (
-            <div className="divide-y divide-app-border/60">
-              {visibleReviewRows.map((row) => {
-                const firstIndex = row.itemIndexes[0];
-                const firstItem = items[firstIndex];
-                const dishName = firstItem.name_final || firstItem.name_raw;
-                const draftDishKey = toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`);
-                const draftIndex = personalDrafts.findIndex((entry) => entry.dish_key === draftDishKey);
-                const noteOpen = openItemNotes[row.key] || Boolean(firstItem.comment);
-                const identityValue = row.itemIndexes.map((itemIndex) => items[itemIndex].identity_tag).find((value) => value != null) ?? null;
-                const unitPrice = firstItem.unit_price ?? firstItem.price_final;
-                const isNeverAgain = identityValue === 'never_again';
+        {visibleDishes.length === 0 ? (
+          <p className="text-sm text-app-muted">No dishes yet. Scan the receipt to start your recap.</p>
+        ) : (
+          <div className="divide-y divide-app-border/60">
+            {visibleDishes.map((row) => {
+              const dishName = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+              const quantity = Math.max(1, row.hangoutItem.quantity ?? 1);
+              const unitPrice = row.hangoutItem.unit_price;
+              const noteOpen = openItemNotes[row.hangoutItem.id] || Boolean(row.myEntry?.comment);
+              const identityValue = row.myEntry?.identity_tag ?? null;
+              const isNeverAgain = identityValue === 'never_again';
 
-                return (
-                  <div key={row.key} className={`space-y-1.5 p-2 ${isNeverAgain ? 'opacity-60' : ''}`}>
-                    <div className="flex min-h-11 items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className={`truncate text-sm font-semibold leading-5 text-app-text ${isNeverAgain ? 'line-through' : ''}`}>
-                          {dishName}
-                          {row.quantity > 1 ? ` ×${row.quantity}` : ''}
-                        </p>
-                      </div>
-                      <p className="text-sm font-medium leading-5 text-app-text">{formatPrice(unitPrice)}</p>
+              return (
+                <div key={row.hangoutItem.id} className={`space-y-1.5 p-2 ${isNeverAgain ? 'opacity-60' : ''}`}>
+                  <div className="flex min-h-11 items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className={`truncate text-sm font-semibold leading-5 text-app-text ${isNeverAgain ? 'line-through' : ''}`}>
+                        {dishName}
+                        {quantity > 1 ? ` ×${quantity}` : ''}
+                      </p>
                     </div>
-
-                    <EmojiRatingSelector
-                      value={identityValue}
-                      onChange={(value) => {
-                        setItems((prev) =>
-                          prev.map((entry, itemIndex) =>
-                            row.itemIndexes.includes(itemIndex) ? { ...entry, identity_tag: value } : entry,
-                          ),
-                        );
-
-                        if (isSharedVisit && draftIndex >= 0) {
-                          setPersonalDrafts((prev) =>
-                            prev.map((entry, i) =>
-                              i === draftIndex
-                                ? {
-                                    ...entry,
-                                    identity_tag: value,
-                                  }
-                                : entry,
-                            ),
-                          );
-                        }
-                      }}
-                    />
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setOpenItemNotes((prev) => ({
-                          ...prev,
-                          [row.key]: !noteOpen,
-                        }))
-                      }
-                      className="inline-flex h-11 items-center text-xs font-medium text-app-link underline underline-offset-2"
-                    >
-                      {noteOpen ? 'Hide note' : 'Add note…'}
-                    </button>
-
-                    {noteOpen && (
-                      <Input
-                        value={firstItem.comment ?? ''}
-                        maxLength={140}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          setItems((prev) =>
-                            prev.map((entry, itemIndex) =>
-                              row.itemIndexes.includes(itemIndex) ? { ...entry, comment: value } : entry,
-                            ),
-                          );
-
-                          if (draftIndex >= 0) {
-                            setPersonalDrafts((prev) =>
-                              prev.map((entry, i) =>
-                                i === draftIndex
-                                  ? {
-                                      ...entry,
-                                      comment: value,
-                                    }
-                                  : entry,
-                              ),
-                            );
-                          }
-                        }}
-                        placeholder="Optional note"
-                      />
-                    )}
+                    <p className="text-sm font-medium leading-5 text-app-text">{formatPrice(unitPrice)}</p>
                   </div>
-                );
-              })}
-            </div>
-          ) : showStandaloneExperience && personalDrafts.length > 0 ? (
-            <div className="divide-y divide-app-border/60">
-              {personalDrafts.map((dish, index) => {
-                const noteOpen = openItemNotes[dish.dish_key] || Boolean(dish.comment);
-                const isNeverAgain = dish.identity_tag === 'never_again';
-                return (
-                  <div key={dish.dish_key} className={`space-y-1.5 p-2 ${isNeverAgain ? 'opacity-60' : ''}`}>
-                    <div className="flex min-h-11 items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className={`truncate text-sm font-semibold leading-5 text-app-text ${isNeverAgain ? 'line-through' : ''}`}>
-                          {dish.dish_name}
-                          {dish.quantity > 1 ? ` ×${dish.quantity}` : ''}
-                        </p>
-                      </div>
-                      <p className="text-sm font-medium leading-5 text-app-text">{formatPrice(dish.price)}</p>
-                    </div>
 
-                    <EmojiRatingSelector
-                      value={dish.identity_tag}
-                      onChange={(value) =>
-                        setPersonalDrafts((prev) =>
-                          prev.map((entry, i) =>
-                            i === index
+                  <EmojiRatingSelector
+                    value={identityValue}
+                    onChange={(value) => {
+                      setDishes((prev) =>
+                        prev.map((entry) =>
+                          entry.hangoutItem.id === row.hangoutItem.id
+                            ? {
+                                ...entry,
+                                myEntry: {
+                                  id: entry.myEntry?.id ?? `tmp-${entry.hangoutItem.id}`,
+                                  hangout_item_id: entry.hangoutItem.id,
+                                  dish_name: dishName,
+                                  dish_key: entry.myEntry?.dish_key ?? toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`),
+                                  identity_tag: value,
+                                  comment: entry.myEntry?.comment ?? null,
+                                },
+                              }
+                            : entry,
+                        ),
+                      );
+                      void upsertMyDishEntry(row, { identity_tag: value });
+                    }}
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setOpenItemNotes((prev) => ({
+                        ...prev,
+                        [row.hangoutItem.id]: !noteOpen,
+                      }))
+                    }
+                    className="inline-flex h-11 items-center text-xs font-medium text-app-link underline underline-offset-2"
+                  >
+                    {noteOpen ? 'Hide note' : 'Add note…'}
+                  </button>
+
+                  {noteOpen && (
+                    <Input
+                      value={row.myEntry?.comment ?? ''}
+                      maxLength={140}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setDishes((prev) =>
+                          prev.map((entry) =>
+                            entry.hangoutItem.id === row.hangoutItem.id
                               ? {
                                   ...entry,
-                                  identity_tag: value,
+                                  myEntry: {
+                                    id: entry.myEntry?.id ?? `tmp-${entry.hangoutItem.id}`,
+                                    hangout_item_id: entry.hangoutItem.id,
+                                    dish_name: dishName,
+                                    dish_key: entry.myEntry?.dish_key ?? toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`),
+                                    identity_tag: entry.myEntry?.identity_tag ?? null,
+                                    comment: value,
+                                  },
                                 }
                               : entry,
                           ),
-                        )
-                      }
+                        );
+                        void upsertMyDishEntry(row, { comment: value });
+                      }}
+                      placeholder="Add note…"
                     />
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setOpenItemNotes((prev) => ({
-                          ...prev,
-                          [dish.dish_key]: !noteOpen,
-                        }))
-                      }
-                      className="inline-flex h-11 items-center text-xs font-medium text-app-link underline underline-offset-2"
-                    >
-                      {noteOpen ? 'Hide note' : 'Add note…'}
-                    </button>
-
-                    {noteOpen && (
-                      <Input
-                        value={dish.comment}
-                        onChange={(event) =>
-                          setPersonalDrafts((prev) =>
-                            prev.map((entry, i) =>
-                              i === index
-                                ? {
-                                    ...entry,
-                                    comment: event.target.value,
-                                  }
-                                : entry,
-                            ),
-                          )
-                        }
-                        placeholder="Optional note"
-                        maxLength={140}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-sm text-app-muted">No dishes yet. Scan the receipt to start your recap.</p>
-          )}
-
-          {isReviewable ? (
-            <Button type="button" onClick={approve} disabled={saving}>
-              {saving ? 'Saving...' : 'Save'}
-            </Button>
-          ) : showStandaloneExperience ? (
-            <Button type="button" onClick={saveExperience} disabled={savingExperience}>
-              {savingExperience ? 'Saving...' : 'Save your experience'}
-            </Button>
-          ) : null}
-        </div>
-      )}
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {isHost && (
         <div className="card-surface p-3 space-y-2">
@@ -1175,78 +867,9 @@ export default function UploadDetailPage() {
         </div>
       )}
 
-      {visitDishes.length > 0 && (
-        <div className="card-surface p-3 space-y-2">
-          <h2 className="section-label">Hangout dishes (saved)</h2>
-
-          <input
-            ref={dishUploadInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file && dishUploadTargetId) {
-                void uploadPhoto(file, 'dish', dishUploadTargetId);
-              }
-              event.currentTarget.value = '';
-              setDishUploadTargetId(null);
-            }}
-          />
-
-          {visitDishes.map((dish) => {
-            const dishPhoto = dishPhotoByEntryId[dish.id];
-            return (
-              <Link key={dish.id} href={`/dishes/${dish.dish_key}`} className="rounded-xl border border-app-border bg-app-card p-3 block">
-                <div className="mb-2 flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                    {dishPhoto?.signedUrls.thumb ? (
-                      <Image
-                        src={dishPhoto.signedUrls.thumb}
-                        alt={`${dish.dish_name} photo`}
-                        width={64}
-                        height={64}
-                        className="h-14 w-14 rounded-lg object-cover"
-                        unoptimized
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.preventDefault();
-                          setDishUploadTargetId(dish.id);
-                          dishUploadInputRef.current?.click();
-                        }}
-                        className="inline-flex h-14 w-14 items-center justify-center rounded-lg border border-dashed border-app-border text-[11px] text-app-muted"
-                      >
-                        {photoUploadLoading === `dish:${dish.id}` ? '...' : 'Add pic'}
-                      </button>
-                    )}
-                    <div>
-                      <p className="text-sm font-semibold leading-5 text-app-text">{dish.dish_name}</p>
-                      <p className="text-xs leading-4 text-app-muted">{formatDate(dish.eaten_at ?? dish.created_at)}</p>
-                    </div>
-                  </div>
-                  <IdentityTagPill tag={dish.identity_tag} />
-                </div>
-                {dish.comment && <p className="text-xs leading-4 text-app-muted">{dish.comment}</p>}
-              </Link>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
 
 
 
