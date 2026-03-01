@@ -186,8 +186,5 @@ export async function POST(request: Request) {
     });
   }
 
-  await supabase.from('receipt_uploads').update({ status: 'approved' }).eq('id', body.uploadId);
-
   return NextResponse.json({ ok: true });
 }
-

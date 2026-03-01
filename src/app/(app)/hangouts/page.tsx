@@ -4,19 +4,16 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { FilterChips } from '@/components/FilterChips';
-import { StatusChip } from '@/components/StatusChip';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { ReceiptUpload, ReceiptUploadStatus, Restaurant, VisitParticipant } from '@/lib/supabase/types';
+import { ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
 import { getGoogleMapsLink } from '@/lib/google/mapsLinks';
 
 const LIST_LIMIT = 30;
 
-const ACTIVITY_FILTER_OPTIONS: Array<{ label: string; value: 'all' | ReceiptUploadStatus }> = [
+const ACTIVITY_FILTER_OPTIONS: Array<{ label: string; value: 'all' | 'mine' | 'with_me' }> = [
   { label: 'All', value: 'all' },
-  { label: 'Needs review', value: 'needs_review' },
-  { label: 'Approved', value: 'approved' },
-  { label: 'Processing', value: 'processing' },
-  { label: 'Failed', value: 'failed' },
+  { label: 'Mine', value: 'mine' },
+  { label: 'With me', value: 'with_me' },
 ];
 
 type RestaurantLookup = {
@@ -47,7 +44,7 @@ export default function HangoutsPage() {
 
   const [visits, setVisits] = useState<ReceiptUpload[]>([]);
   const [restaurantsById, setRestaurantsById] = useState<Record<string, RestaurantLookup>>({});
-  const [activityFilter, setActivityFilter] = useState<'all' | ReceiptUploadStatus>('all');
+  const [activityFilter, setActivityFilter] = useState<'all' | 'mine' | 'with_me'>('all');
 
   useEffect(() => {
     const load = async () => {
@@ -64,15 +61,11 @@ export default function HangoutsPage() {
 
       let ownVisitQuery = supabase
         .from('receipt_uploads')
-        .select('id,user_id,restaurant_id,status,visited_at,created_at,visit_note')
+        .select('id,user_id,restaurant_id,status,is_shared,visited_at,created_at,visit_note')
         .eq('user_id', user.id)
         .order('visited_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false })
         .limit(LIST_LIMIT);
-
-      if (activityFilter !== 'all') {
-        ownVisitQuery = ownVisitQuery.eq('status', activityFilter);
-      }
 
       if (restaurantParam) {
         ownVisitQuery = ownVisitQuery.eq('restaurant_id', restaurantParam);
@@ -96,15 +89,11 @@ export default function HangoutsPage() {
       if (participantVisitIds.length > 0) {
         let sharedVisitQuery = supabase
           .from('receipt_uploads')
-          .select('id,user_id,restaurant_id,status,visited_at,created_at,visit_note')
+          .select('id,user_id,restaurant_id,status,is_shared,visited_at,created_at,visit_note')
           .in('id', participantVisitIds)
           .order('visited_at', { ascending: false, nullsFirst: false })
           .order('created_at', { ascending: false })
           .limit(LIST_LIMIT);
-
-        if (activityFilter !== 'all') {
-          sharedVisitQuery = sharedVisitQuery.eq('status', activityFilter);
-        }
 
         if (restaurantParam) {
           sharedVisitQuery = sharedVisitQuery.eq('restaurant_id', restaurantParam);
@@ -114,9 +103,15 @@ export default function HangoutsPage() {
         sharedVisitRows = (sharedRows ?? []) as ReceiptUpload[];
       }
 
-      const mergedVisits = [...((ownVisitRows ?? []) as ReceiptUpload[]), ...sharedVisitRows]
+      let mergedVisits = [...((ownVisitRows ?? []) as ReceiptUpload[]), ...sharedVisitRows]
         .filter((row, index, self) => self.findIndex((entry) => entry.id === row.id) === index)
         .sort(sortByVisitDateDesc);
+      if (activityFilter === 'mine') {
+        mergedVisits = mergedVisits.filter((row) => row.user_id === user.id);
+      }
+      if (activityFilter === 'with_me') {
+        mergedVisits = mergedVisits.filter((row) => row.user_id !== user.id);
+      }
 
       const restaurantIds = Array.from(new Set(mergedVisits.map((row) => row.restaurant_id).filter((id): id is string => Boolean(id))));
 
@@ -155,6 +150,7 @@ export default function HangoutsPage() {
         restaurantName,
         address,
         placeId,
+        sharedLabel: visit.is_shared ? 'With crew' : 'Solo',
         dateLabel: formatDate(visit.visited_at ?? visit.created_at),
         directionsHref: getGoogleMapsLink(placeId, address, restaurantName),
       };
@@ -186,7 +182,7 @@ export default function HangoutsPage() {
               <Link key={visit.id} href={`/uploads/${visit.id}`} className="block px-3 py-3">
                 <div className="mb-1 flex items-center justify-between gap-3">
                   <p className="font-medium text-app-text">{visit.restaurantName}</p>
-                  <StatusChip status={visit.status} />
+                  <p className="text-xs text-app-muted">{visit.sharedLabel}</p>
                 </div>
                 {visit.address && <p className="text-xs text-app-muted">{visit.address}</p>}
                 <p className="text-xs text-app-muted">{visit.dateLabel}</p>
@@ -198,7 +194,6 @@ export default function HangoutsPage() {
     </div>
   );
 }
-
 
 
 
