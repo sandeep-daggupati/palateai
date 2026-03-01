@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { authorizeRequest } from '@/lib/api/auth';
 import { getServiceSupabaseClient } from '@/lib/supabase/server';
-import { Photo } from '@/lib/supabase/types';
+import { Photo, Database } from '@/lib/supabase/types';
+import { createClient } from '@supabase/supabase-js';
 
 const STORAGE_BUCKET = 'uploads';
 
@@ -27,10 +28,21 @@ export async function GET(request: Request) {
 
   const supabase = getServiceSupabaseClient();
 
-  let query = supabase
+  const userClient = createClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    {
+      global: {
+        headers: {
+          Authorization: `Bearer ${auth.token}`,
+        },
+      },
+    }
+  );
+
+  let query = userClient
     .from('photos')
     .select('id,user_id,kind,hangout_id,dish_entry_id,storage_original,storage_medium,storage_thumb,created_at')
-    .eq('user_id', auth.userId)
     .eq('kind', kind)
     .order('created_at', { ascending: false });
 
