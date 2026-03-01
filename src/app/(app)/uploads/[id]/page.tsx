@@ -123,9 +123,7 @@ function IdentitySelector({
   onChange: (value: DishIdentityTag | null) => void;
 }) {
   return (
-    <div className="space-y-2">
-      <p className="section-label">Identity</p>
-      <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-2">
         {identityTagOptions().map((option) => {
           const active = option.value === value;
           return (
@@ -133,6 +131,7 @@ function IdentitySelector({
               key={option.value}
               type="button"
               onClick={() => onChange(active ? null : option.value)}
+              aria-label={`Set identity to ${option.value.replace('_', ' ')}`}
               className={`inline-flex h-10 items-center gap-1 rounded-full border px-3 text-xs font-semibold tracking-wide transition-colors duration-200 ${
                 active
                   ? option.value === 'never_again'
@@ -145,7 +144,6 @@ function IdentitySelector({
             </button>
           );
         })}
-      </div>
     </div>
   );
 }
@@ -827,29 +825,16 @@ export default function UploadDetailPage() {
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-xl font-semibold text-app-text">Hangout recap</h1>
           <StatusChip status={upload.status} />
-        </div>        <p className="text-base text-app-text">{restaurant?.name ?? 'Unknown restaurant'}</p>
-        {restaurant?.address && directionsHref ? (
-          <a href={directionsHref} target="_blank" rel="noreferrer" className="text-sm text-app-link underline-offset-2 hover:underline">
-            {restaurant.address}
-          </a>
-        ) : restaurant?.address ? (
-          <p className="text-sm text-app-muted">{restaurant.address}</p>
-        ) : null}
+        </div>
+        <p className="text-base text-app-text">{restaurant?.name ?? 'Unknown restaurant'}</p>
         <p className="text-sm text-app-muted">{visitDate}</p>
         {visitNote && <p className="text-sm text-app-text">{visitNote}</p>}
 
-        <div className="rounded-xl border border-app-border bg-app-card p-3 space-y-2">
-          <p className="section-label">Place</p>
+        <div className="rounded-xl border border-app-border bg-app-card p-3 space-y-3">
           {restaurant?.address ? (
-            directionsHref ? (
-              <a href={directionsHref} target="_blank" rel="noreferrer" className="text-sm text-app-link underline-offset-2 hover:underline">
-                {restaurant.address}
-              </a>
-            ) : (
-              <p className="text-sm text-app-muted">{restaurant.address}</p>
-            )
+            <p className="text-sm text-app-muted">📍 {restaurant.address}</p>
           ) : (
-            <p className="text-sm text-app-muted">Address not available.</p>
+            <p className="text-sm text-app-muted">📍 Address not available.</p>
           )}
 
           <div className="flex flex-wrap gap-2">
@@ -858,17 +843,19 @@ export default function UploadDetailPage() {
                 href={directionsHref}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-10 items-center rounded-xl border border-app-border bg-app-card px-3 text-sm font-medium text-app-text"
+                aria-label="Open directions"
+                className="inline-flex h-10 items-center justify-center rounded-xl border border-app-border bg-app-card px-3 text-base"
               >
-                Directions
+                🧭
               </a>
             )}
             {restaurant?.phone_number && (
               <a
                 href={`tel:${restaurant.phone_number}`}
-                className="inline-flex h-10 items-center rounded-xl border border-app-border bg-app-card px-3 text-sm font-medium text-app-text"
+                aria-label="Call restaurant"
+                className="inline-flex h-10 items-center justify-center rounded-xl border border-app-border bg-app-card px-3 text-base"
               >
-                Call
+                📞
               </a>
             )}
             {restaurant?.website && (
@@ -876,24 +863,24 @@ export default function UploadDetailPage() {
                 href={restaurant.website}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-10 items-center rounded-xl border border-app-border bg-app-card px-3 text-sm font-medium text-app-text"
+                aria-label="Open website"
+                className="inline-flex h-10 items-center justify-center rounded-xl border border-app-border bg-app-card px-3 text-base"
               >
-                Website
+                🌐
               </a>
             )}
           </div>
 
-          {openNow === true && <p className="text-sm text-emerald-700 dark:text-emerald-300">Open now</p>}
-          {openNow === false && <p className="text-sm text-app-muted">Closed now</p>}
+          {openNow === true && <p className="text-sm text-emerald-700 dark:text-emerald-300">🟢 Open now</p>}
+          {openNow === false && <p className="text-sm text-app-muted">🔴 Closed now</p>}
           {todayHours ? (
-            <p className="text-sm text-app-muted">{todayHours}</p>
+            <p className="text-sm text-app-muted">🕒 {todayHours}</p>
           ) : placeSyncLoading ? (
-            <p className="text-sm text-app-muted">Syncing hours...</p>
+            <p className="text-sm text-app-muted">🕒 Syncing hours...</p>
           ) : (
-            <p className="text-sm text-app-muted">Hours not available yet.</p>
+            <p className="text-sm text-app-muted">🕒 Hours not available yet.</p>
           )}
         </div>
-        
       </div>
       <div className="card-surface space-y-3">
         <div className="flex items-center justify-between gap-2">
@@ -1502,7 +1489,6 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
 
 
 
