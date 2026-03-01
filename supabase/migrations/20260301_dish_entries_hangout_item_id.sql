@@ -13,9 +13,27 @@ alter table public.dish_entries
 create index if not exists dish_entries_hangout_item_idx
   on public.dish_entries(hangout_item_id);
 
+-- ON CONFLICT (user_id, hangout_item_id) requires a non-partial unique index.
+-- If duplicates exist from historical data, keep the newest row linked and unlink older ones.
+with ranked as (
+  select
+    id,
+    row_number() over (
+      partition by user_id, hangout_item_id
+      order by created_at desc, id desc
+    ) as rn
+  from public.dish_entries
+  where hangout_item_id is not null
+)
+update public.dish_entries de
+set hangout_item_id = null
+from ranked r
+where de.id = r.id
+  and r.rn > 1;
+
+drop index if exists public.dish_entries_user_hangout_item_uidx;
 create unique index if not exists dish_entries_user_hangout_item_uidx
-  on public.dish_entries(user_id, hangout_item_id)
-  where hangout_item_id is not null;
+  on public.dish_entries(user_id, hangout_item_id);
 
 -- Best-effort backfill using normalized dish names within the same hangout.
 with matches as (

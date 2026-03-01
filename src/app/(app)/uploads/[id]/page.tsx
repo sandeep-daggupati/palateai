@@ -484,6 +484,39 @@ export default function UploadDetailPage() {
       };
 
       const supabase = getBrowserSupabaseClient();
+      // First, upgrade any legacy row keyed by (user_id, source_upload_id, dish_key).
+      const { data: legacyExisting } = await supabase
+        .from('dish_entries')
+        .select('id')
+        .eq('user_id', currentUserId)
+        .eq('source_upload_id', upload.id)
+        .eq('dish_key', dishKey)
+        .maybeSingle();
+
+      if (legacyExisting?.id) {
+        const { data: updatedLegacy, error: updatedLegacyError } = await supabase
+          .from('dish_entries')
+          .update(payload)
+          .eq('id', legacyExisting.id)
+          .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
+          .single();
+
+        if (!updatedLegacyError && updatedLegacy) {
+          const savedLegacy = updatedLegacy as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
+          setDishes((prev) =>
+            prev.map((entry) =>
+              entry.hangoutItem.id === row.hangoutItem.id
+                ? {
+                    ...entry,
+                    myEntry: savedLegacy,
+                  }
+                : entry,
+            ),
+          );
+          return;
+        }
+      }
+
       let saved: Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'> | null = null;
       const primaryResult = await supabase
         .from('dish_entries')
@@ -940,7 +973,6 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
 
 
 
