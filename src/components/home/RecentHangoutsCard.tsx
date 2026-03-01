@@ -3,7 +3,7 @@ import { HangoutChip } from '@/lib/home/getHangoutChips';
 
 export function RecentHangoutsCard({ chips }: { chips: HangoutChip[] }) {
   return (
-    <section className="card-surface space-y-3">
+    <section className="card-surface space-y-2">
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="section-label">Recent hangouts</p>
@@ -22,7 +22,7 @@ export function RecentHangoutsCard({ chips }: { chips: HangoutChip[] }) {
             <Link
               key={chip.restaurant_id}
               href={chip.href}
-              className="inline-flex h-9 shrink-0 items-center rounded-lg border border-app-border bg-app-card px-3 text-xs font-medium text-app-text"
+              className="inline-flex h-11 shrink-0 items-center rounded-lg border border-app-border bg-app-card px-3 text-xs font-semibold text-app-text"
             >
               {chip.label}
             </Link>

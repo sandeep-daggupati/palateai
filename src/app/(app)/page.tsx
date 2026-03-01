@@ -107,13 +107,13 @@ export default function HomePage() {
   }, []);
 
   return (
-    <div className="space-y-4 pb-6">
-      <section className="card-surface space-y-2">
+    <div className="space-y-3 pb-5">
+      <section className="card-surface space-y-1.5">
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-xl font-semibold text-app-text">What did you eat today?</h1>
           <Link
             href="/add"
-            className="inline-flex h-10 items-center justify-center rounded-xl border border-transparent bg-app-primary px-4 text-sm font-semibold text-app-primary-text"
+            className="inline-flex h-11 items-center justify-center rounded-xl border border-transparent bg-app-primary px-4 text-sm font-semibold text-app-primary-text"
           >
             Add
           </Link>
