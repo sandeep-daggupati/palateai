@@ -74,12 +74,6 @@ type CreateHangoutInput = {
   id?: string;
 };
 
-function db(client: AnyClient) {
-  return client as unknown as {
-    from: (table: string) => any;
-  };
-}
-
 export async function createHangout(client: AnyClient, input: CreateHangoutInput): Promise<HangoutRow> {
   const payload = {
     id: input.id,
@@ -89,20 +83,21 @@ export async function createHangout(client: AnyClient, input: CreateHangoutInput
     note: input.note ?? null,
   };
 
-  const { data, error } = await db(client).from('hangouts').insert(payload).select('*').single();
+  const { data, error } = await client.from('hangouts').insert(payload).select('*').single();
   if (error || !data) throw new Error(error?.message ?? 'Could not create hangout');
+  const inserted = data as HangoutRow;
 
-  await addParticipants(client, data.id as string, [input.owner_user_id]);
-  return data as HangoutRow;
+  await addParticipants(client, inserted.id, [input.owner_user_id]);
+  return inserted;
 }
 
 export async function getHangout(client: AnyClient, hangoutId: string, userId: string): Promise<HangoutDetails | null> {
-  const { data: hangout, error } = await db(client).from('hangouts').select('*').eq('id', hangoutId).maybeSingle();
+  const { data: hangout, error } = await client.from('hangouts').select('*').eq('id', hangoutId).maybeSingle();
 
   if (error) throw new Error(error.message);
   if (!hangout) return null;
   if ((hangout as HangoutRow).owner_user_id !== userId) {
-    const { data: participant } = await db(client)
+    const { data: participant } = await client
       .from('hangout_participants')
       .select('hangout_id')
       .eq('hangout_id', hangoutId)
@@ -112,8 +107,8 @@ export async function getHangout(client: AnyClient, hangoutId: string, userId: s
   }
 
   const [{ data: participants }, { data: sources }] = await Promise.all([
-    db(client).from('hangout_participants').select('*').eq('hangout_id', hangoutId),
-    db(client).from('hangout_sources').select('*').eq('hangout_id', hangoutId).order('created_at', { ascending: false }),
+    client.from('hangout_participants').select('*').eq('hangout_id', hangoutId),
+    client.from('hangout_sources').select('*').eq('hangout_id', hangoutId).order('created_at', { ascending: false }),
   ]);
 
   return {
@@ -125,13 +120,13 @@ export async function getHangout(client: AnyClient, hangoutId: string, userId: s
 
 export async function listHangouts(client: AnyClient, userId: string): Promise<HangoutRow[]> {
   const [ownedResult, participantResult] = await Promise.all([
-    db(client)
+    client
       .from('hangouts')
       .select('*')
       .eq('owner_user_id', userId)
       .order('occurred_at', { ascending: false })
       .limit(50),
-    db(client).from('hangout_participants').select('hangout_id').eq('user_id', userId).limit(200),
+    client.from('hangout_participants').select('hangout_id').eq('user_id', userId).limit(200),
   ]);
 
   if (ownedResult.error) throw new Error(ownedResult.error.message);
@@ -143,7 +138,7 @@ export async function listHangouts(client: AnyClient, userId: string): Promise<H
 
   let participantHangouts: HangoutRow[] = [];
   if (participantIds.length) {
-    const { data, error } = await db(client)
+    const { data, error } = await client
       .from('hangouts')
       .select('*')
       .in('id', participantIds)
@@ -168,7 +163,7 @@ export async function addParticipants(client: AnyClient, hangoutId: string, user
     user_id: userId,
   }));
 
-  const { error } = await db(client).from('hangout_participants').upsert(rows, {
+  const { error } = await client.from('hangout_participants').upsert(rows, {
     onConflict: 'hangout_id,user_id',
     ignoreDuplicates: true,
   });
@@ -179,13 +174,13 @@ export async function createHangoutSource(
   client: AnyClient,
   params: Omit<HangoutSourceRow, 'id' | 'created_at'>,
 ): Promise<HangoutSourceRow> {
-  const { data, error } = await db(client).from('hangout_sources').insert(params).select('*').single();
+  const { data, error } = await client.from('hangout_sources').insert(params).select('*').single();
   if (error || !data) throw new Error(error?.message ?? 'Could not create hangout source');
   return data as HangoutSourceRow;
 }
 
 export async function listHangoutItems(client: AnyClient, hangoutId: string): Promise<HangoutItemRow[]> {
-  const { data, error } = await db(client)
+  const { data, error } = await client
     .from('hangout_items')
     .select('*')
     .eq('hangout_id', hangoutId)
@@ -211,7 +206,7 @@ export async function upsertHangoutItems(client: AnyClient, hangoutId: string, i
     included: item.included ?? true,
   }));
 
-  const { data, error } = await db(client)
+  const { data, error } = await client
     .from('hangout_items')
     .upsert(payload, { onConflict: 'id' })
     .select('*');
@@ -221,7 +216,7 @@ export async function upsertHangoutItems(client: AnyClient, hangoutId: string, i
 }
 
 export async function listMyDishEntriesForHangout(client: AnyClient, hangoutId: string, userId: string): Promise<DishEntry[]> {
-  const { data, error } = await db(client)
+  const { data, error } = await client
     .from('dish_entries')
     .select('*')
     .eq('hangout_id', hangoutId)

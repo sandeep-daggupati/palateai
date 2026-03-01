@@ -111,7 +111,7 @@ export default function HangoutsPage() {
       const restaurantIds = Array.from(new Set(mergedVisits.map((row) => row.restaurant_id).filter((id): id is string => Boolean(id))));
       const hangoutIds = mergedVisits.map((row) => row.id);
 
-      let countMap: Record<string, number> = {};
+      const countMap: Record<string, number> = {};
       if (hangoutIds.length > 0) {
         const { data: allParticipants } = await supabase.from('hangout_participants').select('hangout_id,user_id').in('hangout_id', hangoutIds).limit(1000);
         for (const row of (allParticipants ?? []) as Array<Pick<HangoutParticipant, 'hangout_id' | 'user_id'>>) {
@@ -199,7 +199,6 @@ export default function HangoutsPage() {
     </div>
   );
 }
-
 
 
 

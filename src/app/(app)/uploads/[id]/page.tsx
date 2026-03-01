@@ -8,7 +8,7 @@ import { IdentityTagPill, identityTagOptions } from '@/components/IdentityTagPil
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { DishEntry, DishIdentityTag, Hangout, HangoutItem, HangoutParticipant, Restaurant } from '@/lib/supabase/types';
+import { DishEntry, DishIdentityTag, Hangout, HangoutItem, Restaurant } from '@/lib/supabase/types';
 import { toDishKey } from '@/lib/utils';
 import { buildGroupKey, normalizeName } from '@/lib/extraction/normalize';
 import { getGoogleMapsLink } from '@/lib/google/mapsLinks';
@@ -1530,7 +1530,6 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
 
 
 
