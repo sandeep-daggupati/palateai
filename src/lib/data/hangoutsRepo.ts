@@ -1,5 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { Database, DishEntry, Json } from '@/lib/supabase/types';
+import { normalizeName } from '@/lib/extraction/normalize';
 
 type AnyClient = SupabaseClient<Database>;
 
@@ -64,6 +65,11 @@ export type UpsertHangoutItemInput = {
   currency?: string | null;
   confidence?: number | null;
   included?: boolean;
+};
+
+export type HangoutItemWithMyEntry = {
+  hangoutItem: HangoutItemRow;
+  myEntry: DishEntry | null;
 };
 
 type CreateHangoutInput = {
@@ -226,4 +232,54 @@ export async function listMyDishEntriesForHangout(client: AnyClient, hangoutId: 
 
   if (error) throw new Error(error.message);
   return (data ?? []) as DishEntry[];
+}
+
+export async function getHangoutItemsWithMyDishEntries(
+  client: AnyClient,
+  hangoutId: string,
+  userId: string,
+): Promise<HangoutItemWithMyEntry[]> {
+  const [itemsResult, entriesResult] = await Promise.all([
+    client
+      .from('hangout_items')
+      .select('*')
+      .eq('hangout_id', hangoutId)
+      .eq('included', true)
+      .order('created_at', { ascending: true }),
+    client
+      .from('dish_entries')
+      .select('*')
+      .eq('hangout_id', hangoutId)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false }),
+  ]);
+
+  if (itemsResult.error) throw new Error(itemsResult.error.message);
+  if (entriesResult.error) throw new Error(entriesResult.error.message);
+
+  const items = (itemsResult.data ?? []) as HangoutItemRow[];
+  const entries = (entriesResult.data ?? []) as DishEntry[];
+
+  const entryByItemId = new Map<string, DishEntry>();
+  const fallbackByName = new Map<string, DishEntry>();
+
+  for (const entry of entries) {
+    if (entry.hangout_item_id) {
+      entryByItemId.set(entry.hangout_item_id, entry);
+      continue;
+    }
+    const normalized = normalizeName(entry.dish_name);
+    if (normalized && !fallbackByName.has(normalized)) {
+      fallbackByName.set(normalized, entry);
+    }
+  }
+
+  return items.map((hangoutItem) => {
+    const direct = entryByItemId.get(hangoutItem.id);
+    if (direct) return { hangoutItem, myEntry: direct };
+
+    const normalized = normalizeName(hangoutItem.name_final || hangoutItem.name_raw);
+    const fallback = normalized ? fallbackByName.get(normalized) ?? null : null;
+    return { hangoutItem, myEntry: fallback };
+  });
 }
