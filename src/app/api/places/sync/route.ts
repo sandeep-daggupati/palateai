@@ -50,6 +50,12 @@ function isFresh(lastSync: string | null): boolean {
   return Date.now() - stamp < THIRTY_DAYS_MS;
 }
 
+function isInvalidPlaceIdError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  const normalized = message.toLowerCase();
+  return normalized.includes("invalid 'placeid' parameter") || normalized.includes('invalid request');
+}
+
 export async function POST(request: Request) {
   const auth = await authorize(request);
   if ('error' in auth) return auth.error;
@@ -144,6 +150,18 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true, cached: false, restaurant: updatedRestaurant });
   } catch (err) {
+    if (isInvalidPlaceIdError(err)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          reason: 'invalid_place_id',
+          message: 'Place ID is not valid for Google Place Details.',
+          restaurant,
+        },
+        { status: 200 },
+      );
+    }
+
     console.error('Failed to sync place details:', err);
     const hasCached = Boolean(restaurant.phone_number || restaurant.website || restaurant.maps_url || restaurant.opening_hours);
     if (hasCached) {
@@ -152,4 +170,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: 'Failed to sync place details' }, { status: 502 });
   }
 }
-
