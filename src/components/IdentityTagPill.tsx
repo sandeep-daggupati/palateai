@@ -4,11 +4,11 @@ import { cn } from '@/lib/utils';
 const IDENTITY_ORDER: DishIdentityTag[] = ['go_to', 'hidden_gem', 'special_occasion', 'try_again', 'never_again'];
 
 const IDENTITY_LABELS: Record<DishIdentityTag, string> = {
-  go_to: 'GO-TO',
-  hidden_gem: 'HIDDEN GEM',
-  special_occasion: 'SPECIAL OCCASION',
-  try_again: 'TRY AGAIN',
-  never_again: 'NEVER AGAIN',
+  go_to: '⭐',
+  hidden_gem: '💎',
+  special_occasion: '🥂',
+  try_again: '🔁',
+  never_again: '🚫',
 };
 
 const IDENTITY_STYLES: Record<DishIdentityTag, string> = {
@@ -31,7 +31,7 @@ export function IdentityTagPill({ tag, className }: { tag: DishIdentityTag | nul
   if (!tag) {
     return (
       <span className={cn('inline-flex rounded-full border border-app-border bg-app-card px-2 py-1 text-[11px] font-medium text-app-muted', className)}>
-        UNTAGGED
+        ❔
       </span>
     );
   }
