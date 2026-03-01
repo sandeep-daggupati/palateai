@@ -44,7 +44,7 @@ export function ForYouTodayCard({ insight }: { insight: InsightPayload | null })
 
   if (!insight) {
     return (
-      <section className="card-surface space-y-1.5">
+      <section className="card-surface p-3 space-y-1.5">
         <div className="flex items-center justify-between gap-3">
           <p className="section-label">For you today</p>
           <span className="text-xs text-app-muted">Based on your logs</span>
@@ -56,7 +56,7 @@ export function ForYouTodayCard({ insight }: { insight: InsightPayload | null })
 
   return (
     <>
-      <button type="button" className="card-surface w-full space-y-1.5 text-left" onClick={() => setOpen(true)}>
+      <button type="button" className="card-surface w-full p-3 space-y-1.5 text-left" onClick={() => setOpen(true)}>
         <div className="flex items-center justify-between gap-3">
           <p className="section-label">For you today</p>
           <span className="text-xs text-app-muted">See details</span>
@@ -69,15 +69,15 @@ export function ForYouTodayCard({ insight }: { insight: InsightPayload | null })
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/35">
           <button type="button" className="absolute inset-0" aria-label="Close" onClick={() => setOpen(false)} />
 
-          <div className="relative w-full max-w-3xl rounded-t-2xl border border-app-border bg-app-card p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-xl">
-            <div className="mb-3 flex items-center justify-between gap-2">
+          <div className="relative w-full max-w-3xl rounded-t-2xl border border-app-border bg-app-card p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-xl">
+            <div className="mb-2 flex items-center justify-between gap-2">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-app-text">Why this?</h2>
-              <button type="button" className="rounded-lg border border-app-border px-2 py-1 text-xs text-app-text" onClick={() => setOpen(false)}>
+              <button type="button" className="h-11 rounded-lg border border-app-border px-3 text-xs text-app-text" onClick={() => setOpen(false)}>
                 Close
               </button>
             </div>
 
-            <p className="mb-3 text-sm text-app-text">{insight.insight_text}</p>
+            <p className="mb-2 text-sm text-app-text">{insight.insight_text}</p>
 
             {insight.evidence_type === 'dish' && (
               <div className="space-y-2 rounded-xl border border-app-border p-3 text-sm text-app-text">
@@ -123,10 +123,10 @@ export function ForYouTodayCard({ insight }: { insight: InsightPayload | null })
             )}
 
             {hangoutPath && (
-              <div className="mt-3">
+              <div className="mt-2">
                 <Link
                   href={hangoutPath}
-                  className="inline-flex h-10 items-center justify-center rounded-xl border border-transparent bg-app-primary px-4 text-sm font-semibold text-app-primary-text"
+                  className="inline-flex h-11 items-center justify-center rounded-xl border border-transparent bg-app-primary px-4 text-sm font-semibold text-app-primary-text"
                   onClick={() => setOpen(false)}
                 >
                   Open hangout

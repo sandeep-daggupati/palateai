@@ -161,15 +161,15 @@ export default function HangoutsPage() {
   }, [queryParam, restaurantsById, visits]);
 
   return (
-    <div className="space-y-3 pb-6">
-      <section className="card-surface space-y-2">
+    <div className="space-y-2 pb-4">
+      <section className="card-surface p-3 space-y-1.5">
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-xl font-semibold text-app-text">Hangouts</h1>
           <Link href="/" className="text-xs font-medium text-app-link">
             Back to Home
           </Link>
         </div>
-        <p className="text-sm text-app-muted">Full activity with status filters.</p>
+        <p className="text-xs text-app-muted">Your shared and solo memories.</p>
       </section>
 
       <section className="space-y-2">
@@ -177,11 +177,11 @@ export default function HangoutsPage() {
         {filteredRows.length === 0 ? (
           <p className="empty-surface">No hangouts yet.</p>
         ) : (
-          <div className="divide-y divide-app-border rounded-2xl border border-app-border bg-app-card">
+          <div className="divide-y divide-app-border rounded-xl border border-app-border bg-app-card">
             {filteredRows.map((visit) => (
-              <Link key={visit.id} href={`/uploads/${visit.id}`} className="block px-3 py-3">
-                <div className="mb-1 flex items-center justify-between gap-3">
-                  <p className="font-medium text-app-text">{visit.restaurantName}</p>
+              <Link key={visit.id} href={`/uploads/${visit.id}`} className="block px-3 py-2.5">
+                <div className="flex min-h-11 items-center justify-between gap-3">
+                  <p className="text-sm font-semibold leading-5 text-app-text">{visit.restaurantName}</p>
                   <p className="text-xs text-app-muted">{visit.sharedLabel}</p>
                 </div>
                 {visit.address && <p className="text-xs text-app-muted">{visit.address}</p>}
@@ -194,7 +194,6 @@ export default function HangoutsPage() {
     </div>
   );
 }
-
 
 
 

@@ -15,8 +15,14 @@ import { getGoogleMapsLink } from '@/lib/google/mapsLinks';
 import { SignedPhoto } from '@/lib/photos/types';
 import { uploadOriginalPhotoDirect } from '@/lib/photos/clientUpload';
 
-const QUICK_NOTE_CHIPS = ['Great value', 'Would repeat', 'Too salty', 'Spicy', 'Slow service', 'Amazing dessert'];
 const VISIT_NOTE_MAX = 140;
+const IDENTITY_EMOJI: Record<DishIdentityTag, string> = {
+  go_to: '⭐',
+  hidden_gem: '💎',
+  special_occasion: '🥂',
+  try_again: '🔁',
+  never_again: '🚫',
+};
 
 type ReviewItem = ExtractedLineItem & {
   identity_tag: DishIdentityTag | null;
@@ -114,7 +120,7 @@ function getReviewGroupKey(item: ReviewItem, fallbackCurrency: string | null): s
   });
 }
 
-function IdentitySelector({
+function EmojiRatingSelector({
   value,
   onChange,
 }: {
@@ -123,26 +129,24 @@ function IdentitySelector({
 }) {
   return (
     <div className="flex flex-wrap gap-2">
-        {identityTagOptions().map((option) => {
-          const active = option.value === value;
-          return (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => onChange(active ? null : option.value)}
-              aria-label={`Set identity to ${option.value.replace('_', ' ')}`}
-              className={`inline-flex h-10 items-center gap-1 rounded-full border px-3 text-xs font-semibold tracking-wide transition-colors duration-200 ${
-                active
-                  ? option.value === 'never_again'
-                    ? 'border-rose-500 bg-rose-100 text-rose-800 outline outline-2 outline-offset-2 outline-rose-500 dark:border-rose-900/70 dark:bg-rose-950/50 dark:text-rose-200 dark:outline-rose-400'
-                    : 'border-2 border-app-primary bg-app-card text-app-text shadow-sm ring-2 ring-app-accent/50 ring-offset-1 ring-offset-transparent'
-                  : 'border-app-border bg-app-card text-app-muted hover:bg-app-card/80 hover:text-app-text'
-              }`}
-            >
-              {option.label}
-            </button>
-          );
-        })}
+      {identityTagOptions().map((option) => {
+        const active = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(active ? null : option.value)}
+            aria-label={`Rate as ${option.value.replace('_', ' ')}`}
+            className={`inline-flex h-11 min-w-11 items-center justify-center rounded-full border text-xl transition-colors duration-200 ${
+              active
+                ? 'border-app-primary bg-app-primary/10 text-app-text'
+                : 'border-app-border bg-app-card text-app-muted hover:text-app-text'
+            }`}
+          >
+            {IDENTITY_EMOJI[option.value]}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -198,9 +202,7 @@ export default function UploadDetailPage() {
   const hasSavedPersonalExperience = Boolean(
     currentUserId && visitDishes.some((entry) => entry.user_id === currentUserId),
   );
-  const showExtractionPrompt = Boolean(
-    isHost && upload && !hasAnyExtractedItems && !hasAnySavedVisitDishes,
-  );
+  const showExtractionPrompt = Boolean(isHost && upload && !hasAnyExtractedItems);
 
   const reviewRows = useMemo<ReviewRenderRow[]>(() => {
     const buckets = new Map<string, number[]>();
@@ -554,58 +556,6 @@ export default function UploadDetailPage() {
     void runExtraction();
   }, [hasAnyExtractedItems, hasAnySavedVisitDishes, isHost, runExtraction, upload]);
 
-  const addRow = () => {
-    setItems((prev) => [
-      ...prev,
-      {
-        id: `tmp-${Date.now()}`,
-        upload_id: uploadId,
-        name_raw: '',
-        name_final: '',
-        price_raw: null,
-        price_final: null,
-        confidence: 1,
-        included: true,
-        quantity: 1,
-        unit_price: null,
-        group_key: null,
-        grouped: false,
-        duplicate_of: null,
-        rating: null,
-        comment: null,
-        identity_tag: null,
-        created_at: new Date().toISOString(),
-      },
-    ]);
-  };
-
-  const saveNewRows = async () => {
-    const supabase = getBrowserSupabaseClient();
-    const unsaved = items.filter((item) => item.id.startsWith('tmp-'));
-
-    if (!unsaved.length) return;
-
-    await supabase.from('extracted_line_items').insert(
-      unsaved.map((item) => ({
-        upload_id: uploadId,
-        name_raw: item.name_final ?? item.name_raw,
-        name_final: item.name_final,
-        price_raw: item.price_final,
-        price_final: item.price_final,
-        confidence: item.confidence,
-        included: item.included,
-        quantity: item.quantity,
-        unit_price: item.unit_price ?? item.price_final,
-        group_key: item.group_key,
-        grouped: item.grouped,
-        duplicate_of: item.duplicate_of,
-        comment: item.comment,
-      })),
-    );
-
-    await load();
-  };
-
   const approve = async () => {
     if (saving) return;
     setSaving(true);
@@ -726,15 +676,6 @@ export default function UploadDetailPage() {
     }
   };
 
-  const appendVisitNoteChip = (chip: string) => {
-    setVisitNote((prev) => {
-      const trimmed = prev.trim();
-      if (!trimmed) return chip.slice(0, VISIT_NOTE_MAX);
-      const next = `${trimmed}, ${chip}`;
-      return next.slice(0, VISIT_NOTE_MAX);
-    });
-  };
-
   const addParticipant = async () => {
     const email = shareEmail.trim().toLowerCase();
     if (!email || !upload) return;
@@ -811,6 +752,11 @@ export default function UploadDetailPage() {
   const isReviewable = isHost;
   const showHostShareSection = isHost && isSharedVisit;
   const showStandaloneExperience = isSharedVisit && (!isHost || !isReviewable) && !hasSavedPersonalExperience;
+  const visibleReviewRows = reviewRows.filter((row) => row.itemIndexes.some((itemIndex) => items[itemIndex].included));
+  const withNames = participants
+    .filter((participant) => participant.status === 'active')
+    .map((participant) => participant.display_name ?? 'Buddy');
+  const withLabel = withNames.length > 0 ? withNames.join(', ') : 'Solo';
   const directionsHref = getGoogleMapsLink(restaurant?.place_id, restaurant?.address, restaurant?.name);
   const todayHours = getTodayHours(restaurant?.opening_hours ?? null);
   const openNow =
@@ -821,75 +767,66 @@ export default function UploadDetailPage() {
     hangoutPhotos.find((photo) => photo.id === selectedHangoutPhotoId) ?? hangoutPhotos[0] ?? null;
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-3 pb-5">
-      <div className="card-surface space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <h1 className="text-xl font-semibold text-app-text">Hangout recap</h1>
-        </div>
-        <p className="text-sm font-semibold leading-5 text-app-text">{restaurant?.name ?? 'Unknown restaurant'}</p>
-        <p className="text-xs leading-4 text-app-muted">{visitDate}</p>
-        {visitNote && <p className="text-xs leading-4 text-app-text">{visitNote}</p>}
+    <div className="mx-auto w-full max-w-3xl space-y-2 pb-4">
+      <div className="card-surface p-3 space-y-2">
+        <h1 className="text-2xl font-semibold leading-7 text-app-text">{restaurant?.name ?? 'Unknown restaurant'}</h1>
+        <p className="text-xs leading-4 text-app-muted">
+          {visitDate} · With {withLabel}
+        </p>
+        {visitNote && <p className="text-sm italic leading-5 text-app-text">“{visitNote}”</p>}
 
-        <div className="rounded-xl border border-app-border bg-app-card p-2.5 space-y-2">
-          {restaurant?.address ? (
-            <p className="text-xs leading-4 text-app-muted">📍 {restaurant.address}</p>
-          ) : (
-            <p className="text-xs leading-4 text-app-muted">📍 Address not available.</p>
+        <div className="flex flex-wrap gap-2">
+          {directionsHref && (
+            <a
+              href={directionsHref}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Open directions"
+              className="inline-flex h-11 items-center justify-center rounded-xl border border-app-border bg-app-card px-3 text-base"
+            >
+              🧭
+            </a>
           )}
-
-          <div className="flex flex-wrap gap-2">
-            {directionsHref && (
-              <a
-                href={directionsHref}
-                target="_blank"
-                rel="noreferrer"
-                aria-label="Open directions"
-                className="inline-flex h-10 items-center justify-center rounded-xl border border-app-border bg-app-card px-3 text-base"
-              >
-                🧭
-              </a>
-            )}
-            {restaurant?.phone_number && (
-              <a
-                href={`tel:${restaurant.phone_number}`}
-                aria-label="Call restaurant"
-                className="inline-flex h-10 items-center justify-center rounded-xl border border-app-border bg-app-card px-3 text-base"
-              >
-                📞
-              </a>
-            )}
-            {restaurant?.website && (
-              <a
-                href={restaurant.website}
-                target="_blank"
-                rel="noreferrer"
-                aria-label="Open website"
-                className="inline-flex h-10 items-center justify-center rounded-xl border border-app-border bg-app-card px-3 text-base"
-              >
-                🌐
-              </a>
-            )}
-          </div>
-
-          {openNow === true && <p className="text-xs leading-4 text-emerald-700 dark:text-emerald-300">🟢 Open now</p>}
-          {openNow === false && <p className="text-xs leading-4 text-app-muted">🔴 Closed now</p>}
+          {restaurant?.phone_number && (
+            <a
+              href={`tel:${restaurant.phone_number}`}
+              aria-label="Call restaurant"
+              className="inline-flex h-11 items-center justify-center rounded-xl border border-app-border bg-app-card px-3 text-base"
+            >
+              📞
+            </a>
+          )}
+          {restaurant?.website && (
+            <a
+              href={restaurant.website}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Open website"
+              className="inline-flex h-11 items-center justify-center rounded-xl border border-app-border bg-app-card px-3 text-base"
+            >
+              🌐
+            </a>
+          )}
+          {restaurant?.address && <p className="flex items-center text-xs leading-4 text-app-muted">📍 {restaurant.address}</p>}
+          {openNow === true && <p className="flex items-center text-xs leading-4 text-emerald-700 dark:text-emerald-300">🟢 Open now</p>}
+          {openNow === false && <p className="flex items-center text-xs leading-4 text-app-muted">🔴 Closed now</p>}
           {todayHours ? (
-            <p className="text-xs leading-4 text-app-muted">🕒 {todayHours}</p>
+            <p className="flex items-center text-xs leading-4 text-app-muted">🕒 {todayHours}</p>
           ) : placeSyncLoading ? (
-            <p className="text-xs leading-4 text-app-muted">🕒 Syncing hours...</p>
+            <p className="flex items-center text-xs leading-4 text-app-muted">🕒 Syncing hours...</p>
           ) : (
-            <p className="text-xs leading-4 text-app-muted">🕒 Hours not available yet.</p>
+            <p className="flex items-center text-xs leading-4 text-app-muted">🕒 Hours not available yet.</p>
           )}
         </div>
       </div>
-      <div className="card-surface space-y-2">
+      <div className="card-surface p-3 space-y-2">
         <div className="flex items-center justify-between gap-2">
           <h2 className="section-label">Hangout photos</h2>
           <div className="flex gap-2">
-            <Button type="button" variant="secondary" size="sm" fullWidth={false} className="h-8 px-2 text-xs" onClick={() => hangoutCameraInputRef.current?.click()}>
+            <Button type="button" variant="secondary" size="sm" fullWidth={false} className="h-11 px-3 text-xs" onClick={() => hangoutCameraInputRef.current?.click()}>
               Take photo
             </Button>
-            <Button type="button" variant="secondary" size="sm" fullWidth={false} className="h-8 px-2 text-xs" onClick={() => hangoutUploadInputRef.current?.click()}>
+            <Button type="button" variant="secondary" size="sm" fullWidth={false} className="h-11 px-3 text-xs" onClick={() => hangoutUploadInputRef.current?.click()}>
               Upload photo
             </Button>
           </div>
@@ -956,7 +893,7 @@ export default function UploadDetailPage() {
         )}
       </div>
       {showHostShareSection && (
-        <div className="card-surface space-y-2">
+        <div className="card-surface p-3 space-y-2">
           <h2 className="section-label">Who was in your crew?</h2>
           <div className="relative">
             <div className="flex gap-2">
@@ -1013,7 +950,7 @@ export default function UploadDetailPage() {
                     variant="ghost"
                     size="sm"
                     fullWidth={false}
-                    className="h-8 px-2 text-xs"
+                    className="h-11 px-3 text-xs"
                     onClick={() => removeParticipant(participant.id)}
                     disabled={shareLoading}
                   >
@@ -1026,162 +963,49 @@ export default function UploadDetailPage() {
         </div>
       )}
 
-      {showExtractionPrompt && (
-        <div className="card-surface space-y-2">
-          <h2 className="section-label">Extraction</h2>
-          <p className="text-sm text-app-muted">{isSharedVisit ? 'Run extraction to generate dishes for your crew.' : 'Run extraction to generate dishes for your hangout.'}</p>
-          <Button type="button" variant="secondary" onClick={runExtraction}>
-            Run extraction
-          </Button>
-        </div>
-      )}
-
-      {isReviewable && (
-        <div className="card-surface space-y-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-app-text">Review dishes</h2>
-
-          <Button type="button" variant="secondary" onClick={runExtraction}>
-            Run extraction
-          </Button>
-
-          <div className="rounded-2xl border border-app-border p-2.5 space-y-2">
-            <div className="space-y-1.5">
-              <label className="section-label">Vibe (optional)</label>
-              <Input
-                value={visitNote}
-                maxLength={VISIT_NOTE_MAX}
-                onChange={(e) => setVisitNote(e.target.value.slice(0, VISIT_NOTE_MAX))}
-                placeholder="e.g., great vibe, too spicy, slow service"
-              />
-              <p className="text-xs text-app-muted">{visitNote.length}/{VISIT_NOTE_MAX}</p>
-              <div className="flex flex-wrap gap-2">
-                {QUICK_NOTE_CHIPS.map((chip) => (
-                  <Button
-                    key={chip}
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    fullWidth={false}
-                    className="h-8 rounded-full px-3 text-xs"
-                    onClick={() => appendVisitNoteChip(chip)}
-                  >
-                    {chip}
-                  </Button>
-                ))}
-              </div>
-            </div>
+      {(isReviewable || showStandaloneExperience) && (
+        <div className="card-surface p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="section-label">Dishes</h2>
+            {isHost &&
+              (showExtractionPrompt ? (
+                <Button type="button" onClick={runExtraction}>
+                  Scan receipt
+                </Button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void runExtraction()}
+                  className="inline-flex h-11 items-center text-xs font-medium text-app-link underline underline-offset-2"
+                >
+                  Re-scan receipt
+                </button>
+              ))}
           </div>
 
-          <h3 className="section-label">{isSharedVisit ? 'Dishes (review + your experience)' : 'Extracted dishes (organizer review)'}</h3>
-          {isSharedVisit && (
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                fullWidth={false}
-                onClick={() =>
-                  setPersonalDrafts((prev) =>
-                    prev.map((dish) => ({
-                      ...dish,
-                      had_it: true,
-                    })),
-                  )
-                }
-              >
-                Mark all as had it
-              </Button>
-            </div>
-          )}
-          {items.length === 0 ? (
-            <p className="rounded-2xl border border-dashed border-app-border p-4 text-sm text-app-muted">
-              No extracted dishes yet. You can still save the vibe.
-            </p>
-          ) : (
+          {isReviewable && visibleReviewRows.length > 0 ? (
             <div className="space-y-2">
-              {reviewRows.map((row) => {
+              {visibleReviewRows.map((row) => {
                 const firstIndex = row.itemIndexes[0];
                 const firstItem = items[firstIndex];
                 const dishName = firstItem.name_final || firstItem.name_raw;
                 const draftDishKey = toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`);
                 const draftIndex = personalDrafts.findIndex((entry) => entry.dish_key === draftDishKey);
-                const personalDraft = draftIndex >= 0 ? personalDrafts[draftIndex] : null;
                 const noteOpen = openItemNotes[row.key] || Boolean(firstItem.comment);
-                const included = row.itemIndexes.every((itemIndex) => items[itemIndex].included);
                 const identityValue = row.itemIndexes.map((itemIndex) => items[itemIndex].identity_tag).find((value) => value != null) ?? null;
-                const hasDuplicates = row.itemIndexes.length > 1 || (reviewRows.some((entry) => entry.baseGroupKey === row.baseGroupKey) && row.split);
+                const unitPrice = firstItem.unit_price ?? firstItem.price_final;
 
                 return (
-                  <div key={row.key} className="rounded-2xl border border-app-border p-2.5 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs text-app-muted">{row.quantity > 1 ? `Auto-grouped x${row.quantity}` : 'Single line item'}</p>
-                      {hasDuplicates && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          fullWidth={false}
-                          className="h-7 px-2 text-xs"
-                          onClick={() =>
-                            setSplitGroupKeys((prev) => ({
-                              ...prev,
-                              [row.baseGroupKey]: !prev[row.baseGroupKey],
-                            }))
-                          }
-                        >
-                          {splitGroupKeys[row.baseGroupKey] ? 'Undo split' : 'Split'}
-                        </Button>
-                      )}
+                  <div key={row.key} className="rounded-xl border border-app-border bg-app-card p-3 space-y-2">
+                    <div className="flex min-h-11 items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold leading-5 text-app-text">{dishName}</p>
+                        {row.quantity > 1 && <p className="text-xs leading-4 text-app-muted">×{row.quantity}</p>}
+                      </div>
+                      <p className="text-sm font-medium leading-5 text-app-text">{formatPrice(unitPrice)}</p>
                     </div>
 
-                    <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr,120px,84px]">
-                      <Input
-                        value={firstItem.name_final ?? ''}
-                        onChange={(e) =>
-                          setItems((prev) =>
-                            prev.map((entry, itemIndex) =>
-                              row.itemIndexes.includes(itemIndex) ? { ...entry, name_final: e.target.value, group_key: row.baseGroupKey } : entry,
-                            ),
-                          )
-                        }
-                        placeholder="Dish name"
-                      />
-                      <Input
-                        type="number"
-                        value={firstItem.price_final ?? ''}
-                        onChange={(e) => {
-                          const value = Number.parseFloat(e.target.value) || null;
-                          setItems((prev) =>
-                            prev.map((entry, itemIndex) =>
-                              row.itemIndexes.includes(itemIndex)
-                                ? { ...entry, price_final: value, unit_price: value, group_key: row.baseGroupKey }
-                                : entry,
-                            ),
-                          );
-                        }}
-                        placeholder="Price"
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setItems((prev) =>
-                            prev.map((entry, itemIndex) =>
-                              row.itemIndexes.includes(itemIndex) ? { ...entry, included: !included } : entry,
-                            ),
-                          )
-                        }
-                        className={`inline-flex h-11 items-center justify-center rounded-xl border px-3 text-sm font-medium transition-colors duration-200 ${
-                          included
-                            ? 'border-app-primary bg-app-primary text-app-primary-text'
-                            : 'border-app-border bg-app-card text-app-muted'
-                        }`}
-                        aria-pressed={included}
-                      >
-                        {included ? 'Included' : 'Excluded'}
-                      </button>
-                    </div>
-
-                    <IdentitySelector
+                    <EmojiRatingSelector
                       value={identityValue}
                       onChange={(value) => {
                         setItems((prev) =>
@@ -1205,229 +1029,148 @@ export default function UploadDetailPage() {
                       }}
                     />
 
-                    <div className="space-y-2">
-                      {isSharedVisit ? (
-                        <>
-                          <div className="flex items-center justify-between rounded-xl border border-app-border px-3 py-2">
-                            <p className="text-sm text-app-text">I had this dish</p>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (draftIndex < 0) return;
-                                setPersonalDrafts((prev) =>
-                                  prev.map((entry, i) =>
-                                    i === draftIndex
-                                      ? {
-                                          ...entry,
-                                          had_it: !entry.had_it,
-                                        }
-                                      : entry,
-                                  ),
-                                );
-                              }}
-                              className={`inline-flex h-8 items-center rounded-full border px-3 text-xs font-medium transition-colors duration-200 ${
-                                personalDraft?.had_it
-                                  ? 'border-app-primary bg-app-primary text-app-primary-text'
-                                  : 'border-app-border bg-app-card text-app-muted'
-                              }`}
-                            >
-                              {personalDraft?.had_it ? 'Had it' : "Didn't have it"}
-                            </button>
-                          </div>
-                          <Input
-                            value={firstItem.comment ?? ''}
-                            maxLength={140}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              setItems((prev) =>
-                                prev.map((entry, itemIndex) =>
-                                  row.itemIndexes.includes(itemIndex) ? { ...entry, comment: value } : entry,
-                                ),
-                              );
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenItemNotes((prev) => ({
+                          ...prev,
+                          [row.key]: !noteOpen,
+                        }))
+                      }
+                      className="inline-flex h-11 items-center text-xs font-medium text-app-link underline underline-offset-2"
+                    >
+                      {noteOpen ? 'Hide note' : 'Add note…'}
+                    </button>
 
-                              if (draftIndex >= 0) {
-                                setPersonalDrafts((prev) =>
-                                  prev.map((entry, i) =>
-                                    i === draftIndex
-                                      ? {
-                                          ...entry,
-                                          comment: value,
-                                        }
-                                      : entry,
-                                  ),
-                                );
-                              }
-                            }}
-                            placeholder="Optional dish note"
-                          />
-                        </>
-                      ) : (
-                        <>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            fullWidth={false}
-                            className="h-8 px-1 text-xs underline underline-offset-2"
-                            onClick={() =>
-                              setOpenItemNotes((prev) => ({
-                                ...prev,
-                                [row.key]: !noteOpen,
-                              }))
-                            }
-                          >
-                            {noteOpen ? 'Hide dish note' : 'Add note'}
-                          </Button>
+                    {noteOpen && (
+                      <Input
+                        value={firstItem.comment ?? ''}
+                        maxLength={140}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setItems((prev) =>
+                            prev.map((entry, itemIndex) =>
+                              row.itemIndexes.includes(itemIndex) ? { ...entry, comment: value } : entry,
+                            ),
+                          );
 
-                          {noteOpen && (
-                            <Input
-                              value={firstItem.comment ?? ''}
-                              maxLength={140}
-                              onChange={(e) =>
-                                setItems((prev) =>
-                                  prev.map((entry, itemIndex) =>
-                                    row.itemIndexes.includes(itemIndex) ? { ...entry, comment: e.target.value } : entry,
-                                  ),
-                                )
-                              }
-                              placeholder="Optional dish note"
-                            />
-                          )}
-                        </>
-                      )}
-                    </div>
+                          if (draftIndex >= 0) {
+                            setPersonalDrafts((prev) =>
+                              prev.map((entry, i) =>
+                                i === draftIndex
+                                  ? {
+                                      ...entry,
+                                      comment: value,
+                                    }
+                                  : entry,
+                              ),
+                            );
+                          }
+                        }}
+                        placeholder="Optional note"
+                      />
+                    )}
                   </div>
                 );
               })}
             </div>
-          )}
-
-          <div className="grid gap-2 sm:grid-cols-3">
-            <Button type="button" variant="secondary" onClick={addRow}>
-              Add row
-            </Button>
-            <Button type="button" variant="secondary" onClick={saveNewRows}>
-              Save added rows
-            </Button>
-            <Button type="button" onClick={approve} disabled={saving}>
-              {saving ? 'Saving...' : 'Save'}
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {showStandaloneExperience && (
-      <div className="card-surface space-y-2">
-        <h2 className="section-label">Your experience</h2>
-        {personalDrafts.length === 0 ? (
-          <p className="empty-surface">No dishes available for personal annotation yet. Run extraction first.</p>
-        ) : (
-          <>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                fullWidth={false}
-                onClick={() =>
-                  setPersonalDrafts((prev) =>
-                    prev.map((dish) => ({
-                      ...dish,
-                      had_it: true,
-                    })),
-                  )
-                }
-              >
-                Mark all as had it
-              </Button>
-            </div>
-
+          ) : showStandaloneExperience && personalDrafts.length > 0 ? (
             <div className="space-y-2">
-              {personalDrafts.map((dish, index) => (
-                <div key={dish.dish_key} className="rounded-2xl border border-app-border bg-app-card p-2.5 space-y-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-medium text-app-text">{dish.dish_name}</p>
-                      <p className="text-xs text-app-muted">{formatPrice(dish.price)}</p>
+              {personalDrafts.map((dish, index) => {
+                const noteOpen = openItemNotes[dish.dish_key] || Boolean(dish.comment);
+                return (
+                  <div key={dish.dish_key} className="rounded-xl border border-app-border bg-app-card p-3 space-y-2">
+                    <div className="flex min-h-11 items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold leading-5 text-app-text">{dish.dish_name}</p>
+                        {dish.quantity > 1 && <p className="text-xs leading-4 text-app-muted">×{dish.quantity}</p>}
+                      </div>
+                      <p className="text-sm font-medium leading-5 text-app-text">{formatPrice(dish.price)}</p>
                     </div>
-                    {dish.identity_tag && <IdentityTagPill tag={dish.identity_tag} />}
-                  </div>
 
-                  <IdentitySelector
-                    value={dish.identity_tag}
-                    onChange={(value) =>
-                      setPersonalDrafts((prev) =>
-                        prev.map((entry, i) =>
-                          i === index
-                            ? {
-                                ...entry,
-                                identity_tag: value,
-                              }
-                            : entry,
-                        ),
-                      )
-                    }
-                  />
-
-                  <div className="flex items-center justify-between rounded-xl border border-app-border px-3 py-2">
-                    <p className="text-sm text-app-text">I had this dish</p>
-                    <button
-                      type="button"
-                      onClick={() =>
+                    <EmojiRatingSelector
+                      value={dish.identity_tag}
+                      onChange={(value) =>
                         setPersonalDrafts((prev) =>
                           prev.map((entry, i) =>
                             i === index
                               ? {
                                   ...entry,
-                                  had_it: !entry.had_it,
+                                  identity_tag: value,
                                 }
                               : entry,
                           ),
                         )
                       }
-                      className={`inline-flex h-8 items-center rounded-full border px-3 text-xs font-medium transition-colors duration-200 ${
-                        dish.had_it
-                          ? 'border-app-primary bg-app-primary text-app-primary-text'
-                          : 'border-app-border bg-app-card text-app-muted'
-                      }`}
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenItemNotes((prev) => ({
+                          ...prev,
+                          [dish.dish_key]: !noteOpen,
+                        }))
+                      }
+                      className="inline-flex h-11 items-center text-xs font-medium text-app-link underline underline-offset-2"
                     >
-                      {dish.had_it ? 'Had it' : "Didn't have it"}
+                      {noteOpen ? 'Hide note' : 'Add note…'}
                     </button>
+
+                    {noteOpen && (
+                      <Input
+                        value={dish.comment}
+                        onChange={(event) =>
+                          setPersonalDrafts((prev) =>
+                            prev.map((entry, i) =>
+                              i === index
+                                ? {
+                                    ...entry,
+                                    comment: event.target.value,
+                                  }
+                                : entry,
+                            ),
+                          )
+                        }
+                        placeholder="Optional note"
+                        maxLength={140}
+                      />
+                    )}
                   </div>
-
-                  <Input
-                    value={dish.comment}
-                    onChange={(event) =>
-                      setPersonalDrafts((prev) =>
-                        prev.map((entry, i) =>
-                          i === index
-                            ? {
-                                ...entry,
-                                comment: event.target.value,
-                              }
-                            : entry,
-                        ),
-                      )
-                    }
-                    placeholder="Optional personal note"
-                    maxLength={140}
-                  />
-                </div>
-              ))}
+                );
+              })}
             </div>
+          ) : (
+            <p className="text-sm text-app-muted">No dishes yet. Scan the receipt to start your recap.</p>
+          )}
 
-            <div className="sticky bottom-4">
-              <Button type="button" onClick={saveExperience} disabled={savingExperience}>
-                {savingExperience ? 'Saving...' : 'Save your experience'}
-              </Button>
-            </div>
-          </>
-        )}
-      </div>
+          {isReviewable ? (
+            <Button type="button" onClick={approve} disabled={saving}>
+              {saving ? 'Saving...' : 'Save'}
+            </Button>
+          ) : showStandaloneExperience ? (
+            <Button type="button" onClick={saveExperience} disabled={savingExperience}>
+              {savingExperience ? 'Saving...' : 'Save your experience'}
+            </Button>
+          ) : null}
+        </div>
+      )}
+
+      {isHost && (
+        <div className="card-surface p-3 space-y-2">
+          <h2 className="section-label">Overall vibe</h2>
+          <Input
+            value={visitNote}
+            maxLength={VISIT_NOTE_MAX}
+            onChange={(e) => setVisitNote(e.target.value.slice(0, VISIT_NOTE_MAX))}
+            placeholder="Share the vibe in one line"
+          />
+          <p className="text-xs text-app-muted">{visitNote.length}/{VISIT_NOTE_MAX}</p>
+        </div>
       )}
 
       {visitDishes.length > 0 && (
-        <div className="card-surface space-y-2">
+        <div className="card-surface p-3 space-y-2">
           <h2 className="section-label">Hangout dishes (saved)</h2>
 
           <input
@@ -1448,7 +1191,7 @@ export default function UploadDetailPage() {
           {visitDishes.map((dish) => {
             const dishPhoto = dishPhotoByEntryId[dish.id];
             return (
-              <Link key={dish.id} href={`/dishes/${dish.dish_key}`} className="rounded-2xl border border-app-border bg-app-card p-4 block">
+              <Link key={dish.id} href={`/dishes/${dish.dish_key}`} className="rounded-xl border border-app-border bg-app-card p-3 block">
                 <div className="mb-2 flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3">
                     {dishPhoto?.signedUrls.thumb ? (
@@ -1489,13 +1232,6 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
-
-
-
-
-
-
 
 
 

@@ -15,18 +15,18 @@ function HighlightCardItem({ card }: { card: HighlightCard }) {
 
   if (card.href) {
     return (
-      <Link href={card.href} className="min-w-[210px] max-w-[210px] rounded-xl border border-app-border bg-app-card p-2.5">
+      <Link href={card.href} className="min-w-[190px] max-w-[190px] rounded-xl border border-app-border bg-app-card p-2">
         {content}
       </Link>
     );
   }
 
-  return <div className="min-w-[210px] max-w-[210px] rounded-xl border border-app-border bg-app-card p-2.5">{content}</div>;
+  return <div className="min-w-[190px] max-w-[190px] rounded-xl border border-app-border bg-app-card p-2">{content}</div>;
 }
 
 export function HighlightsCard({ highlights }: { highlights: HighlightCard[] }) {
   return (
-    <section className="card-surface space-y-2">
+    <section className="card-surface p-3 space-y-1.5">
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="section-label">Your highlights</p>
