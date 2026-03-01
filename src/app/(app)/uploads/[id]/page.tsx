@@ -7,8 +7,9 @@ import { useParams, useRouter } from 'next/navigation';
 import { IdentityTagPill, identityTagOptions } from '@/components/IdentityTagPill';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
+import { StatusChip } from '@/components/StatusChip';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { DishEntry, DishIdentityTag, Hangout, HangoutItem, Restaurant } from '@/lib/supabase/types';
+import { DishEntry, DishIdentityTag, ExtractedLineItem, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
 import { toDishKey } from '@/lib/utils';
 import { buildGroupKey, normalizeName } from '@/lib/extraction/normalize';
 import { getGoogleMapsLink } from '@/lib/google/mapsLinks';
@@ -18,23 +19,7 @@ import { uploadOriginalPhotoDirect } from '@/lib/photos/clientUpload';
 const QUICK_NOTE_CHIPS = ['Great value', 'Would repeat', 'Too salty', 'Spicy', 'Slow service', 'Amazing dessert'];
 const VISIT_NOTE_MAX = 140;
 
-type ReviewItem = {
-  id: string;
-  upload_id: string;
-  name_raw: string;
-  name_final: string | null;
-  price_raw: number | null;
-  price_final: number | null;
-  confidence: number | null;
-  included: boolean;
-  quantity: number | null;
-  unit_price: number | null;
-  group_key: string | null;
-  grouped: boolean | null;
-  duplicate_of: string | null;
-  rating: number | null;
-  comment: string | null;
-  created_at: string;
+type ReviewItem = ExtractedLineItem & {
   identity_tag: DishIdentityTag | null;
 };
 
@@ -58,14 +43,7 @@ type ReviewRenderRow = {
   split: boolean;
 };
 
-type CrewMember = {
-  id: string;
-  visit_id: string;
-  user_id: string | null;
-  role: 'host' | 'participant';
-  invited_email: string | null;
-  status: 'active';
-  created_at: string;
+type CrewMember = VisitParticipant & {
   display_name: string | null;
   avatar_url: string | null;
 };
@@ -176,9 +154,8 @@ export default function UploadDetailPage() {
   const uploadId = params.id;
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [upload, setUpload] = useState<Hangout | null>(null);
+  const [upload, setUpload] = useState<ReceiptUpload | null>(null);
   const [restaurant, setRestaurant] = useState<RestaurantDirectory | null>(null);
-  const [receiptSourceId, setReceiptSourceId] = useState<string | null>(null);
 
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [visitDishes, setVisitDishes] = useState<VisitDish[]>([]);
@@ -209,7 +186,7 @@ export default function UploadDetailPage() {
   const [dishUploadTargetId, setDishUploadTargetId] = useState<string | null>(null);
   const didAutoExtractRef = useRef(false);
 
-  const isHost = Boolean(upload && currentUserId && upload.owner_user_id === currentUserId);
+  const isHost = Boolean(upload && currentUserId && upload.user_id === currentUserId);
 
   const isActiveParticipant = useMemo(
     () => Boolean(currentUserId && participants.some((row) => row.user_id === currentUserId && row.status === 'active')),
@@ -219,13 +196,15 @@ export default function UploadDetailPage() {
   const canViewVisit = isHost || isActiveParticipant;
   const hasAnyExtractedItems = items.some((item) => item.included);
   const hasAnySavedVisitDishes = visitDishes.length > 0;
-  const showExtractionPrompt = Boolean(isHost && receiptSourceId && !hasAnyExtractedItems && !hasAnySavedVisitDishes);
+  const showExtractionPrompt = Boolean(
+    isHost && upload && upload.status !== 'needs_review' && !hasAnyExtractedItems && !hasAnySavedVisitDishes,
+  );
 
   const reviewRows = useMemo<ReviewRenderRow[]>(() => {
     const buckets = new Map<string, number[]>();
 
     items.forEach((item, index) => {
-      const key = getReviewGroupKey(item, null);
+      const key = getReviewGroupKey(item, upload?.currency_detected ?? null);
       const existing = buckets.get(key);
       if (existing) {
         existing.push(index);
@@ -255,7 +234,7 @@ export default function UploadDetailPage() {
     });
 
     return rows;
-  }, [items, splitGroupKeys]);
+  }, [items, splitGroupKeys, upload?.currency_detected]);
 
   const getAuthHeader = useCallback(async (): Promise<Record<string, string>> => {
     const supabase = getBrowserSupabaseClient();
@@ -373,9 +352,9 @@ export default function UploadDetailPage() {
 
     setCurrentUserId(user?.id ?? null);
 
-    const { data: uploadData } = await supabase.from('hangouts').select('*').eq('id', uploadId).single();
+    const { data: uploadData } = await supabase.from('receipt_uploads').select('*').eq('id', uploadId).single();
 
-    const typedUpload = uploadData as Hangout | null;
+    const typedUpload = uploadData as ReceiptUpload | null;
     setUpload(typedUpload);
 
     if (!typedUpload || !user) {
@@ -388,32 +367,29 @@ export default function UploadDetailPage() {
       return;
     }
 
-    const [itemData, dishData, personalEntryData, restaurantData, sourceData] = await Promise.all([
-      supabase.from('hangout_items').select('*').eq('hangout_id', uploadId),
+    const [itemData, dishData, personalEntryData, restaurantData] = await Promise.all([
+      supabase.from('extracted_line_items').select('*').eq('upload_id', uploadId),
       supabase
         .from('dish_entries')
         .select('id,user_id,dish_name,dish_key,identity_tag,comment,created_at,eaten_at')
-        .eq('hangout_id', uploadId)
+        .eq('source_upload_id', uploadId)
         .order('eaten_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false }),
       supabase
         .from('dish_entries')
         .select('dish_name,dish_key,identity_tag,comment,had_it,price_original,quantity')
-        .eq('hangout_id', uploadId)
+        .eq('source_upload_id', uploadId)
         .eq('user_id', user.id),
-      supabase.from('hangout_sources').select('id,type').eq('hangout_id', uploadId).order('created_at', { ascending: false }),
       typedUpload.restaurant_id
         ? supabase.from('restaurants').select('id,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync').eq('id', typedUpload.restaurant_id).single()
         : Promise.resolve({ data: null }),
     ]);
 
-    const typedItems = (itemData.data ?? []) as HangoutItem[];
+    const typedItems = (itemData.data ?? []) as ExtractedLineItem[];
     const typedVisitDishes = (dishData.data ?? []) as VisitDish[];
     const personalEntries = (personalEntryData.data ?? []) as Array<
       Pick<DishEntry, 'dish_name' | 'dish_key' | 'identity_tag' | 'comment' | 'had_it' | 'price_original' | 'quantity'>
     >;
-    const receiptSource = ((sourceData.data ?? []) as Array<{ id: string; type: string }>).find((row) => row.type === 'receipt') ?? null;
-    setReceiptSourceId(receiptSource?.id ?? null);
 
     const restaurantName = (restaurantData.data as RestaurantDirectory | null)?.name ?? 'unknown-restaurant';
 
@@ -430,7 +406,7 @@ export default function UploadDetailPage() {
           baseDishMap.set(dishKey, {
             dish_name: dishName,
             dish_key: dishKey,
-            price: item.unit_price,
+            price: item.unit_price ?? item.price_final,
             quantity,
           });
           return;
@@ -440,7 +416,7 @@ export default function UploadDetailPage() {
       });
 
     const fallbackFromVisitDishes = typedVisitDishes
-      .filter((dish) => dish.user_id === typedUpload.owner_user_id)
+      .filter((dish) => dish.user_id === typedUpload.user_id)
       .map((dish) => ({
         dish_name: dish.dish_name,
         dish_key: dish.dish_key,
@@ -466,29 +442,19 @@ export default function UploadDetailPage() {
     setSplitGroupKeys({});
     setItems(
       typedItems.map((item) => ({
-        id: item.id,
-        upload_id: item.hangout_id,
-        name_raw: item.name_raw,
-        name_final: item.name_final,
-        price_raw: item.unit_price,
-        price_final: item.unit_price,
-        confidence: item.confidence,
-        included: item.included,
+        ...item,
         quantity: item.quantity ?? 1,
-        unit_price: item.unit_price,
-        grouped: false,
-        group_key: null,
-        duplicate_of: null,
-        rating: null,
-        comment: null,
-        created_at: item.created_at,
+        unit_price: item.unit_price ?? item.price_final,
+        grouped: item.grouped ?? false,
+        group_key: item.group_key ?? null,
+        duplicate_of: item.duplicate_of ?? null,
         identity_tag: null,
       })),
     );
     setVisitDishes(typedVisitDishes);
     setPersonalDrafts(drafts);
     setRestaurant((restaurantData.data ?? null) as RestaurantDirectory | null);
-    setVisitNote(typedUpload.note ?? '');
+    setVisitNote(typedUpload.visit_note ?? '');
 
     await loadParticipants();
   }, [loadParticipants, uploadId]);
@@ -536,7 +502,7 @@ export default function UploadDetailPage() {
     await fetch('/api/extract', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hangoutId: uploadId }),
+      body: JSON.stringify({ uploadId }),
     });
     await load();
   }, [load, uploadId]);
@@ -579,12 +545,13 @@ export default function UploadDetailPage() {
   useEffect(() => {
     if (didAutoExtractRef.current) return;
     if (!isHost || !upload) return;
-    if (!receiptSourceId) return;
+    if (upload.status !== 'uploaded') return;
+    if (!upload.image_paths || upload.image_paths.length === 0) return;
     if (hasAnyExtractedItems || hasAnySavedVisitDishes) return;
 
     didAutoExtractRef.current = true;
     void runExtraction();
-  }, [hasAnyExtractedItems, hasAnySavedVisitDishes, isHost, receiptSourceId, runExtraction, upload]);
+  }, [hasAnyExtractedItems, hasAnySavedVisitDishes, isHost, runExtraction, upload]);
 
   const addRow = () => {
     setItems((prev) => [
@@ -617,17 +584,21 @@ export default function UploadDetailPage() {
 
     if (!unsaved.length) return;
 
-    await supabase.from('hangout_items').insert(
+    await supabase.from('extracted_line_items').insert(
       unsaved.map((item) => ({
-        hangout_id: uploadId,
-        source_id: receiptSourceId,
+        upload_id: uploadId,
         name_raw: item.name_final ?? item.name_raw,
         name_final: item.name_final,
+        price_raw: item.price_final,
+        price_final: item.price_final,
         confidence: item.confidence,
         included: item.included,
-        quantity: Math.max(1, item.quantity ?? 1),
+        quantity: item.quantity,
         unit_price: item.unit_price ?? item.price_final,
-        currency: 'USD',
+        group_key: item.group_key,
+        grouped: item.grouped,
+        duplicate_of: item.duplicate_of,
+        comment: item.comment,
       })),
     );
 
@@ -644,63 +615,52 @@ export default function UploadDetailPage() {
       const unsaved = items.filter((item) => item.id.startsWith('tmp-'));
 
       await supabase
-        .from('hangouts')
+        .from('receipt_uploads')
         .update({
-          note: visitNote.trim() ? visitNote.trim() : null,
-          updated_at: new Date().toISOString(),
+          visit_note: visitNote.trim() ? visitNote.trim() : null,
         })
         .eq('id', uploadId);
 
       const insertedReviewItems: ReviewItem[] = [];
       for (const item of unsaved) {
         const { data: inserted, error } = await supabase
-          .from('hangout_items')
+          .from('extracted_line_items')
           .insert({
-            hangout_id: uploadId,
-            source_id: receiptSourceId,
+            upload_id: uploadId,
             name_raw: item.name_final ?? item.name_raw,
             name_final: item.name_final,
+            price_raw: item.price_final,
+            price_final: item.price_final,
             confidence: item.confidence,
-            included: item.included,
-            quantity: Math.max(1, item.quantity ?? 1),
-            unit_price: item.unit_price ?? item.price_final,
-            currency: 'USD',
+        included: item.included,
+        quantity: item.quantity,
+        unit_price: item.unit_price ?? item.price_final,
+        group_key: item.group_key,
+        grouped: item.grouped,
+        duplicate_of: item.duplicate_of,
+        comment: item.comment,
           })
           .select('*')
           .single();
 
         if (error) throw error;
-        const row = inserted as HangoutItem;
-        insertedReviewItems.push({
-          id: row.id,
-          upload_id: row.hangout_id,
-          name_raw: row.name_raw,
-          name_final: row.name_final,
-          price_raw: row.unit_price,
-          price_final: row.unit_price,
-          confidence: row.confidence,
-          included: row.included,
-          quantity: row.quantity,
-          unit_price: row.unit_price,
-          group_key: null,
-          grouped: false,
-          duplicate_of: null,
-          rating: null,
-          comment: null,
-          created_at: row.created_at,
-          identity_tag: item.identity_tag,
-        });
+        insertedReviewItems.push({ ...(inserted as ExtractedLineItem), identity_tag: item.identity_tag });
       }
 
       await Promise.all(
         persisted.map((item) =>
           supabase
-            .from('hangout_items')
+            .from('extracted_line_items')
             .update({
               name_final: item.name_final,
-              quantity: Math.max(1, item.quantity ?? 1),
+              price_final: item.price_final,
+              quantity: item.quantity,
               unit_price: item.unit_price ?? item.price_final,
+              group_key: item.group_key,
+              grouped: item.grouped,
+              duplicate_of: item.duplicate_of,
               included: item.included,
+              comment: item.comment,
             })
             .eq('id', item.id),
         ),
@@ -712,7 +672,7 @@ export default function UploadDetailPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          hangoutId: uploadId,
+          uploadId,
           identities: finalItems.map((item) => ({
             lineItemId: item.id,
             identityTag: item.identity_tag,
@@ -741,13 +701,12 @@ export default function UploadDetailPage() {
       const rows = personalDrafts.map((dish) => ({
         user_id: currentUserId,
         restaurant_id: upload.restaurant_id,
-        hangout_id: upload.id,
         dish_name: dish.dish_name,
         price_original: dish.price,
-        currency_original: 'USD',
+        currency_original: upload.currency_detected || 'USD',
         price_usd: dish.price,
         quantity: dish.quantity,
-        eaten_at: upload.occurred_at ?? upload.created_at,
+        eaten_at: upload.visited_at ?? upload.created_at,
         source_upload_id: upload.id,
         dish_key: dish.dish_key,
         identity_tag: dish.identity_tag,
@@ -846,11 +805,11 @@ export default function UploadDetailPage() {
     return <div className="card-surface text-sm text-app-muted">You do not have access to this hangout.</div>;
   }
 
-  const visitDate = formatDate(upload.occurred_at ?? upload.created_at);
-  const isSharedVisit = participants.length > 1;
-  const isReviewable = isHost;
-  const showHostShareSection = isHost;
-  const showStandaloneExperience = !isHost;
+  const visitDate = formatDate(upload.visited_at ?? upload.created_at);
+  const isSharedVisit = Boolean(upload.is_shared);
+  const isReviewable = upload.status === 'needs_review' && isHost;
+  const showHostShareSection = isHost && isSharedVisit;
+  const showStandaloneExperience = isSharedVisit && (!isHost || !isReviewable);
   const directionsHref = getGoogleMapsLink(restaurant?.place_id, restaurant?.address, restaurant?.name);
   const todayHours = getTodayHours(restaurant?.opening_hours ?? null);
   const openNow =
@@ -865,7 +824,7 @@ export default function UploadDetailPage() {
       <div className="card-surface space-y-3">
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-xl font-semibold text-app-text">Hangout recap</h1>
-          <p className="text-xs text-app-muted">With {Math.max(1, participants.length)}</p>
+          <StatusChip status={upload.status} />
         </div>
         <p className="text-base text-app-text">{restaurant?.name ?? 'Unknown restaurant'}</p>
         <p className="text-sm text-app-muted">{visitDate}</p>
@@ -1047,7 +1006,7 @@ export default function UploadDetailPage() {
                 <div key={participant.id} className="flex items-center justify-between gap-3 rounded-xl border border-app-border bg-app-card px-3 py-2">
                   <div>
                     <p className="text-sm text-app-text">{participant.display_name ?? 'Crew member'}</p>
-                    <p className="text-xs text-app-muted">In your crew</p>
+                    <p className="text-xs text-app-muted">{participant.status === 'invited' && !participant.user_id ? 'Invite pending' : 'In your crew'}</p>
                   </div>
                   <Button
                     type="button"
@@ -1136,7 +1095,7 @@ export default function UploadDetailPage() {
           )}
           {items.length === 0 ? (
             <p className="rounded-2xl border border-dashed border-app-border p-4 text-sm text-app-muted">
-              No extracted dishes yet. You can still save the vibe and come back to scan a receipt later.
+              No extracted dishes yet. You can still save the vibe, then approve.
             </p>
           ) : (
             <div className="space-y-3">
@@ -1347,14 +1306,14 @@ export default function UploadDetailPage() {
             <Button type="button" variant="secondary" onClick={addRow}>
               Add row
             </Button>
-              <Button type="button" variant="secondary" onClick={saveNewRows}>
-                Save added rows
-              </Button>
-              <Button type="button" onClick={approve} disabled={saving}>
-                {saving ? 'Saving...' : 'Save'}
-              </Button>
-            </div>
+            <Button type="button" variant="secondary" onClick={saveNewRows}>
+              Save added rows
+            </Button>
+            <Button type="button" onClick={approve} disabled={saving}>
+              {saving ? 'Saving...' : 'Approve & Save'}
+            </Button>
           </div>
+        </div>
       )}
 
       {showStandaloneExperience && (
@@ -1530,6 +1489,14 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
 
 
 

@@ -30,10 +30,10 @@ async function validateOwnership(params: {
   if (params.kind === 'hangout') {
     if (!params.hangoutId) return false;
     const { data } = await supabase
-      .from('hangouts')
+      .from('receipt_uploads')
       .select('id')
       .eq('id', params.hangoutId)
-      .eq('owner_user_id', params.userId)
+      .eq('user_id', params.userId)
       .maybeSingle();
     return Boolean(data?.id);
   }

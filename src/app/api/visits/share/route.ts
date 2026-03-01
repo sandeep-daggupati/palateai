@@ -1,16 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { Database } from '@/lib/supabase/types';
+import { Database, TableInsert, VisitParticipant } from '@/lib/supabase/types';
 import { getServiceSupabaseClient } from '@/lib/supabase/server';
 
-type CrewMember = {
-  id: string;
-  visit_id: string;
-  user_id: string | null;
-  role: 'host' | 'participant';
-  invited_email: string | null;
-  status: 'active';
-  created_at: string;
+type CrewMember = VisitParticipant & {
   display_name: string | null;
   avatar_url: string | null;
 };
@@ -56,26 +49,28 @@ async function authorize(request: Request, visitId: string) {
   }
 
   const service = getServiceSupabaseClient();
-  const { data: hangout } = await service.from('hangouts').select('id,owner_user_id').eq('id', visitId).single();
+  const { data: visit } = await service.from('receipt_uploads').select('id,user_id').eq('id', visitId).single();
 
-  if (!hangout) {
+  if (!visit) {
     return { error: NextResponse.json({ ok: false, error: 'Hangout not found' }, { status: 404 }) };
   }
 
-  const isHost = hangout.owner_user_id === user.id;
-  const { data: participant } = await service
-    .from('hangout_participants')
-    .select('hangout_id,user_id')
-    .eq('hangout_id', visitId)
-    .eq('user_id', user.id)
-    .maybeSingle();
+  const isHost = visit.user_id === user.id;
 
-  const isParticipant = Boolean(participant);
+  const { data: participantRow } = await service
+    .from('visit_participants')
+    .select('id,user_id,status')
+    .eq('visit_id', visitId)
+    .eq('user_id', user.id)
+    .eq('status', 'active')
+    .single();
+
+  const isParticipant = Boolean(participantRow);
 
   return {
     service,
     user,
-    hangout,
+    visit,
     isHost,
     isParticipant,
   };
@@ -88,8 +83,10 @@ async function findUserByEmail(service: ReturnType<typeof getServiceSupabaseClie
   while (page <= 25) {
     const response = await service.auth.admin.listUsers({ page, perPage });
     const users = response.data.users ?? [];
+
     const match = users.find((row) => row.email?.toLowerCase() === email);
     if (match) return match;
+
     if (users.length < perPage) break;
     page += 1;
   }
@@ -173,36 +170,25 @@ async function buildProfileLookup(service: ReturnType<typeof getServiceSupabaseC
   return lookup;
 }
 
-async function attachDisplayNames(service: ReturnType<typeof getServiceSupabaseClient>, visitId: string, ownerUserId: string) {
-  const { data: participants } = await service
-    .from('hangout_participants')
-    .select('hangout_id,user_id,created_at')
-    .eq('hangout_id', visitId)
-    .order('created_at', { ascending: true });
+async function attachDisplayNames(
+  service: ReturnType<typeof getServiceSupabaseClient>,
+  participants: VisitParticipant[],
+): Promise<CrewMember[]> {
+  const userIds = participants.map((row) => row.user_id).filter((id): id is string => Boolean(id));
+  const profileLookup = await buildProfileLookup(service, userIds);
 
-  const rows = (participants ?? []) as Array<{ hangout_id: string; user_id: string; created_at: string }>;
-  const lookup = await buildProfileLookup(
-    service,
-    rows.map((row) => row.user_id),
-  );
+  return participants.map((row) => {
+    const profile = row.user_id ? profileLookup.get(row.user_id) : null;
 
-  const crew: CrewMember[] = rows.map((row) => {
-    const profile = lookup.get(row.user_id);
-    const role: 'host' | 'participant' = row.user_id === ownerUserId ? 'host' : 'participant';
     return {
-      id: row.user_id,
-      visit_id: row.hangout_id,
-      user_id: row.user_id,
-      role,
+      ...row,
       invited_email: null,
-      status: 'active',
-      created_at: row.created_at,
-      display_name: profile?.display_name ?? 'Crew member',
+      display_name:
+        profile?.display_name ??
+        (row.status === 'invited' && !row.user_id ? 'Invite pending' : 'Crew member'),
       avatar_url: profile?.avatar_url ?? null,
     };
   });
-
-  return crew;
 }
 
 export async function GET(request: Request) {
@@ -220,7 +206,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 });
   }
 
-  const crew = await attachDisplayNames(auth.service, visitId, auth.hangout.owner_user_id);
+  const { data } = await auth.service
+    .from('visit_participants')
+    .select('id,visit_id,user_id,role,invited_email,status,created_at')
+    .eq('visit_id', visitId)
+    .in('status', ['active', 'invited'])
+    .order('created_at', { ascending: true });
+
+  const participants = (data ?? []) as VisitParticipant[];
+  const crew = await attachDisplayNames(auth.service, participants);
+
   return NextResponse.json({ ok: true, participants: crew });
 }
 
@@ -244,28 +239,100 @@ export async function POST(request: Request) {
   }
 
   const matchedUser = await findUserByEmail(auth.service, email);
-  if (!matchedUser?.id) {
-    return NextResponse.json({ ok: false, error: 'User not found. Ask your buddy to create an account first.' }, { status: 404 });
-  }
 
-  if (matchedUser.id === auth.user.id) {
+  if (matchedUser?.id === auth.user.id) {
     return NextResponse.json({ ok: false, error: 'Organizer is already in this hangout' }, { status: 400 });
   }
 
-  const { error } = await auth.service.from('hangout_participants').upsert(
-    {
-      hangout_id: body.visitId,
-      user_id: matchedUser.id,
-    },
-    { onConflict: 'hangout_id,user_id' },
-  );
+  let participant: VisitParticipant | null = null;
 
-  if (error) {
-    return NextResponse.json({ ok: false, error: `Could not add crew member: ${error.message}` }, { status: 500 });
+  if (matchedUser) {
+    const { data: existingByUser } = await auth.service
+      .from('visit_participants')
+      .select('id,visit_id,user_id,role,invited_email,status,created_at')
+      .eq('visit_id', body.visitId)
+      .eq('user_id', matchedUser.id)
+      .maybeSingle();
+
+    if (existingByUser) {
+      const { data: updated, error: updateError } = await auth.service
+        .from('visit_participants')
+        .update({ status: 'active', role: 'participant', invited_email: email })
+        .eq('id', existingByUser.id)
+        .select('id,visit_id,user_id,role,invited_email,status,created_at')
+        .single();
+
+      if (updateError) {
+        return NextResponse.json({ ok: false, error: `Could not update crew member: ${updateError.message}` }, { status: 500 });
+      }
+
+      participant = updated as VisitParticipant;
+    } else {
+      const insertPayload: TableInsert<'visit_participants'> = {
+        visit_id: body.visitId,
+        user_id: matchedUser.id,
+        invited_email: email,
+        role: 'participant',
+        status: 'active',
+      };
+
+      const { data: inserted, error: insertError } = await auth.service
+        .from('visit_participants')
+        .insert(insertPayload)
+        .select('id,visit_id,user_id,role,invited_email,status,created_at')
+        .single();
+
+      if (insertError) {
+        return NextResponse.json({ ok: false, error: `Could not add crew member: ${insertError.message}` }, { status: 500 });
+      }
+
+      participant = inserted as VisitParticipant;
+    }
+  } else {
+    const { data: existingByEmail } = await auth.service
+      .from('visit_participants')
+      .select('id,visit_id,user_id,role,invited_email,status,created_at')
+      .eq('visit_id', body.visitId)
+      .eq('invited_email', email)
+      .maybeSingle();
+
+    if (existingByEmail) {
+      const { data: updated, error: updateError } = await auth.service
+        .from('visit_participants')
+        .update({ status: 'invited', role: 'participant', invited_email: email })
+        .eq('id', existingByEmail.id)
+        .select('id,visit_id,user_id,role,invited_email,status,created_at')
+        .single();
+
+      if (updateError) {
+        return NextResponse.json({ ok: false, error: `Could not update invite: ${updateError.message}` }, { status: 500 });
+      }
+
+      participant = updated as VisitParticipant;
+    } else {
+      const insertPayload: TableInsert<'visit_participants'> = {
+        visit_id: body.visitId,
+        invited_email: email,
+        role: 'participant',
+        status: 'invited',
+      };
+
+      const { data: inserted, error: insertError } = await auth.service
+        .from('visit_participants')
+        .insert(insertPayload)
+        .select('id,visit_id,user_id,role,invited_email,status,created_at')
+        .single();
+
+      if (insertError) {
+        return NextResponse.json({ ok: false, error: `Could not invite buddy: ${insertError.message}` }, { status: 500 });
+      }
+
+      participant = inserted as VisitParticipant;
+    }
   }
 
-  const crew = await attachDisplayNames(auth.service, body.visitId, auth.hangout.owner_user_id);
-  const participant = crew.find((row) => row.user_id === matchedUser.id) ?? null;
+  await auth.service.from('receipt_uploads').update({ is_shared: true, share_visibility: 'private' }).eq('id', body.visitId);
+
   return NextResponse.json({ ok: true, participant });
 }
 
@@ -283,15 +350,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ ok: false, error: 'Only organizer can remove buddies' }, { status: 403 });
   }
 
-  if (body.participantId === auth.hangout.owner_user_id) {
-    return NextResponse.json({ ok: false, error: 'Organizer cannot be removed' }, { status: 400 });
-  }
-
-  const { error } = await auth.service
-    .from('hangout_participants')
-    .delete()
-    .eq('hangout_id', body.visitId)
-    .eq('user_id', body.participantId);
+  const { error } = await auth.service.from('visit_participants').delete().eq('id', body.participantId).eq('visit_id', body.visitId);
 
   if (error) {
     return NextResponse.json({ ok: false, error: `Could not remove buddy: ${error.message}` }, { status: 500 });
