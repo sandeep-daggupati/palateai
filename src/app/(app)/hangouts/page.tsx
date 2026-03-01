@@ -4,19 +4,16 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { FilterChips } from '@/components/FilterChips';
-import { StatusChip } from '@/components/StatusChip';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { ReceiptUpload, ReceiptUploadStatus, Restaurant, VisitParticipant } from '@/lib/supabase/types';
+import { Hangout, HangoutParticipant, Restaurant } from '@/lib/supabase/types';
 import { getGoogleMapsLink } from '@/lib/google/mapsLinks';
 
 const LIST_LIMIT = 30;
 
-const ACTIVITY_FILTER_OPTIONS: Array<{ label: string; value: 'all' | ReceiptUploadStatus }> = [
+const ACTIVITY_FILTER_OPTIONS: Array<{ label: string; value: 'all' | 'mine' | 'with_me' }> = [
   { label: 'All', value: 'all' },
-  { label: 'Needs review', value: 'needs_review' },
-  { label: 'Approved', value: 'approved' },
-  { label: 'Processing', value: 'processing' },
-  { label: 'Failed', value: 'failed' },
+  { label: 'Mine', value: 'mine' },
+  { label: 'With me', value: 'with_me' },
 ];
 
 type RestaurantLookup = {
@@ -34,9 +31,9 @@ function formatDate(value: string | null): string {
   });
 }
 
-function sortByVisitDateDesc(a: ReceiptUpload, b: ReceiptUpload) {
-  const aDate = new Date(a.visited_at ?? a.created_at).getTime();
-  const bDate = new Date(b.visited_at ?? b.created_at).getTime();
+function sortByVisitDateDesc(a: Hangout, b: Hangout) {
+  const aDate = new Date(a.occurred_at ?? a.created_at).getTime();
+  const bDate = new Date(b.occurred_at ?? b.created_at).getTime();
   return bDate - aDate;
 }
 
@@ -45,9 +42,10 @@ export default function HangoutsPage() {
   const restaurantParam = (searchParams.get('restaurant_id') ?? '').trim();
   const queryParam = (searchParams.get('q') ?? '').trim().toLowerCase();
 
-  const [visits, setVisits] = useState<ReceiptUpload[]>([]);
+  const [visits, setVisits] = useState<Hangout[]>([]);
+  const [participantCounts, setParticipantCounts] = useState<Record<string, number>>({});
   const [restaurantsById, setRestaurantsById] = useState<Record<string, RestaurantLookup>>({});
-  const [activityFilter, setActivityFilter] = useState<'all' | ReceiptUploadStatus>('all');
+  const [activityFilter, setActivityFilter] = useState<'all' | 'mine' | 'with_me'>('all');
 
   useEffect(() => {
     const load = async () => {
@@ -58,21 +56,12 @@ export default function HangoutsPage() {
 
       if (!user) {
         setVisits([]);
+        setParticipantCounts({});
         setRestaurantsById({});
         return;
       }
 
-      let ownVisitQuery = supabase
-        .from('receipt_uploads')
-        .select('id,user_id,restaurant_id,status,visited_at,created_at,visit_note')
-        .eq('user_id', user.id)
-        .order('visited_at', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false })
-        .limit(LIST_LIMIT);
-
-      if (activityFilter !== 'all') {
-        ownVisitQuery = ownVisitQuery.eq('status', activityFilter);
-      }
+      let ownVisitQuery = supabase.from('hangouts').select('*').eq('owner_user_id', user.id).order('occurred_at', { ascending: false }).limit(LIST_LIMIT);
 
       if (restaurantParam) {
         ownVisitQuery = ownVisitQuery.eq('restaurant_id', restaurantParam);
@@ -81,44 +70,54 @@ export default function HangoutsPage() {
       const [{ data: ownVisitRows }, { data: participantRows }] = await Promise.all([
         ownVisitQuery,
         supabase
-          .from('visit_participants')
-          .select('visit_id,status')
+          .from('hangout_participants')
+          .select('hangout_id')
           .eq('user_id', user.id)
-          .eq('status', 'active')
           .limit(300),
       ]);
 
-      const participantVisitIds = ((participantRows ?? []) as Pick<VisitParticipant, 'visit_id' | 'status'>[])
-        .map((row) => row.visit_id)
+      const participantVisitIds = ((participantRows ?? []) as Pick<HangoutParticipant, 'hangout_id'>[])
+        .map((row) => row.hangout_id)
         .filter((value, index, self) => self.indexOf(value) === index);
 
-      let sharedVisitRows: ReceiptUpload[] = [];
+      let sharedVisitRows: Hangout[] = [];
       if (participantVisitIds.length > 0) {
         let sharedVisitQuery = supabase
-          .from('receipt_uploads')
-          .select('id,user_id,restaurant_id,status,visited_at,created_at,visit_note')
+          .from('hangouts')
+          .select('*')
           .in('id', participantVisitIds)
-          .order('visited_at', { ascending: false, nullsFirst: false })
-          .order('created_at', { ascending: false })
+          .order('occurred_at', { ascending: false })
           .limit(LIST_LIMIT);
-
-        if (activityFilter !== 'all') {
-          sharedVisitQuery = sharedVisitQuery.eq('status', activityFilter);
-        }
 
         if (restaurantParam) {
           sharedVisitQuery = sharedVisitQuery.eq('restaurant_id', restaurantParam);
         }
 
         const { data: sharedRows } = await sharedVisitQuery;
-        sharedVisitRows = (sharedRows ?? []) as ReceiptUpload[];
+        sharedVisitRows = (sharedRows ?? []) as Hangout[];
       }
 
-      const mergedVisits = [...((ownVisitRows ?? []) as ReceiptUpload[]), ...sharedVisitRows]
+      let mergedVisits = [...((ownVisitRows ?? []) as Hangout[]), ...sharedVisitRows]
         .filter((row, index, self) => self.findIndex((entry) => entry.id === row.id) === index)
         .sort(sortByVisitDateDesc);
 
+      if (activityFilter === 'mine') {
+        mergedVisits = mergedVisits.filter((row) => row.owner_user_id === user.id);
+      }
+      if (activityFilter === 'with_me') {
+        mergedVisits = mergedVisits.filter((row) => row.owner_user_id !== user.id);
+      }
+
       const restaurantIds = Array.from(new Set(mergedVisits.map((row) => row.restaurant_id).filter((id): id is string => Boolean(id))));
+      const hangoutIds = mergedVisits.map((row) => row.id);
+
+      const countMap: Record<string, number> = {};
+      if (hangoutIds.length > 0) {
+        const { data: allParticipants } = await supabase.from('hangout_participants').select('hangout_id,user_id').in('hangout_id', hangoutIds).limit(1000);
+        for (const row of (allParticipants ?? []) as Array<Pick<HangoutParticipant, 'hangout_id' | 'user_id'>>) {
+          countMap[row.hangout_id] = (countMap[row.hangout_id] ?? 0) + 1;
+        }
+      }
 
       let restaurantLookup: Record<string, RestaurantLookup> = {};
       if (restaurantIds.length > 0) {
@@ -138,6 +137,7 @@ export default function HangoutsPage() {
       }
 
       setVisits(mergedVisits);
+      setParticipantCounts(countMap);
       setRestaurantsById(restaurantLookup);
     };
 
@@ -146,7 +146,7 @@ export default function HangoutsPage() {
 
   const filteredRows = useMemo(() => {
     const base = visits.map((visit) => {
-      const restaurantName = visit.restaurant_id ? restaurantsById[visit.restaurant_id]?.name ?? 'Unknown restaurant' : 'Unknown restaurant';
+      const restaurantName = visit.restaurant_id ? restaurantsById[visit.restaurant_id]?.name ?? 'Unknown place' : 'Unknown place';
       const address = visit.restaurant_id ? restaurantsById[visit.restaurant_id]?.address ?? null : null;
       const placeId = visit.restaurant_id ? restaurantsById[visit.restaurant_id]?.place_id ?? null : null;
 
@@ -155,14 +155,15 @@ export default function HangoutsPage() {
         restaurantName,
         address,
         placeId,
-        dateLabel: formatDate(visit.visited_at ?? visit.created_at),
+        dateLabel: formatDate(visit.occurred_at ?? visit.created_at),
+        withCount: participantCounts[visit.id] ?? 1,
         directionsHref: getGoogleMapsLink(placeId, address, restaurantName),
       };
     });
 
     if (!queryParam) return base;
     return base.filter((row) => row.restaurantName.toLowerCase().includes(queryParam));
-  }, [queryParam, restaurantsById, visits]);
+  }, [participantCounts, queryParam, restaurantsById, visits]);
 
   return (
     <div className="space-y-3 pb-6">
@@ -186,7 +187,7 @@ export default function HangoutsPage() {
               <Link key={visit.id} href={`/uploads/${visit.id}`} className="block px-3 py-3">
                 <div className="mb-1 flex items-center justify-between gap-3">
                   <p className="font-medium text-app-text">{visit.restaurantName}</p>
-                  <StatusChip status={visit.status} />
+                  <p className="text-xs text-app-muted">With {visit.withCount}</p>
                 </div>
                 {visit.address && <p className="text-xs text-app-muted">{visit.address}</p>}
                 <p className="text-xs text-app-muted">{visit.dateLabel}</p>
@@ -198,8 +199,6 @@ export default function HangoutsPage() {
     </div>
   );
 }
-
-
 
 
 

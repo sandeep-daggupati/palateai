@@ -1,8 +1,8 @@
-// src/app/api/extract/route.ts
-import { NextResponse } from "next/server";
-import { postProcessExtractedItems } from "@/lib/extraction/postprocess";
-import { extractLineItemsFromImage, repairLineItemNamesText } from "@/lib/extraction/openaiVision";
-import { getServiceSupabaseClient } from "@/lib/supabase/server";
+import { NextResponse } from 'next/server';
+import { postProcessExtractedItems } from '@/lib/extraction/postprocess';
+import { extractLineItemsFromImage, repairLineItemNamesText } from '@/lib/extraction/openaiVision';
+import { getServiceSupabaseClient } from '@/lib/supabase/server';
+import { createHangoutSource, upsertHangoutItems } from '@/lib/data/hangoutsRepo';
 
 type MappingRow = {
   raw_name: string;
@@ -10,143 +10,161 @@ type MappingRow = {
   restaurant_id: string | null;
 };
 
+type LegacyUploadRow = {
+  id: string;
+  user_id: string;
+  restaurant_id: string | null;
+  image_paths: string[];
+  currency_detected: string | null;
+  visited_at: string | null;
+  created_at: string;
+  visit_note: string | null;
+  processed_at: string | null;
+};
+
 function firstNonEmptyPath(value: unknown): string | null {
   if (Array.isArray(value)) {
-    const first = value.find((entry): entry is string => typeof entry === "string" && entry.length > 0);
+    const first = value.find((entry): entry is string => typeof entry === 'string' && entry.length > 0);
     return first ?? null;
   }
-
-  if (typeof value === "string" && value.length > 0) {
-    return value;
-  }
-
+  if (typeof value === 'string' && value.length > 0) return value;
   return null;
 }
 
 function safeErrorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : "Extraction failed";
+  return err instanceof Error ? err.message : 'Extraction failed';
 }
 
 function sanitizePath(path: string): string {
-  const parts = path.split("/");
+  const parts = path.split('/');
   if (parts.length <= 3) return path;
-  return `${parts.slice(0, 3).join("/")}/...`;
+  return `${parts.slice(0, 3).join('/')}/...`;
 }
 
 export async function POST(req: Request) {
   const supabase = getServiceSupabaseClient();
-  let uploadId: string | undefined;
+  let hangoutId: string | undefined;
   const traceId = Math.random().toString(36).slice(2, 10);
 
   try {
-    const body = (await req.json()) as { uploadId?: string };
-    uploadId = body.uploadId;
+    const body = (await req.json()) as { uploadId?: string; hangoutId?: string };
+    hangoutId = body.hangoutId ?? body.uploadId;
 
-    console.info(`[extract:${traceId}] start`, { uploadId: uploadId ?? null });
-
-    if (!uploadId) {
-      console.warn(`[extract:${traceId}] missingUploadId`);
-      return NextResponse.json({ ok: false, error: "Missing uploadId" }, { status: 400 });
+    if (!hangoutId) {
+      return NextResponse.json({ ok: false, error: 'Missing hangoutId/uploadId' }, { status: 400 });
     }
 
-    const uploadIdValue = uploadId;
+    const hangoutIdValue = hangoutId;
+    const { data: existingHangout } = await supabase
+      .from('hangouts')
+      .select('id,owner_user_id,restaurant_id,occurred_at,created_at,note')
+      .eq('id', hangoutIdValue)
+      .maybeSingle();
 
-    {
-      const { error } = await supabase.from("receipt_uploads").update({ status: "processing" }).eq("id", uploadIdValue);
-
-      if (error) {
-        console.error(`[extract:${traceId}] setProcessing.failed`, { error: error.message });
-        throw error;
+    let legacyUpload: LegacyUploadRow | null = null;
+    if (!existingHangout) {
+      const { data: upload } = await supabase
+        .from('receipt_uploads')
+        .select('id,user_id,restaurant_id,image_paths,currency_detected,visited_at,created_at,visit_note,processed_at')
+        .eq('id', hangoutIdValue)
+        .maybeSingle();
+      legacyUpload = (upload as LegacyUploadRow | null) ?? null;
+      if (!legacyUpload) {
+        return NextResponse.json({ ok: false, error: 'Hangout not found' }, { status: 404 });
       }
-      console.info(`[extract:${traceId}] setProcessing.ok`);
+
+      await supabase.from('hangouts').upsert(
+        {
+          id: legacyUpload.id,
+          owner_user_id: legacyUpload.user_id,
+          restaurant_id: legacyUpload.restaurant_id,
+          occurred_at: legacyUpload.visited_at ?? legacyUpload.created_at,
+          note: legacyUpload.visit_note,
+        },
+        { onConflict: 'id' },
+      );
+      await supabase.from('hangout_participants').upsert({ hangout_id: legacyUpload.id, user_id: legacyUpload.user_id }, { onConflict: 'hangout_id,user_id' });
     }
 
-    const { data: upload, error: uploadError } = await supabase
-      .from("receipt_uploads")
-      .select("id,user_id,restaurant_id,image_paths,currency_detected")
-      .eq("id", uploadIdValue)
+    const { data: hangout } = await supabase
+      .from('hangouts')
+      .select('id,owner_user_id,restaurant_id,occurred_at,created_at')
+      .eq('id', hangoutIdValue)
       .single();
-
-    if (uploadError) {
-      console.error(`[extract:${traceId}] fetchUpload.failed`, { error: uploadError.message });
-      throw uploadError;
+    if (!hangout) {
+      throw new Error('Hangout not found after upsert');
     }
 
-    const imagePath = firstNonEmptyPath(upload.image_paths);
-    console.info(`[extract:${traceId}] uploadResolved`, {
-      hasImagePaths: Array.isArray(upload.image_paths) && upload.image_paths.length > 0,
-      selectedImagePath: imagePath ? sanitizePath(imagePath) : null,
-    });
+    const { data: sourceRows } = await supabase
+      .from('hangout_sources')
+      .select('*')
+      .eq('hangout_id', hangoutIdValue)
+      .eq('type', 'receipt')
+      .order('created_at', { ascending: false })
+      .limit(1);
 
+    let receiptSource = (sourceRows?.[0] as { id: string; storage_path: string | null } | undefined) ?? null;
+
+    if (!legacyUpload) {
+      const { data: upload } = await supabase
+        .from('receipt_uploads')
+        .select('id,user_id,restaurant_id,image_paths,currency_detected,visited_at,created_at,visit_note,processed_at')
+        .eq('id', hangoutIdValue)
+        .maybeSingle();
+      legacyUpload = (upload as LegacyUploadRow | null) ?? null;
+    }
+
+    const imagePath = firstNonEmptyPath(receiptSource?.storage_path ?? legacyUpload?.image_paths ?? null);
     if (!imagePath) {
-      throw new Error("No image paths found for upload");
+      return NextResponse.json({ ok: false, error: 'No receipt image found for this hangout' }, { status: 400 });
     }
 
-    const { data: signed, error: signedErr } = await supabase.storage.from("uploads").createSignedUrl(imagePath, 60);
-
-    if (signedErr) {
-      console.error(`[extract:${traceId}] signedUrl.failed`, { error: signedErr.message, imagePath: sanitizePath(imagePath) });
-      throw signedErr;
+    if (!receiptSource) {
+      receiptSource = await createHangoutSource(supabase, {
+        hangout_id: hangoutIdValue,
+        type: 'receipt',
+        storage_path: imagePath,
+        extractor: null,
+        extracted_at: null,
+        extraction_version: null,
+        raw_extraction: null,
+      });
     }
-    if (!signed?.signedUrl) {
-      console.error(`[extract:${traceId}] signedUrl.missing`, { imagePath: sanitizePath(imagePath) });
-      throw new Error("Failed to create signed URL");
+
+    console.info(`[extract:${traceId}] signedUrl.start`, { hangoutId: hangoutIdValue, imagePath: sanitizePath(imagePath) });
+    const { data: signed, error: signedErr } = await supabase.storage.from('uploads').createSignedUrl(imagePath, 60);
+    if (signedErr || !signed?.signedUrl) {
+      throw new Error(signedErr?.message ?? 'Failed to create signed URL');
     }
 
-    const restaurant = upload.restaurant_id
-      ? await supabase.from("restaurants").select("name,address").eq("id", upload.restaurant_id).single()
+    const restaurant = hangout.restaurant_id
+      ? await supabase.from('restaurants').select('name,address').eq('id', hangout.restaurant_id).single()
       : { data: null, error: null };
 
-    if (restaurant.error) {
-      console.warn(`[extract:${traceId}] restaurantLookup.failed`, { error: restaurant.error.message });
-    }
-
     const [scopedMappingsResult, globalMappingsResult] = await Promise.all([
-      upload.restaurant_id
+      hangout.restaurant_id
         ? supabase
-            .from("dish_name_mappings")
-            .select("raw_name,normalized_name,restaurant_id")
-            .eq("user_id", upload.user_id)
-            .eq("restaurant_id", upload.restaurant_id)
+            .from('dish_name_mappings')
+            .select('raw_name,normalized_name,restaurant_id')
+            .eq('user_id', hangout.owner_user_id)
+            .eq('restaurant_id', hangout.restaurant_id)
         : Promise.resolve({ data: [], error: null }),
-      supabase
-        .from("dish_name_mappings")
-        .select("raw_name,normalized_name,restaurant_id")
-        .eq("user_id", upload.user_id)
-        .is("restaurant_id", null),
+      supabase.from('dish_name_mappings').select('raw_name,normalized_name,restaurant_id').eq('user_id', hangout.owner_user_id).is('restaurant_id', null),
     ]);
-
-    if (scopedMappingsResult.error) {
-      console.warn(`[extract:${traceId}] scopedMappings.failed`, { error: scopedMappingsResult.error.message });
-    }
-    if (globalMappingsResult.error) {
-      console.warn(`[extract:${traceId}] globalMappings.failed`, { error: globalMappingsResult.error.message });
-    }
 
     const mappings = [
       ...((scopedMappingsResult.data ?? []) as MappingRow[]),
       ...((globalMappingsResult.data ?? []) as MappingRow[]),
     ];
 
-    console.info(`[extract:${traceId}] signedUrl.ok`, {
-      imagePath: sanitizePath(imagePath),
-      mappingCount: mappings.length,
-    });
-
     const extracted = await extractLineItemsFromImage({ imageUrl: signed.signedUrl, traceId });
-
-    console.info(`[extract:${traceId}] openaiExtracted`, {
-      itemCount: extracted.items.length,
-      currency: extracted.currency,
-    });
-
     const restaurantName = (restaurant.data as { name?: string; address?: string } | null)?.name ?? null;
     const restaurantAddress = (restaurant.data as { name?: string; address?: string } | null)?.address ?? null;
-    const restaurantContext = [restaurantName, restaurantAddress].filter(Boolean).join(" - ") || null;
+    const restaurantContext = [restaurantName, restaurantAddress].filter(Boolean).join(' - ') || null;
 
     const processed = await postProcessExtractedItems({
       items: extracted.items,
-      currency: extracted.currency ?? upload.currency_detected,
+      currency: extracted.currency ?? legacyUpload?.currency_detected ?? 'USD',
       mappings,
       restaurantContext,
       repairNames: async ({ flaggedRawNames, restaurantContext: ctx, allNames }) =>
@@ -158,68 +176,59 @@ export async function POST(req: Request) {
         }),
     });
 
-    const { error: deleteErr } = await supabase.from("extracted_line_items").delete().eq("upload_id", uploadIdValue);
+    await supabase.from('hangout_items').delete().eq('hangout_id', hangoutIdValue).eq('source_id', receiptSource.id);
 
-    if (deleteErr) {
-      console.error(`[extract:${traceId}] clearExisting.failed`, { error: deleteErr.message });
-      throw deleteErr;
-    }
-
-    const rows = processed.map((it) => ({
-      upload_id: uploadIdValue,
+    const canonicalRows = processed.map((it) => ({
+      source_id: receiptSource?.id ?? null,
       name_raw: it.name_raw,
-      price_raw: it.price_raw,
       name_final: it.name_final,
-      price_final: it.price_final,
+      quantity: it.quantity ?? 1,
+      unit_price: it.unit_price ?? it.price_final ?? null,
+      currency: extracted.currency ?? legacyUpload?.currency_detected ?? 'USD',
       confidence: it.confidence,
       included: it.included,
-      quantity: it.quantity,
-      unit_price: it.unit_price,
-      group_key: it.group_key,
-      grouped: it.grouped,
-      duplicate_of: it.duplicate_of,
     }));
 
-    if (rows.length > 0) {
-      const { error: insErr } = await supabase.from("extracted_line_items").insert(rows);
-      if (insErr) {
-        console.error(`[extract:${traceId}] insertRows.failed`, {
-          error: insErr.message,
-          rowCount: rows.length,
-        });
-        throw insErr;
-      }
-      console.info(`[extract:${traceId}] insertRows.ok`, { rowCount: rows.length });
-    } else {
-      console.warn(`[extract:${traceId}] insertRows.skipped`, { reason: "no_items_after_cleaning" });
+    const savedRows = await upsertHangoutItems(supabase, hangoutIdValue, canonicalRows);
+
+    await supabase
+      .from('hangout_sources')
+      .update({
+        extractor: 'openai',
+        extracted_at: new Date().toISOString(),
+        extraction_version: 'v1',
+      })
+      .eq('id', receiptSource.id);
+
+    // Legacy compatibility mirror (temporary).
+    await supabase.from('extracted_line_items').delete().eq('upload_id', hangoutIdValue);
+    if (processed.length) {
+      await supabase.from('extracted_line_items').insert(
+        processed.map((it) => ({
+          upload_id: hangoutIdValue,
+          name_raw: it.name_raw,
+          price_raw: it.price_raw,
+          name_final: it.name_final,
+          price_final: it.price_final,
+          confidence: it.confidence,
+          included: it.included,
+          quantity: it.quantity,
+          unit_price: it.unit_price,
+          group_key: it.group_key,
+          grouped: it.grouped,
+          duplicate_of: it.duplicate_of,
+        })),
+      );
     }
 
-    const { error: doneErr } = await supabase
-      .from("receipt_uploads")
-      .update({ status: "needs_review", processed_at: new Date().toISOString() })
-      .eq("id", uploadIdValue);
-
-    if (doneErr) {
-      console.error(`[extract:${traceId}] finalize.failed`, { error: doneErr.message });
-      throw doneErr;
+    if (legacyUpload) {
+      await supabase.from('receipt_uploads').update({ processed_at: new Date().toISOString() }).eq('id', legacyUpload.id);
     }
 
-    console.info(`[extract:${traceId}] done`, { uploadId: uploadIdValue, inserted: rows.length });
-    return NextResponse.json({ ok: true, count: rows.length, traceId });
+    return NextResponse.json({ ok: true, count: savedRows.length, traceId });
   } catch (err: unknown) {
-    if (uploadId) {
-      const { error: failErr } = await supabase.from("receipt_uploads").update({ status: "failed" }).eq("id", uploadId);
-
-      if (failErr) {
-        console.error(`[extract:${traceId}] markFailed.failed`, {
-          uploadId,
-          error: failErr.message,
-        });
-      }
-    }
-
     const message = safeErrorMessage(err);
-    console.error(`[extract:${traceId}] failed`, { uploadId: uploadId ?? null, error: message });
+    console.error(`[extract:${traceId}] failed`, { hangoutId: hangoutId ?? null, error: message });
     return NextResponse.json({ ok: false, error: message, traceId }, { status: 500 });
   }
 }

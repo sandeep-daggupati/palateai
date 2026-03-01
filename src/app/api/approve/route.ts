@@ -4,19 +4,18 @@ import { DishIdentityTag, TableInsert, TableRow } from '@/lib/supabase/types';
 import { normalizeName } from '@/lib/extraction/normalize';
 import { toDishKey } from '@/lib/utils';
 
-type ApproveBody = {
+type SaveBody = {
   uploadId?: string;
+  hangoutId?: string;
   identities?: Array<{ lineItemId: string; identityTag: DishIdentityTag | null }>;
 };
 
-type GroupedApprovalRow = {
+type GroupedSaveRow = {
   groupKey: string;
   dishName: string;
   quantity: number;
   unitPrice: number | null;
   identity: DishIdentityTag | null;
-  rating: number | null;
-  comment: string | null;
 };
 
 const VALID_IDENTITIES: DishIdentityTag[] = ['go_to', 'hidden_gem', 'special_occasion', 'try_again', 'never_again'];
@@ -26,25 +25,24 @@ function sanitizeIdentity(value: DishIdentityTag | null | undefined): DishIdenti
   return VALID_IDENTITIES.includes(value) ? value : null;
 }
 
-function getGroupKey(item: TableRow<'extracted_line_items'>): string {
-  if (item.group_key) return item.group_key;
+function getGroupKey(item: TableRow<'hangout_items'>): string {
   const finalName = item.name_final || item.name_raw;
   const normalized = normalizeName(finalName);
-  const price = item.unit_price ?? item.price_final;
-  return `${normalized}|${price == null ? 'na' : price.toFixed(2)}`;
+  const price = item.unit_price;
+  return `${normalized}|${price == null ? 'na' : Number(price).toFixed(2)}`;
 }
 
-function buildGroupedApprovalRows(params: {
-  items: TableRow<'extracted_line_items'>[];
+function buildGroupedRows(params: {
+  items: TableRow<'hangout_items'>[];
   identityByLineItemId: Map<string, DishIdentityTag | null>;
-}): GroupedApprovalRow[] {
-  const grouped = new Map<string, GroupedApprovalRow>();
+}): GroupedSaveRow[] {
+  const grouped = new Map<string, GroupedSaveRow>();
 
   for (const item of params.items) {
     const key = getGroupKey(item);
     const finalName = (item.name_final || item.name_raw).trim();
     const quantity = Math.max(1, item.quantity ?? 1);
-    const unitPrice = item.unit_price ?? item.price_final ?? null;
+    const unitPrice = item.unit_price ?? null;
     const identity = params.identityByLineItemId.get(item.id) ?? null;
 
     const existing = grouped.get(key);
@@ -55,23 +53,19 @@ function buildGroupedApprovalRows(params: {
         quantity,
         unitPrice,
         identity,
-        rating: item.rating,
-        comment: item.comment,
       });
       continue;
     }
 
     existing.quantity += quantity;
     if (!existing.identity && identity) existing.identity = identity;
-    if (existing.rating == null && item.rating != null) existing.rating = item.rating;
-    if (!existing.comment && item.comment) existing.comment = item.comment;
   }
 
   return Array.from(grouped.values());
 }
 
 function buildLearnedMappings(params: {
-  items: TableRow<'extracted_line_items'>[];
+  items: TableRow<'hangout_items'>[];
   userId: string;
   restaurantId: string | null;
 }): Array<{ user_id: string; restaurant_id: string | null; raw_name: string; normalized_name: string }> {
@@ -81,7 +75,6 @@ function buildLearnedMappings(params: {
     const raw = item.name_raw.trim();
     const finalName = (item.name_final || item.name_raw).trim();
     if (!raw || !finalName) continue;
-
     if (normalizeName(raw) === normalizeName(finalName)) continue;
 
     rows.push({
@@ -96,10 +89,11 @@ function buildLearnedMappings(params: {
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json()) as ApproveBody;
+  const body = (await request.json()) as SaveBody;
+  const hangoutId = body.hangoutId ?? body.uploadId;
 
-  if (!body.uploadId) {
-    return NextResponse.json({ ok: false, error: 'uploadId is required' }, { status: 400 });
+  if (!hangoutId) {
+    return NextResponse.json({ ok: false, error: 'hangoutId/uploadId is required' }, { status: 400 });
   }
 
   const identityByLineItemId = new Map<string, DishIdentityTag | null>();
@@ -109,33 +103,33 @@ export async function POST(request: Request) {
   }
 
   const supabase = getServiceSupabaseClient();
-  const { data: uploadData } = await supabase.from('receipt_uploads').select('*').eq('id', body.uploadId).single();
-  const upload = uploadData as TableRow<'receipt_uploads'> | null;
+  const { data: hangoutData } = await supabase.from('hangouts').select('*').eq('id', hangoutId).single();
+  const hangout = hangoutData as TableRow<'hangouts'> | null;
 
-  if (!upload) {
-    return NextResponse.json({ ok: false, error: 'Upload not found' }, { status: 404 });
+  if (!hangout) {
+    return NextResponse.json({ ok: false, error: 'Hangout not found' }, { status: 404 });
   }
 
-  const { data: restaurantData } = upload.restaurant_id
-    ? await supabase.from('restaurants').select('name').eq('id', upload.restaurant_id).single()
+  const { data: restaurantData } = hangout.restaurant_id
+    ? await supabase.from('restaurants').select('name').eq('id', hangout.restaurant_id).single()
     : { data: null };
   const restaurant = restaurantData as Pick<TableRow<'restaurants'>, 'name'> | null;
 
   const { data: itemData } = await supabase
-    .from('extracted_line_items')
+    .from('hangout_items')
     .select('*')
-    .eq('upload_id', body.uploadId)
+    .eq('hangout_id', hangoutId)
     .eq('included', true);
-  const items = (itemData ?? []) as TableRow<'extracted_line_items'>[];
+  const items = (itemData ?? []) as TableRow<'hangout_items'>[];
 
   const learnedMappings = buildLearnedMappings({
     items,
-    userId: upload.user_id,
-    restaurantId: upload.restaurant_id,
+    userId: hangout.owner_user_id,
+    restaurantId: hangout.restaurant_id,
   });
 
   if (learnedMappings.length) {
-    if (upload.restaurant_id) {
+    if (hangout.restaurant_id) {
       await supabase.from('dish_name_mappings').upsert(learnedMappings, {
         onConflict: 'user_id,restaurant_id,raw_name',
       });
@@ -150,10 +144,7 @@ export async function POST(request: Request) {
           .maybeSingle();
 
         if (existing?.id) {
-          await supabase
-            .from('dish_name_mappings')
-            .update({ normalized_name: row.normalized_name })
-            .eq('id', existing.id);
+          await supabase.from('dish_name_mappings').update({ normalized_name: row.normalized_name }).eq('id', existing.id);
         } else {
           await supabase.from('dish_name_mappings').insert(row);
         }
@@ -162,23 +153,21 @@ export async function POST(request: Request) {
   }
 
   const restaurantName = restaurant?.name ?? 'unknown-restaurant';
-
   if (items.length) {
-    const groupedRows = buildGroupedApprovalRows({ items, identityByLineItemId });
+    const groupedRows = buildGroupedRows({ items, identityByLineItemId });
     const entries: TableInsert<'dish_entries'>[] = groupedRows.map((row) => ({
-      user_id: upload.user_id,
-      restaurant_id: upload.restaurant_id,
+      user_id: hangout.owner_user_id,
+      restaurant_id: hangout.restaurant_id,
+      hangout_id: hangout.id,
       dish_name: row.dishName,
       price_original: row.unitPrice,
-      currency_original: upload.currency_detected || 'USD',
+      currency_original: 'USD',
       price_usd: row.unitPrice,
       quantity: row.quantity,
-      eaten_at: upload.visited_at ?? upload.created_at,
-      source_upload_id: upload.id,
+      eaten_at: hangout.occurred_at ?? hangout.created_at,
+      source_upload_id: hangout.id,
       dish_key: toDishKey(`${restaurantName} ${row.dishName}`),
       identity_tag: row.identity,
-      rating: row.rating,
-      comment: row.comment,
     }));
 
     await supabase.from('dish_entries').upsert(entries, {
@@ -186,8 +175,6 @@ export async function POST(request: Request) {
     });
   }
 
-  await supabase.from('receipt_uploads').update({ status: 'approved' }).eq('id', body.uploadId);
-
+  await supabase.from('hangouts').update({ updated_at: new Date().toISOString() }).eq('id', hangout.id);
   return NextResponse.json({ ok: true });
 }
-

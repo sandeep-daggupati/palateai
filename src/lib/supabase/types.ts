@@ -248,6 +248,7 @@ export type Database = {
           id: string;
           user_id: string;
           restaurant_id: string | null;
+          hangout_id: string | null;
           dish_name: string;
           price_original: number | null;
           currency_original: string;
@@ -266,6 +267,7 @@ export type Database = {
           id?: string;
           user_id: string;
           restaurant_id?: string | null;
+          hangout_id?: string | null;
           dish_name: string;
           price_original?: number | null;
           currency_original: string;
@@ -284,6 +286,7 @@ export type Database = {
           id?: string;
           user_id?: string;
           restaurant_id?: string | null;
+          hangout_id?: string | null;
           dish_name?: string;
           price_original?: number | null;
           currency_original?: string;
@@ -296,6 +299,133 @@ export type Database = {
           rating?: number | null;
           comment?: string | null;
           had_it?: boolean | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      hangouts: {
+        Row: {
+          id: string;
+          owner_user_id: string;
+          restaurant_id: string | null;
+          occurred_at: string;
+          note: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          owner_user_id: string;
+          restaurant_id?: string | null;
+          occurred_at?: string;
+          note?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          owner_user_id?: string;
+          restaurant_id?: string | null;
+          occurred_at?: string;
+          note?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      hangout_participants: {
+        Row: {
+          hangout_id: string;
+          user_id: string;
+          created_at: string;
+        };
+        Insert: {
+          hangout_id: string;
+          user_id: string;
+          created_at?: string;
+        };
+        Update: {
+          hangout_id?: string;
+          user_id?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      hangout_sources: {
+        Row: {
+          id: string;
+          hangout_id: string;
+          type: 'receipt' | 'dish_photo' | 'hangout_photo' | 'manual';
+          storage_path: string | null;
+          extractor: 'openai' | null;
+          extracted_at: string | null;
+          extraction_version: string | null;
+          raw_extraction: Json | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          hangout_id: string;
+          type: 'receipt' | 'dish_photo' | 'hangout_photo' | 'manual';
+          storage_path?: string | null;
+          extractor?: 'openai' | null;
+          extracted_at?: string | null;
+          extraction_version?: string | null;
+          raw_extraction?: Json | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          hangout_id?: string;
+          type?: 'receipt' | 'dish_photo' | 'hangout_photo' | 'manual';
+          storage_path?: string | null;
+          extractor?: 'openai' | null;
+          extracted_at?: string | null;
+          extraction_version?: string | null;
+          raw_extraction?: Json | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      hangout_items: {
+        Row: {
+          id: string;
+          hangout_id: string;
+          source_id: string | null;
+          name_raw: string;
+          name_final: string | null;
+          quantity: number;
+          unit_price: number | null;
+          currency: string | null;
+          line_total: number | null;
+          confidence: number | null;
+          included: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          hangout_id: string;
+          source_id?: string | null;
+          name_raw: string;
+          name_final?: string | null;
+          quantity?: number;
+          unit_price?: number | null;
+          currency?: string | null;
+          confidence?: number | null;
+          included?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          hangout_id?: string;
+          source_id?: string | null;
+          name_raw?: string;
+          name_final?: string | null;
+          quantity?: number;
+          unit_price?: number | null;
+          currency?: string | null;
+          confidence?: number | null;
+          included?: boolean;
           created_at?: string;
         };
         Relationships: [];
@@ -335,7 +465,8 @@ export type Database = {
           created_at?: string;
         };
         Relationships: [];
-      };      daily_insights: {
+      };
+      daily_insights: {
         Row: {
           id: string;
           user_id: string;
@@ -439,6 +570,10 @@ export type Restaurant = Database['public']['Tables']['restaurants']['Row'];
 export type ReceiptUpload = Database['public']['Tables']['receipt_uploads']['Row'];
 export type VisitParticipant = Database['public']['Tables']['visit_participants']['Row'];
 export type ExtractedLineItem = Database['public']['Tables']['extracted_line_items']['Row'];
+export type Hangout = Database['public']['Tables']['hangouts']['Row'];
+export type HangoutParticipant = Database['public']['Tables']['hangout_participants']['Row'];
+export type HangoutSource = Database['public']['Tables']['hangout_sources']['Row'];
+export type HangoutItem = Database['public']['Tables']['hangout_items']['Row'];
 export type DishEntry = Database['public']['Tables']['dish_entries']['Row'];
 export type DailyInsight = Database['public']['Tables']['daily_insights']['Row'];
 export type Photo = Database['public']['Tables']['photos']['Row'];
@@ -446,8 +581,6 @@ export type Photo = Database['public']['Tables']['photos']['Row'];
 export type TableRow<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
 export type TableInsert<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Insert'];
 export type TableUpdate<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Update'];
-
-
 
 
 
