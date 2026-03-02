@@ -36,7 +36,7 @@ const FALLBACK_HIGHLIGHTS: HighlightCard[] = [
     title: 'On repeat',
     body: 'Your repeats will show up here.',
     hint: 'Patterns update as you log',
-    href: '/dishes',
+    href: '/food',
     image_label: 'R',
   },
   {
@@ -121,7 +121,7 @@ export default function HomePage() {
             Add
           </Link>
         </div>
-        {!hasAnyHangouts && <p className="text-sm text-app-muted">Upload a receipt, review your dishes, and save the hangout.</p>}
+        {!hasAnyHangouts && <p className="text-sm text-app-muted">Upload a receipt, review your food items, and save the hangout.</p>}
       </section>
 
       <ForYouTodayCard insight={insight} />
@@ -132,3 +132,5 @@ export default function HomePage() {
     </div>
   );
 }
+
+

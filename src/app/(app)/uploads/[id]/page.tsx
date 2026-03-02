@@ -172,7 +172,7 @@ export default function UploadDetailPage() {
   const [upload, setUpload] = useState<ReceiptUpload | null>(null);
   const [restaurant, setRestaurant] = useState<RestaurantDirectory | null>(null);
 
-  const [dishes, setDishes] = useState<UnifiedDishRow[]>([]);
+  const [dishes, setFood] = useState<UnifiedDishRow[]>([]);
   const [catalogByDishKey, setCatalogByDishKey] = useState<Record<string, DishCatalog>>({});
 
   const [visitNote, setVisitNote] = useState('');
@@ -317,7 +317,7 @@ export default function UploadDetailPage() {
 
     if (!typedUpload || !user) {
       setRestaurant(null);
-      setDishes([]);
+      setFood([]);
       setVisitNote('');
       setParticipants([]);
       return;
@@ -437,7 +437,7 @@ export default function UploadDetailPage() {
       nextCatalogByDishKey = Object.fromEntries(typedRows.map((row) => [row.dish_key, row]));
     }
 
-    setDishes(unifiedRows);
+    setFood(unifiedRows);
     setCatalogByDishKey(nextCatalogByDishKey);
     setEntryMetaById(entryMap);
     setRestaurant((restaurantData.data ?? null) as RestaurantDirectory | null);
@@ -590,7 +590,7 @@ export default function UploadDetailPage() {
 
         if (!updatedLegacyError && updatedLegacy) {
           const savedLegacy = updatedLegacy as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
-          setDishes((prev) =>
+          setFood((prev) =>
             prev.map((entry) =>
               entry.hangoutItem.id === row.hangoutItem.id
                 ? {
@@ -632,7 +632,7 @@ export default function UploadDetailPage() {
 
       if (!saved) return;
       void enrichDishCatalog(saved.id);
-      setDishes((prev) =>
+      setFood((prev) =>
         prev.map((entry) =>
           entry.hangoutItem.id === row.hangoutItem.id
             ? {
@@ -838,8 +838,8 @@ export default function UploadDetailPage() {
   const visitDate = formatDate(upload.visited_at ?? upload.created_at);
   const isSharedVisit = Boolean(upload.is_shared);
   const showHostShareSection = isHost && isSharedVisit;
-  const visibleDishes = dishes.filter((row) => row.hangoutItem.included);
-  const hiddenDishes = dishes.filter((row) => !row.hangoutItem.included);
+  const visibleFood = dishes.filter((row) => row.hangoutItem.included);
+  const hiddenFood = dishes.filter((row) => !row.hangoutItem.included);
   const withNames = participants
     .filter((participant) => participant.status === 'active')
     .map((participant) => participant.display_name ?? 'Buddy');
@@ -1099,7 +1099,7 @@ export default function UploadDetailPage() {
 
       <div className="card-surface p-3 space-y-2">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="section-label">Dishes</h2>
+          <h2 className="section-label">Food</h2>
           {isHost &&
             (showExtractionPrompt ? (
               <Button type="button" onClick={runExtraction}>
@@ -1116,9 +1116,9 @@ export default function UploadDetailPage() {
             ))}
         </div>
 
-        {visibleDishes.length > 0 ? (
+        {visibleFood.length > 0 ? (
           <div className="divide-y divide-app-border/60">
-            {visibleDishes.map((row) => {
+            {visibleFood.map((row) => {
               const dishName = row.hangoutItem.name_final || row.hangoutItem.name_raw;
               const quantity = Math.max(1, row.hangoutItem.quantity ?? 1);
               const unitPrice = row.hangoutItem.unit_price;
@@ -1159,7 +1159,7 @@ export default function UploadDetailPage() {
                       onEdit={() => openDishCatalogEditor(row)}
                       ratingValue={identityValue}
                       onSetRating={(value) => {
-                        setDishes((prev) =>
+                        setFood((prev) =>
                           prev.map((entry) =>
                             entry.hangoutItem.id === row.hangoutItem.id
                               ? {
@@ -1180,7 +1180,7 @@ export default function UploadDetailPage() {
                       }}
                       noteValue={row.myEntry?.comment ?? ''}
                       onSaveNote={(value) => {
-                        setDishes((prev) =>
+                        setFood((prev) =>
                           prev.map((entry) =>
                             entry.hangoutItem.id === row.hangoutItem.id
                               ? {
@@ -1209,7 +1209,7 @@ export default function UploadDetailPage() {
                           setLightboxPhotos(rowPhotos);
                           setLightboxIndex(index);
                         }}
-                        aria-label="Open dish photo"
+                        aria-label="Open food photo"
                       >
                         {photo.signedUrls.thumb ? (
                           <Image src={photo.signedUrls.thumb} alt="Dish photo" width={40} height={40} className="h-full w-full object-cover" unoptimized />
@@ -1226,22 +1226,22 @@ export default function UploadDetailPage() {
           </div>
         ) : (
           <p className="text-sm text-app-muted">
-            {hiddenDishes.length > 0 ? 'All extracted lines are hidden (fees/tax/tip).' : 'No dishes yet. Scan the receipt to start your recap.'}
+            {hiddenFood.length > 0 ? 'All extracted lines are hidden (fees/tax/tip).' : 'No food items yet. Scan the receipt to start your recap.'}
           </p>
         )}
 
-        {hiddenDishes.length > 0 && (
+        {hiddenFood.length > 0 && (
           <div className="pt-1">
             <button
               type="button"
               className="inline-flex h-9 items-center text-xs font-medium text-app-link underline underline-offset-2"
               onClick={() => setHiddenItemsOpen((prev) => !prev)}
             >
-              {hiddenItemsOpen ? 'Hide hidden items' : `Hidden items (${hiddenDishes.length})`}
+              {hiddenItemsOpen ? 'Hide hidden items' : `Hidden items (${hiddenFood.length})`}
             </button>
             {hiddenItemsOpen && (
               <div className="mt-1 divide-y divide-app-border/50 rounded-lg border border-app-border/70 bg-app-card/50">
-                {hiddenDishes.map((row) => {
+                {hiddenFood.map((row) => {
                   const name = row.hangoutItem.name_final || row.hangoutItem.name_raw;
                   const qty = Math.max(1, row.hangoutItem.quantity ?? 1);
                   return (
@@ -1334,7 +1334,7 @@ export default function UploadDetailPage() {
           <div className="relative w-full max-w-md rounded-t-2xl border border-app-border bg-app-card p-3">
             <div className="space-y-2">
               <p className="text-sm font-semibold text-app-text">Edit dish details</p>
-              <Input value={editNameCanonical} onChange={(event) => setEditNameCanonical(event.target.value)} placeholder="Dish name" />
+              <Input value={editNameCanonical} onChange={(event) => setEditNameCanonical(event.target.value)} placeholder="Food item name" />
               <textarea
                 value={editDescription}
                 onChange={(event) => setEditDescription(event.target.value)}
@@ -1358,3 +1358,5 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
+
