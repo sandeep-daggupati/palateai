@@ -7,7 +7,7 @@ import { identityTagOptions } from '@/components/IdentityTagPill';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { DishCatalog, DishEntry, DishIdentityTag, HangoutItem, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
+import { DishCatalog, DishEntry, DishIdentityTag, HangoutItem, HangoutSummary, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
 import { toDishKey } from '@/lib/utils';
 import { normalizeName } from '@/lib/extraction/normalize';
 import { getGoogleMapsLink } from '@/lib/google/mapsLinks';
@@ -162,6 +162,11 @@ function formatPrice(value: number | null): string {
   return `$${value.toFixed(2)}`;
 }
 
+function truncateText(value: string, max = 140): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max - 3)}...`;
+}
+
 function normalizeDish(value: string): string {
   return normalizeName(value) || value.trim().toLowerCase();
 }
@@ -209,6 +214,8 @@ export default function UploadDetailPage() {
   const [catalogByDishKey, setCatalogByDishKey] = useState<Record<string, DishCatalog>>({});
 
   const [visitNote, setVisitNote] = useState('');
+  const [hangoutSummary, setHangoutSummary] = useState<HangoutSummary | null>(null);
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
   const [openItemNotes, setOpenItemNotes] = useState<Record<string, boolean>>({});
   const [hiddenItemsOpen, setHiddenItemsOpen] = useState(false);
 
@@ -292,6 +299,20 @@ export default function UploadDetailPage() {
 
     const payload = (await response.json()) as { participants?: CrewMember[] };
     setParticipants(payload.participants ?? []);
+  }, [getAuthHeader, uploadId]);
+
+  const loadHangoutSummary = useCallback(async () => {
+    const headers = await getAuthHeader();
+    if (!headers.Authorization) return;
+
+    const response = await fetch(`/api/hangouts/summary?hangoutId=${encodeURIComponent(uploadId)}`, { headers });
+    if (!response.ok) {
+      setHangoutSummary(null);
+      return;
+    }
+
+    const payload = (await response.json()) as { summary?: HangoutSummary };
+    setHangoutSummary(payload.summary ?? null);
   }, [getAuthHeader, uploadId]);
 
 
@@ -462,7 +483,8 @@ export default function UploadDetailPage() {
     setVisitNote(typedUpload.visit_note ?? '');
 
     await loadParticipants();
-  }, [loadParticipants, uploadId]);
+    await loadHangoutSummary();
+  }, [loadHangoutSummary, loadParticipants, uploadId]);
 
   useEffect(() => {
     void load();
@@ -872,6 +894,22 @@ export default function UploadDetailPage() {
         <p className="text-xs leading-4 text-app-muted">
           {visitDate} · With {withLabel}
         </p>
+        {hangoutSummary?.summary_text ? (
+          <div className="rounded-lg border border-app-border bg-app-card/70 px-2.5 py-2">
+            <p className="text-sm leading-5 text-app-text">
+              {summaryExpanded ? hangoutSummary.summary_text : truncateText(hangoutSummary.summary_text, 120)}
+            </p>
+            {hangoutSummary.summary_text.length > 120 ? (
+              <button
+                type="button"
+                className="mt-1 inline-flex h-8 items-center text-xs font-medium text-app-link underline underline-offset-2"
+                onClick={() => setSummaryExpanded((prev) => !prev)}
+              >
+                {summaryExpanded ? 'Show less' : 'Show more'}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {visitNote && <p className="text-sm italic leading-5 text-app-text">“{visitNote}”</p>}
 
         <div className="flex flex-wrap gap-2">
