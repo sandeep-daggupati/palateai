@@ -6,10 +6,11 @@ import { useMemo, useState } from 'react';
 type InsightEvidenceType = 'dish' | 'restaurant' | 'hangout' | 'summary';
 
 type InsightPayload = {
-  category: 'palate' | 'explore' | 'spend' | 'wildcard';
+  category?: 'palate' | 'explore' | 'spend' | 'wildcard';
+  insight_type?: string;
   insight_text: string;
-  evidence_type: InsightEvidenceType;
-  evidence: unknown;
+  evidence_type?: InsightEvidenceType;
+  evidence?: unknown;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -40,7 +41,11 @@ export function ForYouTodayCard({ insight }: { insight: InsightPayload | null })
 
   const evidence = useMemo(() => asRecord(insight?.evidence), [insight?.evidence]);
   const crewNames = useMemo(() => readCrewNames(evidence), [evidence]);
-  const hangoutPath = useMemo(() => (insight ? resolveHangoutPath(insight.evidence_type, evidence) : null), [evidence, insight]);
+  const hangoutPath = useMemo(
+    () => (insight && insight.evidence_type ? resolveHangoutPath(insight.evidence_type, evidence) : null),
+    [evidence, insight],
+  );
+  const insightTypeLabel = insight?.insight_type ? insight.insight_type.replace(/_/g, ' ') : null;
 
   if (!insight) {
     return (
@@ -59,7 +64,7 @@ export function ForYouTodayCard({ insight }: { insight: InsightPayload | null })
       <button type="button" className="card-surface w-full p-3 space-y-1.5 text-left" onClick={() => setOpen(true)}>
         <div className="flex items-center justify-between gap-3">
           <p className="section-label">For you today</p>
-          <span className="text-xs text-app-muted">See details</span>
+          <span className="text-xs text-app-muted">{insightTypeLabel ?? 'See details'}</span>
         </div>
         <p className="text-xs text-app-muted">Based on your logs</p>
         <p className="text-sm font-medium leading-5 text-app-text">{insight.insight_text}</p>
