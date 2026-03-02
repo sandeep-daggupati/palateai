@@ -11,12 +11,15 @@ import { getHighlights, HighlightCard } from '@/lib/home/getHighlights';
 import { getHangoutChips, HangoutChip } from '@/lib/home/getHangoutChips';
 
 type InsightPayload = {
-  category: 'palate' | 'explore' | 'spend' | 'wildcard';
+  category?: 'palate' | 'explore' | 'spend' | 'wildcard';
+  insight_type?: string;
   insight_text: string;
-  evidence_type: 'dish' | 'restaurant' | 'hangout' | 'summary';
-  evidence: unknown;
+  evidence_type?: 'dish' | 'restaurant' | 'hangout' | 'summary';
+  evidence?: unknown;
+  metadata?: unknown;
   generated_at: string;
-  expires_at: string;
+  expires_at?: string;
+  insight_date?: string;
 };
 
 const FALLBACK_HIGHLIGHTS: HighlightCard[] = [

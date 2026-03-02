@@ -495,7 +495,35 @@ export type Database = {
           created_at?: string;
         };
         Relationships: [];
-      };      daily_insights: {
+      };
+      daily_ai_insights: {
+        Row: {
+          user_id: string;
+          insight_date: string;
+          insight_text: string;
+          insight_type: string;
+          metadata: Json | null;
+          generated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          insight_date: string;
+          insight_text: string;
+          insight_type: string;
+          metadata?: Json | null;
+          generated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          insight_date?: string;
+          insight_text?: string;
+          insight_type?: string;
+          metadata?: Json | null;
+          generated_at?: string;
+        };
+        Relationships: [];
+      };
+      daily_insights: {
         Row: {
           id: string;
           user_id: string;
@@ -587,7 +615,33 @@ export type Database = {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      daily_insight_stats: {
+        Args: {
+          p_user_id: string;
+          p_days: number;
+        };
+        Returns: Json;
+      };
+      daily_insight_stats_7d: {
+        Args: {
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
+      daily_insight_stats_14d: {
+        Args: {
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
+      daily_insight_stats_30d: {
+        Args: {
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
+    };
     Enums: {
       dish_identity: 'go_to' | 'hidden_gem' | 'special_occasion' | 'try_again' | 'never_again';
     };
@@ -605,13 +659,13 @@ export type HangoutSource = Database['public']['Tables']['hangout_sources']['Row
 export type HangoutItem = Database['public']['Tables']['hangout_items']['Row'];
 export type DishCatalog = Database['public']['Tables']['dish_catalog']['Row'];
 export type DishEntry = Database['public']['Tables']['dish_entries']['Row'];
+export type DailyAiInsight = Database['public']['Tables']['daily_ai_insights']['Row'];
 export type DailyInsight = Database['public']['Tables']['daily_insights']['Row'];
 export type Photo = Database['public']['Tables']['photos']['Row'];
 
 export type TableRow<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
 export type TableInsert<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Insert'];
 export type TableUpdate<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Update'];
-
 
 
 

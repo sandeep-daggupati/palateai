@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Database } from '@/lib/supabase/types';
-import { getServiceSupabaseClient } from '@/lib/supabase/server';
-import { getOrCreateDailyInsight } from '@/lib/insights/daily';
+import { getDailyInsight } from '@/lib/insights/dailyAi';
 
 function getAnonSupabaseClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -46,9 +45,20 @@ export async function GET(request: Request) {
   if ('error' in auth) return auth.error;
 
   try {
-    const service = getServiceSupabaseClient();
-    const insight = await getOrCreateDailyInsight(service, auth.user.id);
-    return NextResponse.json({ insight });
+    const insight = await getDailyInsight(auth.user.id);
+    return NextResponse.json({
+      insight: {
+        insight_text: insight.insight_text,
+        insight_type: insight.insight_type,
+        generated_at: insight.generated_at,
+        insight_date: insight.insight_date,
+        metadata: insight.metadata,
+        category: 'wildcard',
+        evidence_type: 'summary',
+        evidence: insight.metadata,
+        expires_at: `${insight.insight_date}T23:59:59.000Z`,
+      },
+    });
   } catch {
     return NextResponse.json({ error: 'Failed to load insight.' }, { status: 500 });
   }
