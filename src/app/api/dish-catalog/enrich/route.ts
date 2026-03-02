@@ -37,7 +37,7 @@ async function authorize(request: Request) {
     return { error: NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 }) };
   }
 
-  return { anon, user };
+  return { anon, user, token };
 }
 
 export async function POST(request: Request) {
@@ -51,7 +51,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: 'dishEntryId is required' }, { status: 400 });
   }
 
-  const { data: entry, error: entryError } = await auth.anon
+  const userClient = createClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    {
+      global: {
+        headers: {
+          Authorization: `Bearer ${auth.token}`,
+        },
+      },
+    },
+  );
+
+  const { data: entry, error: entryError } = await userClient
     .from('dish_entries')
     .select('id,dish_key,dish_name,restaurant_id')
     .eq('id', dishEntryId)
@@ -67,7 +79,7 @@ export async function POST(request: Request) {
 
   let restaurantName: string | null = null;
   if (entry.restaurant_id) {
-    const { data: restaurant } = await auth.anon
+    const { data: restaurant } = await userClient
       .from('restaurants')
       .select('name')
       .eq('id', entry.restaurant_id)
