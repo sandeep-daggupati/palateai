@@ -33,7 +33,6 @@ const fieldLabelClass = 'section-label';
 export default function AddPage() {
   const router = useRouter();
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
-  const [dishFile, setDishFile] = useState<File | null>(null);
   const [uploadType, setUploadType] = useState<'receipt' | 'menu'>('receipt');
   const [restaurantId, setRestaurantId] = useState<string>('');
   const [restaurantQuery, setRestaurantQuery] = useState('');
@@ -51,8 +50,6 @@ export default function AddPage() {
 
   const receiptPickerRef = useRef<HTMLInputElement | null>(null);
   const receiptCameraRef = useRef<HTMLInputElement | null>(null);
-  const dishPickerRef = useRef<HTMLInputElement | null>(null);
-  const dishCameraRef = useRef<HTMLInputElement | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
@@ -264,10 +261,6 @@ export default function AddPage() {
         onProgress: setProgress,
       });
 
-      if (dishFile) {
-        await uploadImage({ file: dishFile, userId: user.id, uploadId, category: 'dish' });
-      }
-
       let audioPath: string | null = null;
       if (audioBlob) {
         audioPath = await uploadAudio({ blob: audioBlob, userId: user.id, uploadId });
@@ -323,34 +316,6 @@ export default function AddPage() {
             </Button>
           </div>
           <p className="text-xs text-app-muted">{receiptFile ? `Selected: ${receiptFile.name}` : 'No file selected.'}</p>
-        </div>
-
-        <div className="space-y-2">
-          <p className={fieldLabelClass}>Optional Dish Photo</p>
-          <input
-            ref={dishPickerRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => setDishFile(e.target.files?.[0] ?? null)}
-          />
-          <input
-            ref={dishCameraRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={(e) => setDishFile(e.target.files?.[0] ?? null)}
-          />
-          <div className="grid grid-cols-2 gap-2">
-            <Button type="button" variant="secondary" size="sm" onClick={() => dishPickerRef.current?.click()}>
-              Upload dish
-            </Button>
-            <Button type="button" variant="secondary" size="sm" onClick={() => dishCameraRef.current?.click()}>
-              Take dish photo
-            </Button>
-          </div>
-          <p className="text-xs text-app-muted">{dishFile ? `Selected: ${dishFile.name}` : 'No dish photo selected.'}</p>
         </div>
 
         <div className="space-y-2">
@@ -464,7 +429,6 @@ export default function AddPage() {
     </div>
   );
 }
-
 
 
 

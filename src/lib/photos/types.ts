@@ -1,5 +1,6 @@
 export type SignedPhoto = {
   id: string;
+  user_id?: string;
   kind: 'hangout' | 'dish';
   hangout_id: string | null;
   dish_entry_id: string | null;
