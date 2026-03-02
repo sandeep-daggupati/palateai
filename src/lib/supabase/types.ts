@@ -433,6 +433,27 @@ export type Database = {
         };
         Relationships: [];
       };
+      hangout_summaries: {
+        Row: {
+          hangout_id: string;
+          summary_text: string;
+          metadata: Json | null;
+          generated_at: string;
+        };
+        Insert: {
+          hangout_id: string;
+          summary_text: string;
+          metadata?: Json | null;
+          generated_at?: string;
+        };
+        Update: {
+          hangout_id?: string;
+          summary_text?: string;
+          metadata?: Json | null;
+          generated_at?: string;
+        };
+        Relationships: [];
+      };
       dish_catalog: {
         Row: {
           dish_key: string;
@@ -657,6 +678,7 @@ export type Hangout = Database['public']['Tables']['hangouts']['Row'];
 export type HangoutParticipant = Database['public']['Tables']['hangout_participants']['Row'];
 export type HangoutSource = Database['public']['Tables']['hangout_sources']['Row'];
 export type HangoutItem = Database['public']['Tables']['hangout_items']['Row'];
+export type HangoutSummary = Database['public']['Tables']['hangout_summaries']['Row'];
 export type DishCatalog = Database['public']['Tables']['dish_catalog']['Row'];
 export type DishEntry = Database['public']['Tables']['dish_entries']['Row'];
 export type DailyAiInsight = Database['public']['Tables']['daily_ai_insights']['Row'];
@@ -666,7 +688,6 @@ export type Photo = Database['public']['Tables']['photos']['Row'];
 export type TableRow<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
 export type TableInsert<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Insert'];
 export type TableUpdate<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Update'];
-
 
 
 
