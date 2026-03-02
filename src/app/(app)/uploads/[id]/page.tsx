@@ -167,6 +167,15 @@ export default function UploadDetailPage() {
   const [lightboxPhotos, setLightboxPhotos] = useState<SignedPhoto[]>([]);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [hangoutSheetOpen, setHangoutSheetOpen] = useState(false);
+  const [editingDishRow, setEditingDishRow] = useState<{
+    hangoutItemId: string;
+    dishKey: string;
+    fallbackName: string;
+  } | null>(null);
+  const [editNameCanonical, setEditNameCanonical] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editFlavorTags, setEditFlavorTags] = useState('');
+  const [savingDishCatalog, setSavingDishCatalog] = useState(false);
   const hangoutCameraInputRef = useRef<HTMLInputElement | null>(null);
   const hangoutUploadInputRef = useRef<HTMLInputElement | null>(null);
   const dishCameraInputRef = useRef<HTMLInputElement | null>(null);
@@ -653,6 +662,65 @@ export default function UploadDetailPage() {
     [ensureDishEntryForRow, load, upload?.id],
   );
 
+  const openDishCatalogEditor = useCallback(
+    (row: UnifiedDishRow) => {
+      const dishName = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+      const dishKey = row.myEntry?.dish_key ?? toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`);
+      const catalog = catalogByDishKey[dishKey] ?? null;
+      setEditingDishRow({
+        hangoutItemId: row.hangoutItem.id,
+        dishKey,
+        fallbackName: dishName,
+      });
+      setEditNameCanonical(catalog?.name_canonical ?? dishName);
+      setEditDescription(catalog?.description ?? '');
+      setEditFlavorTags((catalog?.flavor_tags ?? []).join(', '));
+    },
+    [catalogByDishKey, restaurant?.name],
+  );
+
+  const saveDishCatalogEdits = useCallback(async () => {
+    if (!editingDishRow) return;
+
+    const headers = await getAuthHeader();
+    if (!headers.Authorization) return;
+
+    const flavorTags = editFlavorTags
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+
+    setSavingDishCatalog(true);
+    try {
+      const response = await fetch('/api/dish-catalog/update', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...headers,
+        },
+        body: JSON.stringify({
+          hangoutId: uploadId,
+          hangoutItemId: editingDishRow.hangoutItemId,
+          nameCanonical: editNameCanonical,
+          description: editDescription,
+          flavorTags,
+        }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as { ok?: boolean; catalog?: DishCatalog } | null;
+      const catalog = payload?.catalog;
+      if (response.ok && payload?.ok && catalog) {
+        setCatalogByDishKey((prev) => ({
+          ...prev,
+          [catalog.dish_key]: catalog,
+        }));
+        setEditingDishRow(null);
+      }
+    } finally {
+      setSavingDishCatalog(false);
+    }
+  }, [editDescription, editFlavorTags, editNameCanonical, editingDishRow, getAuthHeader, uploadId]);
+
   const addParticipant = async () => {
     const email = shareEmail.trim().toLowerCase();
     if (!email || !upload) return;
@@ -1036,6 +1104,14 @@ export default function UploadDetailPage() {
                     >
                       📷
                     </button>
+                    <button
+                      type="button"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-app-border text-sm"
+                      onClick={() => openDishCatalogEditor(row)}
+                      aria-label="Edit dish details"
+                    >
+                      ✏️
+                    </button>
                     {rowPhotos.slice(0, 2).map((photo, index) => (
                       <button
                         key={photo.id}
@@ -1230,6 +1306,33 @@ export default function UploadDetailPage() {
         </div>
       )}
 
+      {editingDishRow && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/35">
+          <button type="button" className="absolute inset-0" aria-label="Close" onClick={() => setEditingDishRow(null)} />
+          <div className="relative w-full max-w-md rounded-t-2xl border border-app-border bg-app-card p-3">
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-app-text">Edit dish details</p>
+              <Input value={editNameCanonical} onChange={(event) => setEditNameCanonical(event.target.value)} placeholder="Dish name" />
+              <textarea
+                value={editDescription}
+                onChange={(event) => setEditDescription(event.target.value)}
+                placeholder="Description"
+                rows={3}
+                className="w-full rounded-xl border border-app-border bg-app-bg px-3 py-2 text-sm text-app-text focus:outline-none focus:ring-2 focus:ring-app-primary/35"
+              />
+              <Input value={editFlavorTags} onChange={(event) => setEditFlavorTags(event.target.value)} placeholder="Flavor tags (comma separated)" />
+              <div className="flex gap-2">
+                <Button type="button" variant="secondary" onClick={() => setEditingDishRow(null)}>
+                  Cancel
+                </Button>
+                <Button type="button" onClick={() => void saveDishCatalogEdits()} disabled={savingDishCatalog}>
+                  {savingDishCatalog ? 'Saving...' : 'Save'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
