@@ -10,7 +10,7 @@ import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 
 const NAV_ITEMS = [
   { label: 'Home', href: '/' },
-  { label: 'Dishes', href: '/dishes' },
+  { label: 'Food', href: '/food' },
   { label: 'Hangouts', href: '/hangouts' },
 ];
 
@@ -107,3 +107,4 @@ export function AppHeader() {
     </header>
   );
 }
+

@@ -78,7 +78,7 @@ export function DishActionBar({
     <div className="relative flex min-h-11 items-center gap-1.5">
       <button
         type="button"
-        aria-label="Add dish photo"
+        aria-label="Add food photo"
         onClick={onAddPhoto}
         className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-app-border text-sm text-app-text"
       >
@@ -191,3 +191,5 @@ export function DishActionBar({
     </div>
   );
 }
+
+

@@ -71,7 +71,7 @@ function placeholderCards(): HighlightCard[] {
       title: 'On repeat',
       body: 'Your repeats will show up here.',
       hint: 'Patterns update as you log',
-      href: '/dishes',
+      href: '/food',
       image_label: 'R',
     },
     {
@@ -165,8 +165,8 @@ export async function getHighlights(
       key: 'repeat',
       title: 'On repeat',
       body: `${shortDishName(top.row.dish_name)} - ${top.count}x this week`,
-      hint: 'Open dishes for the full pattern',
-      href: `/dishes?query=${query}`,
+      hint: 'Open food for the full pattern',
+      href: `/food?query=${query}`,
       image_label: top.row.dish_name.slice(0, 1).toUpperCase(),
     };
 
@@ -217,3 +217,5 @@ export async function getHighlights(
   const defaults = placeholderCards();
   return [standout ?? defaults[0], repeat ?? defaults[1], memory ?? defaults[2]];
 }
+
+

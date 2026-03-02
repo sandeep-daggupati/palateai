@@ -32,8 +32,8 @@ export function HighlightsCard({ highlights }: { highlights: HighlightCard[] }) 
           <p className="section-label">Your highlights</p>
           <p className="text-xs text-app-muted">What your palate is into lately.</p>
         </div>
-        <Link href="/dishes" className="text-xs font-medium text-app-link">
-          View dishes
+        <Link href="/food" className="text-xs font-medium text-app-link">
+          View food
         </Link>
       </div>
 
@@ -45,3 +45,4 @@ export function HighlightsCard({ highlights }: { highlights: HighlightCard[] }) 
     </section>
   );
 }
+
