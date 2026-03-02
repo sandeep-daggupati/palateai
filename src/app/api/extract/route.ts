@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { postProcessExtractedItems } from "@/lib/extraction/postprocess";
 import { extractLineItemsFromImage, repairLineItemNamesText } from "@/lib/extraction/openaiVision";
+import { cleanupExtractedItems } from "@/lib/extraction/cleanup";
 import { getServiceSupabaseClient } from "@/lib/supabase/server";
 
 type MappingRow = {
@@ -158,6 +159,8 @@ export async function POST(req: Request) {
         }),
     });
 
+    const cleaned = cleanupExtractedItems(processed, { restaurantContext });
+
     const { error: deleteErr } = await supabase.from("extracted_line_items").delete().eq("upload_id", uploadIdValue);
 
     if (deleteErr) {
@@ -165,7 +168,7 @@ export async function POST(req: Request) {
       throw deleteErr;
     }
 
-    const rows = processed.map((it) => ({
+    const rows = cleaned.map((it) => ({
       upload_id: uploadIdValue,
       name_raw: it.name_raw,
       price_raw: it.price_raw,
@@ -244,8 +247,8 @@ export async function POST(req: Request) {
 
     if (sourceId) {
       await supabase.from("hangout_items").delete().eq("hangout_id", uploadIdValue).eq("source_id", sourceId);
-      if (processed.length > 0) {
-        const canonicalRows = processed.map((it) => ({
+      if (cleaned.length > 0) {
+        const canonicalRows = cleaned.map((it) => ({
           hangout_id: uploadIdValue,
           source_id: sourceId,
           name_raw: it.name_raw,

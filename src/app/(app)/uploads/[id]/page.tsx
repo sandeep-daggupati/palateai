@@ -149,6 +149,7 @@ export default function UploadDetailPage() {
 
   const [visitNote, setVisitNote] = useState('');
   const [openItemNotes, setOpenItemNotes] = useState<Record<string, boolean>>({});
+  const [hiddenItemsOpen, setHiddenItemsOpen] = useState(false);
 
   const [participants, setParticipants] = useState<CrewMember[]>([]);
   const [shareEmail, setShareEmail] = useState('');
@@ -685,7 +686,8 @@ export default function UploadDetailPage() {
   const visitDate = formatDate(upload.visited_at ?? upload.created_at);
   const isSharedVisit = Boolean(upload.is_shared);
   const showHostShareSection = isHost && isSharedVisit;
-  const visibleDishes = dishes;
+  const visibleDishes = dishes.filter((row) => row.hangoutItem.included);
+  const hiddenDishes = dishes.filter((row) => !row.hangoutItem.included);
   const withNames = participants
     .filter((participant) => participant.status === 'active')
     .map((participant) => participant.display_name ?? 'Buddy');
@@ -946,9 +948,7 @@ export default function UploadDetailPage() {
             ))}
         </div>
 
-        {visibleDishes.length === 0 ? (
-          <p className="text-sm text-app-muted">No dishes yet. Scan the receipt to start your recap.</p>
-        ) : (
+        {visibleDishes.length > 0 ? (
           <div className="divide-y divide-app-border/60">
             {visibleDishes.map((row) => {
               const dishName = row.hangoutItem.name_final || row.hangoutItem.name_raw;
@@ -1072,6 +1072,39 @@ export default function UploadDetailPage() {
                 </div>
               );
             })}
+          </div>
+        ) : (
+          <p className="text-sm text-app-muted">
+            {hiddenDishes.length > 0 ? 'All extracted lines are hidden (fees/tax/tip).' : 'No dishes yet. Scan the receipt to start your recap.'}
+          </p>
+        )}
+
+        {hiddenDishes.length > 0 && (
+          <div className="pt-1">
+            <button
+              type="button"
+              className="inline-flex h-9 items-center text-xs font-medium text-app-link underline underline-offset-2"
+              onClick={() => setHiddenItemsOpen((prev) => !prev)}
+            >
+              {hiddenItemsOpen ? 'Hide hidden items' : `Hidden items (${hiddenDishes.length})`}
+            </button>
+            {hiddenItemsOpen && (
+              <div className="mt-1 divide-y divide-app-border/50 rounded-lg border border-app-border/70 bg-app-card/50">
+                {hiddenDishes.map((row) => {
+                  const name = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+                  const qty = Math.max(1, row.hangoutItem.quantity ?? 1);
+                  return (
+                    <div key={`hidden-${row.hangoutItem.id}`} className="flex items-center justify-between p-2 text-xs text-app-muted">
+                      <span className="truncate">
+                        {name}
+                        {qty > 1 ? ` ×${qty}` : ''}
+                      </span>
+                      <span>{formatPrice(row.hangoutItem.unit_price)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>
