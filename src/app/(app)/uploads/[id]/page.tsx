@@ -79,13 +79,73 @@ function hasDirectoryData(restaurant: RestaurantDirectory | null): boolean {
   return Boolean(restaurant.phone_number || restaurant.website || restaurant.opening_hours || restaurant.maps_url);
 }
 
-function getTodayHours(openingHours: Restaurant['opening_hours']): string | null {
+function getRestaurantLocalParts(utcOffsetMinutes: number | null): { dayIndex: number; minutes: number } {
+  if (utcOffsetMinutes == null) {
+    const now = new Date();
+    return { dayIndex: (now.getDay() + 6) % 7, minutes: now.getHours() * 60 + now.getMinutes() };
+  }
+
+  const shifted = new Date(Date.now() + utcOffsetMinutes * 60 * 1000);
+  return {
+    dayIndex: (shifted.getUTCDay() + 6) % 7,
+    minutes: shifted.getUTCHours() * 60 + shifted.getUTCMinutes(),
+  };
+}
+
+function parseTimeToMinutes(value: string): number | null {
+  const match = value.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2] ?? '0');
+  const meridiem = match[3].toUpperCase();
+  if (Number.isNaN(hour) || Number.isNaN(minute) || hour < 1 || hour > 12 || minute < 0 || minute > 59) return null;
+  const base = hour % 12;
+  return (meridiem === 'PM' ? base + 12 : base) * 60 + minute;
+}
+
+function parseOpenNowFromTodayLine(todayLine: string, currentMinutes: number): boolean | null {
+  const parts = todayLine.split(':');
+  if (parts.length < 2) return null;
+  const schedule = parts.slice(1).join(':').trim();
+  const normalized = schedule.toLowerCase();
+
+  if (normalized.includes('closed')) return false;
+  if (normalized.includes('open 24 hours')) return true;
+
+  const windows = schedule.split(',').map((segment) => segment.trim()).filter(Boolean);
+  if (!windows.length) return null;
+
+  for (const window of windows) {
+    const span = window.split(/[–-]/).map((part) => part.trim());
+    if (span.length !== 2) continue;
+    const start = parseTimeToMinutes(span[0]);
+    const end = parseTimeToMinutes(span[1]);
+    if (start == null || end == null) continue;
+
+    if (end > start) {
+      if (currentMinutes >= start && currentMinutes < end) return true;
+    } else {
+      if (currentMinutes >= start || currentMinutes < end) return true;
+    }
+  }
+
+  return false;
+}
+
+function getTodayHours(openingHours: Restaurant['opening_hours'], utcOffsetMinutes: number | null): string | null {
   if (!openingHours || typeof openingHours !== 'object' || Array.isArray(openingHours)) return null;
   const weekdayText = (openingHours as { weekday_text?: unknown }).weekday_text;
   if (!Array.isArray(weekdayText) || weekdayText.length === 0) return null;
-  const todayIndex = (new Date().getDay() + 6) % 7;
-  const line = weekdayText[todayIndex];
+  const { dayIndex } = getRestaurantLocalParts(utcOffsetMinutes);
+  const line = weekdayText[dayIndex];
   return typeof line === 'string' ? line : null;
+}
+
+function getOpenNowStatus(openingHours: Restaurant['opening_hours'], utcOffsetMinutes: number | null): boolean | null {
+  const todayLine = getTodayHours(openingHours, utcOffsetMinutes);
+  if (!todayLine) return null;
+  const { minutes } = getRestaurantLocalParts(utcOffsetMinutes);
+  return parseOpenNowFromTodayLine(todayLine, minutes);
 }
 
 function formatDate(value: string | null): string {
@@ -802,11 +862,8 @@ export default function UploadDetailPage() {
     .map((participant) => participant.display_name ?? 'Buddy');
   const withLabel = withNames.length > 0 ? withNames.join(', ') : 'Solo';
   const directionsHref = getGoogleMapsLink(restaurant?.place_id, restaurant?.address, restaurant?.name);
-  const todayHours = getTodayHours(restaurant?.opening_hours ?? null);
-  const openNow =
-    restaurant?.opening_hours && typeof restaurant.opening_hours === 'object' && !Array.isArray(restaurant.opening_hours)
-      ? (restaurant.opening_hours as { open_now?: boolean }).open_now
-      : undefined;
+  const todayHours = getTodayHours(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
+  const openNow = getOpenNowStatus(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-2 pb-4">
