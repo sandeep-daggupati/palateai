@@ -3,9 +3,9 @@
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { identityTagOptions } from '@/components/IdentityTagPill';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
+import { DishActionBar } from '@/components/DishActionBar';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { DishCatalog, DishEntry, DishIdentityTag, HangoutItem, HangoutSummary, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
 import { toDishKey } from '@/lib/utils';
@@ -15,13 +15,6 @@ import { SignedPhoto } from '@/lib/photos/types';
 import { listDishPhotosForHangout, listHangoutPhotos, uploadDishPhoto, uploadHangoutPhoto } from '@/lib/data/photosRepo';
 
 const VISIT_NOTE_MAX = 140;
-const IDENTITY_EMOJI: Record<DishIdentityTag, string> = {
-  go_to: '⭐',
-  hidden_gem: '💎',
-  special_occasion: '🥂',
-  try_again: '🔁',
-  never_again: '🚫',
-};
 
 type UnifiedDishRow = {
   hangoutItem: HangoutItem;
@@ -171,37 +164,6 @@ function normalizeDish(value: string): string {
   return normalizeName(value) || value.trim().toLowerCase();
 }
 
-function EmojiRatingSelector({
-  value,
-  onChange,
-}: {
-  value: DishIdentityTag | null;
-  onChange: (value: DishIdentityTag | null) => void;
-}) {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {identityTagOptions().map((option) => {
-        const active = option.value === value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => onChange(active ? null : option.value)}
-            aria-label={`Rate as ${option.value.replace('_', ' ')}`}
-            className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-base transition-all duration-150 ${
-              active
-                ? 'scale-105 bg-app-primary/12 text-app-text'
-                : 'text-app-text opacity-50 hover:opacity-80'
-            }`}
-          >
-            {IDENTITY_EMOJI[option.value]}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 export default function UploadDetailPage() {
   const params = useParams<{ id: string }>();
   const uploadId = params.id;
@@ -216,7 +178,6 @@ export default function UploadDetailPage() {
   const [visitNote, setVisitNote] = useState('');
   const [hangoutSummary, setHangoutSummary] = useState<HangoutSummary | null>(null);
   const [summaryExpanded, setSummaryExpanded] = useState(false);
-  const [openItemNotes, setOpenItemNotes] = useState<Record<string, boolean>>({});
   const [hiddenItemsOpen, setHiddenItemsOpen] = useState(false);
 
   const [participants, setParticipants] = useState<CrewMember[]>([]);
@@ -1161,7 +1122,6 @@ export default function UploadDetailPage() {
               const dishName = row.hangoutItem.name_final || row.hangoutItem.name_raw;
               const quantity = Math.max(1, row.hangoutItem.quantity ?? 1);
               const unitPrice = row.hangoutItem.unit_price;
-              const noteOpen = openItemNotes[row.hangoutItem.id] || Boolean(row.myEntry?.comment);
               const identityValue = row.myEntry?.identity_tag ?? null;
               const isNeverAgain = identityValue === 'never_again';
               const rowPhotos = dishPhotosByItemId[row.hangoutItem.id] ?? dishPhotosByItemId[normalizeDish(dishName)] ?? [];
@@ -1169,8 +1129,8 @@ export default function UploadDetailPage() {
               const catalog = catalogByDishKey[dishKey] ?? null;
 
               return (
-                <div key={row.hangoutItem.id} className={`space-y-1.5 p-2 ${isNeverAgain ? 'opacity-60' : ''}`}>
-                  <div className="flex min-h-11 items-center justify-between gap-2">
+                <div key={row.hangoutItem.id} className={`space-y-1 p-2 ${isNeverAgain ? 'opacity-60' : ''}`}>
+                  <div className="flex min-h-10 items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className={`truncate text-sm font-semibold leading-5 text-app-text ${isNeverAgain ? 'line-through' : ''}`}>
                         {dishName}
@@ -1191,25 +1151,55 @@ export default function UploadDetailPage() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-app-border text-sm"
-                      onClick={() => {
+                    <DishActionBar
+                      onAddPhoto={() => {
                         setDishUploadTarget({ hangoutItemId: row.hangoutItem.id });
                         dishUploadInputRef.current?.click();
                       }}
-                      aria-label="Add dish photo"
-                    >
-                      📷
-                    </button>
-                    <button
-                      type="button"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-app-border text-sm"
-                      onClick={() => openDishCatalogEditor(row)}
-                      aria-label="Edit dish details"
-                    >
-                      ✏️
-                    </button>
+                      onEdit={() => openDishCatalogEditor(row)}
+                      ratingValue={identityValue}
+                      onSetRating={(value) => {
+                        setDishes((prev) =>
+                          prev.map((entry) =>
+                            entry.hangoutItem.id === row.hangoutItem.id
+                              ? {
+                                  ...entry,
+                                  myEntry: {
+                                    id: entry.myEntry?.id ?? `tmp-${entry.hangoutItem.id}`,
+                                    hangout_item_id: entry.hangoutItem.id,
+                                    dish_name: dishName,
+                                    dish_key: entry.myEntry?.dish_key ?? toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`),
+                                    identity_tag: value,
+                                    comment: entry.myEntry?.comment ?? null,
+                                  },
+                                }
+                              : entry,
+                          ),
+                        );
+                        void upsertMyDishEntry(row, { identity_tag: value });
+                      }}
+                      noteValue={row.myEntry?.comment ?? ''}
+                      onSaveNote={(value) => {
+                        setDishes((prev) =>
+                          prev.map((entry) =>
+                            entry.hangoutItem.id === row.hangoutItem.id
+                              ? {
+                                  ...entry,
+                                  myEntry: {
+                                    id: entry.myEntry?.id ?? `tmp-${entry.hangoutItem.id}`,
+                                    hangout_item_id: entry.hangoutItem.id,
+                                    dish_name: dishName,
+                                    dish_key: entry.myEntry?.dish_key ?? toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`),
+                                    identity_tag: entry.myEntry?.identity_tag ?? null,
+                                    comment: value,
+                                  },
+                                }
+                              : entry,
+                          ),
+                        );
+                        void upsertMyDishEntry(row, { comment: value });
+                      }}
+                    />
                     {rowPhotos.slice(0, 2).map((photo, index) => (
                       <button
                         key={photo.id}
@@ -1230,72 +1220,6 @@ export default function UploadDetailPage() {
                     ))}
                     {rowPhotos.length > 2 && <span className="text-xs text-app-muted">+{rowPhotos.length - 2}</span>}
                   </div>
-
-                  <EmojiRatingSelector
-                    value={identityValue}
-                    onChange={(value) => {
-                      setDishes((prev) =>
-                        prev.map((entry) =>
-                          entry.hangoutItem.id === row.hangoutItem.id
-                            ? {
-                                ...entry,
-                                myEntry: {
-                                  id: entry.myEntry?.id ?? `tmp-${entry.hangoutItem.id}`,
-                                  hangout_item_id: entry.hangoutItem.id,
-                                  dish_name: dishName,
-                                  dish_key: entry.myEntry?.dish_key ?? toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`),
-                                  identity_tag: value,
-                                  comment: entry.myEntry?.comment ?? null,
-                                },
-                              }
-                            : entry,
-                        ),
-                      );
-                      void upsertMyDishEntry(row, { identity_tag: value });
-                    }}
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setOpenItemNotes((prev) => ({
-                        ...prev,
-                        [row.hangoutItem.id]: !noteOpen,
-                      }))
-                    }
-                    className="inline-flex h-11 items-center text-xs font-medium text-app-link underline underline-offset-2"
-                  >
-                    {noteOpen ? 'Hide note' : 'Add note…'}
-                  </button>
-
-                  {noteOpen && (
-                    <Input
-                      value={row.myEntry?.comment ?? ''}
-                      maxLength={140}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setDishes((prev) =>
-                          prev.map((entry) =>
-                            entry.hangoutItem.id === row.hangoutItem.id
-                              ? {
-                                  ...entry,
-                                  myEntry: {
-                                    id: entry.myEntry?.id ?? `tmp-${entry.hangoutItem.id}`,
-                                    hangout_item_id: entry.hangoutItem.id,
-                                    dish_name: dishName,
-                                    dish_key: entry.myEntry?.dish_key ?? toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`),
-                                    identity_tag: entry.myEntry?.identity_tag ?? null,
-                                    comment: value,
-                                  },
-                                }
-                              : entry,
-                          ),
-                        );
-                        void upsertMyDishEntry(row, { comment: value });
-                      }}
-                      placeholder="Add note…"
-                    />
-                  )}
                 </div>
               );
             })}
