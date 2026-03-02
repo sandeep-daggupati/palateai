@@ -1014,25 +1014,28 @@ export default function UploadDetailPage() {
             {participants.length === 0 ? (
               <p className="text-xs text-app-muted">No crew yet. Add your buddies.</p>
             ) : (
-              participants.map((participant) => (
-                <div key={participant.id} className="flex items-center justify-between gap-2 rounded-xl border border-app-border bg-app-card px-2.5 py-2">
-                  <div>
-                    <p className="text-sm font-semibold leading-5 text-app-text">{participant.display_name ?? 'Crew member'}</p>
-                    <p className="text-xs leading-4 text-app-muted">In your crew</p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    fullWidth={false}
-                    className="h-11 px-3 text-xs"
-                    onClick={() => removeParticipant(participant.id)}
-                    disabled={shareLoading}
-                  >
-                    Remove
-                  </Button>
-                </div>
-              ))
+              <div className="flex flex-wrap gap-2">
+                {participants.map((participant) => {
+                  const name = participant.display_name ?? 'Crew member';
+                  return (
+                    <span
+                      key={participant.id}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-app-border bg-app-card px-3 py-1.5 text-sm font-medium text-app-text"
+                    >
+                      <span className="max-w-[11rem] truncate">{name}</span>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${name}`}
+                        className="inline-flex h-6 w-6 items-center justify-center rounded-full text-app-muted transition-colors hover:text-app-text focus:outline-none focus:ring-2 focus:ring-app-primary/40"
+                        onClick={() => removeParticipant(participant.id)}
+                        disabled={shareLoading}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
             )}
           </div>
         </div>
