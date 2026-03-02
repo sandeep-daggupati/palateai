@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation';
 import { IdentityTagPill } from '@/components/IdentityTagPill';
 import { Button } from '@/components/Button';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { DishEntry } from '@/lib/supabase/types';
+import { DishCatalog, DishEntry } from '@/lib/supabase/types';
 import { SignedPhoto } from '@/lib/photos/types';
 import { deletePhoto, uploadDishPhoto as uploadDishPhotoRepo } from '@/lib/data/photosRepo';
 
@@ -17,6 +17,7 @@ function truncate(value: string, max = 100): string {
 export default function DishProfilePage() {
   const params = useParams<{ dishKey: string }>();
   const [entries, setEntries] = useState<DishEntry[]>([]);
+  const [catalog, setCatalog] = useState<DishCatalog | null>(null);
   const [photosByEntryId, setPhotosByEntryId] = useState<Record<string, SignedPhoto[]>>({});
   const [uploadingEntryId, setUploadingEntryId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -40,6 +41,13 @@ export default function DishProfilePage() {
 
     const parsed = (data ?? []) as DishEntry[];
     setEntries(parsed);
+
+    const { data: catalogData } = await supabase
+      .from('dish_catalog')
+      .select('*')
+      .eq('dish_key', params.dishKey)
+      .maybeSingle();
+    setCatalog((catalogData ?? null) as DishCatalog | null);
 
     const {
       data: { session },
@@ -101,7 +109,10 @@ export default function DishProfilePage() {
 
   return (
     <div className="space-y-4 pb-6">
-      <h1 className="text-xl font-semibold text-app-text">Dish recap</h1>
+      <div className="space-y-1">
+        <h1 className="text-xl font-semibold text-app-text">{catalog?.name_canonical ?? entries[0]?.dish_name ?? 'Dish recap'}</h1>
+        {catalog?.description ? <p className="text-sm text-app-muted">{catalog.description}</p> : null}
+      </div>
 
       {trend && (
         <div className="card-surface space-y-1 text-sm">
@@ -282,4 +293,3 @@ export default function DishProfilePage() {
     </div>
   );
 }
-

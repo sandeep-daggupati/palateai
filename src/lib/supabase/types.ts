@@ -433,6 +433,33 @@ export type Database = {
         };
         Relationships: [];
       };
+      dish_catalog: {
+        Row: {
+          dish_key: string;
+          name_canonical: string;
+          description: string | null;
+          cuisine: string | null;
+          flavor_tags: string[] | null;
+          generated_at: string;
+        };
+        Insert: {
+          dish_key: string;
+          name_canonical: string;
+          description?: string | null;
+          cuisine?: string | null;
+          flavor_tags?: string[] | null;
+          generated_at?: string;
+        };
+        Update: {
+          dish_key?: string;
+          name_canonical?: string;
+          description?: string | null;
+          cuisine?: string | null;
+          flavor_tags?: string[] | null;
+          generated_at?: string;
+        };
+        Relationships: [];
+      };
       photos: {
         Row: {
           id: string;
@@ -576,6 +603,7 @@ export type Hangout = Database['public']['Tables']['hangouts']['Row'];
 export type HangoutParticipant = Database['public']['Tables']['hangout_participants']['Row'];
 export type HangoutSource = Database['public']['Tables']['hangout_sources']['Row'];
 export type HangoutItem = Database['public']['Tables']['hangout_items']['Row'];
+export type DishCatalog = Database['public']['Tables']['dish_catalog']['Row'];
 export type DishEntry = Database['public']['Tables']['dish_entries']['Row'];
 export type DailyInsight = Database['public']['Tables']['daily_insights']['Row'];
 export type Photo = Database['public']['Tables']['photos']['Row'];
@@ -583,7 +611,6 @@ export type Photo = Database['public']['Tables']['photos']['Row'];
 export type TableRow<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
 export type TableInsert<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Insert'];
 export type TableUpdate<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Update'];
-
 
 
 

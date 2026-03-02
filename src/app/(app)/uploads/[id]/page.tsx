@@ -194,6 +194,23 @@ export default function UploadDetailPage() {
     return { Authorization: `Bearer ${session.access_token}` };
   }, []);
 
+  const enrichDishCatalog = useCallback(
+    async (dishEntryId: string) => {
+      const headers = await getAuthHeader();
+      if (!headers.Authorization) return;
+
+      await fetch('/api/dish-catalog/enrich', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...headers,
+        },
+        body: JSON.stringify({ dishEntryId }),
+      });
+    },
+    [getAuthHeader],
+  );
+
   const loadParticipants = useCallback(async () => {
     const headers = await getAuthHeader();
     const response = await fetch(`/api/visits/share?visitId=${encodeURIComponent(uploadId)}`, { headers });
@@ -509,6 +526,7 @@ export default function UploadDetailPage() {
                 : entry,
             ),
           );
+          void enrichDishCatalog(savedLegacy.id);
           return;
         }
       }
@@ -539,6 +557,7 @@ export default function UploadDetailPage() {
       }
 
       if (!saved) return;
+      void enrichDishCatalog(saved.id);
       setDishes((prev) =>
         prev.map((entry) =>
           entry.hangoutItem.id === row.hangoutItem.id
@@ -550,7 +569,7 @@ export default function UploadDetailPage() {
         ),
       );
     },
-    [currentUserId, restaurant?.name, upload],
+    [currentUserId, enrichDishCatalog, restaurant?.name, upload],
   );
 
   const ensureDishEntryForRow = useCallback(
