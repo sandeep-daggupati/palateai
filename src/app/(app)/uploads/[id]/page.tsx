@@ -7,7 +7,7 @@ import { identityTagOptions } from '@/components/IdentityTagPill';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { DishEntry, DishIdentityTag, HangoutItem, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
+import { DishCatalog, DishEntry, DishIdentityTag, HangoutItem, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
 import { toDishKey } from '@/lib/utils';
 import { normalizeName } from '@/lib/extraction/normalize';
 import { getGoogleMapsLink } from '@/lib/google/mapsLinks';
@@ -146,6 +146,7 @@ export default function UploadDetailPage() {
   const [restaurant, setRestaurant] = useState<RestaurantDirectory | null>(null);
 
   const [dishes, setDishes] = useState<UnifiedDishRow[]>([]);
+  const [catalogByDishKey, setCatalogByDishKey] = useState<Record<string, DishCatalog>>({});
 
   const [visitNote, setVisitNote] = useState('');
   const [openItemNotes, setOpenItemNotes] = useState<Record<string, boolean>>({});
@@ -365,7 +366,28 @@ export default function UploadDetailPage() {
       return { hangoutItem, myEntry: byName.get(key) ?? null };
     });
 
+    const restaurantNameForKey = ((restaurantData.data ?? null) as RestaurantDirectory | null)?.name ?? 'unknown-restaurant';
+    const dishKeys = Array.from(
+      new Set(
+        unifiedRows.map((row) => {
+          const dishName = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+          return toDishKey(`${restaurantNameForKey} ${dishName}`);
+        }),
+      ),
+    );
+
+    let nextCatalogByDishKey: Record<string, DishCatalog> = {};
+    if (dishKeys.length > 0) {
+      const { data: catalogRows } = await supabase
+        .from('dish_catalog')
+        .select('*')
+        .in('dish_key', dishKeys);
+      const typedRows = (catalogRows ?? []) as DishCatalog[];
+      nextCatalogByDishKey = Object.fromEntries(typedRows.map((row) => [row.dish_key, row]));
+    }
+
     setDishes(unifiedRows);
+    setCatalogByDishKey(nextCatalogByDishKey);
     setEntryMetaById(entryMap);
     setRestaurant((restaurantData.data ?? null) as RestaurantDirectory | null);
     setVisitNote(typedUpload.visit_note ?? '');
@@ -977,6 +999,8 @@ export default function UploadDetailPage() {
               const identityValue = row.myEntry?.identity_tag ?? null;
               const isNeverAgain = identityValue === 'never_again';
               const rowPhotos = dishPhotosByItemId[row.hangoutItem.id] ?? dishPhotosByItemId[normalizeDish(dishName)] ?? [];
+              const dishKey = row.myEntry?.dish_key ?? toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`);
+              const catalog = catalogByDishKey[dishKey] ?? null;
 
               return (
                 <div key={row.hangoutItem.id} className={`space-y-1.5 p-2 ${isNeverAgain ? 'opacity-60' : ''}`}>
@@ -986,6 +1010,16 @@ export default function UploadDetailPage() {
                         {dishName}
                         {quantity > 1 ? ` ×${quantity}` : ''}
                       </p>
+                      {catalog?.description ? (
+                        <p className="line-clamp-2 text-xs leading-4 text-app-muted">{catalog.description}</p>
+                      ) : null}
+                      {catalog?.cuisine || (catalog?.flavor_tags && catalog.flavor_tags.length > 0) ? (
+                        <p className="text-[11px] leading-4 text-app-muted">
+                          {catalog.cuisine ? `${catalog.cuisine}` : ''}
+                          {catalog.cuisine && catalog.flavor_tags && catalog.flavor_tags.length > 0 ? ' · ' : ''}
+                          {catalog.flavor_tags?.join(' · ')}
+                        </p>
+                      ) : null}
                     </div>
                     <p className="text-sm font-medium leading-5 text-app-text">{formatPrice(unitPrice)}</p>
                   </div>

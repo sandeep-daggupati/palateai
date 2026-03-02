@@ -4,6 +4,8 @@ import { postProcessExtractedItems } from "@/lib/extraction/postprocess";
 import { extractLineItemsFromImage, repairLineItemNamesText } from "@/lib/extraction/openaiVision";
 import { cleanupExtractedItems } from "@/lib/extraction/cleanup";
 import { getServiceSupabaseClient } from "@/lib/supabase/server";
+import { ensureDishCatalogEntry } from "@/lib/data/dishCatalog";
+import { toDishKey } from "@/lib/utils";
 
 type MappingRow = {
   raw_name: string;
@@ -32,6 +34,20 @@ function sanitizePath(path: string): string {
   const parts = path.split("/");
   if (parts.length <= 3) return path;
   return `${parts.slice(0, 3).join("/")}/...`;
+}
+
+function dedupeDishNames(names: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const name of names) {
+    const cleaned = name.trim();
+    if (!cleaned) continue;
+    const key = cleaned.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(cleaned);
+  }
+  return result;
 }
 
 export async function POST(req: Request) {
@@ -264,6 +280,32 @@ export async function POST(req: Request) {
           console.warn(`[extract:${traceId}] canonicalInsert.failed`, { error: canonicalInsertErr.message });
         }
       }
+    }
+
+    const restaurantNameForKey = restaurantName ?? "unknown-restaurant";
+    const catalogDishNames = dedupeDishNames(
+      cleaned
+        .filter((item) => item.included)
+        .map((item) => item.name_final || item.name_raw),
+    );
+
+    if (catalogDishNames.length > 0) {
+      await Promise.all(
+        catalogDishNames.map(async (dishName) => {
+          try {
+            await ensureDishCatalogEntry({
+              dishKey: toDishKey(`${restaurantNameForKey} ${dishName}`),
+              dishName,
+              restaurantName,
+            });
+          } catch (error) {
+            console.warn(`[extract:${traceId}] dishCatalog.failed`, {
+              dishName,
+              error: error instanceof Error ? error.message : "Unknown dish catalog error",
+            });
+          }
+        }),
+      );
     }
 
     const { error: doneErr } = await supabase
