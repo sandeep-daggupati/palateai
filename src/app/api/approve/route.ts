@@ -3,6 +3,7 @@ import { getServiceSupabaseClient } from '@/lib/supabase/server';
 import { DishIdentityTag, TableInsert, TableRow } from '@/lib/supabase/types';
 import { normalizeName } from '@/lib/extraction/normalize';
 import { toDishKey } from '@/lib/utils';
+import { ensureDishCatalogEntry } from '@/lib/data/dishCatalog';
 
 type ApproveBody = {
   uploadId?: string;
@@ -181,9 +182,29 @@ export async function POST(request: Request) {
       comment: row.comment,
     }));
 
-    await supabase.from('dish_entries').upsert(entries, {
+    const { data: savedEntries } = await supabase
+      .from('dish_entries')
+      .upsert(entries, {
       onConflict: 'user_id,source_upload_id,dish_key',
-    });
+      })
+      .select('dish_key,dish_name');
+
+    if (savedEntries?.length) {
+      await Promise.all(
+        savedEntries.map(async (entry) => {
+          if (!entry.dish_key) return;
+          try {
+            await ensureDishCatalogEntry({
+              dishKey: entry.dish_key,
+              dishName: entry.dish_name,
+              restaurantName: restaurant?.name ?? null,
+            });
+          } catch (error) {
+            console.error('Dish catalog enrichment failed:', error);
+          }
+        }),
+      );
+    }
   }
 
   return NextResponse.json({ ok: true });
