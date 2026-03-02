@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { Ban, Camera, FileText, Gem, Pencil, RotateCcw, Sparkles, Star, Wine } from 'lucide-react';
 import { DishIdentityTag } from '@/lib/supabase/types';
 
 type DishActionBarProps = {
@@ -12,12 +13,14 @@ type DishActionBarProps = {
   onSaveNote: (value: string) => void;
 };
 
-const IDENTITY_EMOJI: Record<DishIdentityTag, string> = {
-  go_to: '⭐',
-  hidden_gem: '💎',
-  special_occasion: '🥂',
-  try_again: '🔁',
-  never_again: '🚫',
+const ICON_STROKE = 1.5;
+
+const IDENTITY_ICON: Record<DishIdentityTag, typeof Star> = {
+  go_to: Star,
+  hidden_gem: Gem,
+  special_occasion: Wine,
+  try_again: RotateCcw,
+  never_again: Ban,
 };
 
 const IDENTITY_ORDER: DishIdentityTag[] = ['go_to', 'hidden_gem', 'special_occasion', 'try_again', 'never_again'];
@@ -74,24 +77,16 @@ export function DishActionBar({
     };
   }, []);
 
+  const SelectedRatingIcon = ratingValue ? IDENTITY_ICON[ratingValue] : null;
+
   return (
     <div className="relative flex min-h-11 items-center gap-1.5">
-      <button
-        type="button"
-        aria-label="Add food photo"
-        onClick={onAddPhoto}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-app-border text-sm text-app-text"
-      >
-        📷
+      <button type="button" aria-label="Add food photo" onClick={onAddPhoto} className="icon-button-subtle">
+        <Camera size={16} strokeWidth={ICON_STROKE} />
       </button>
 
-      <button
-        type="button"
-        aria-label="Edit dish details"
-        onClick={onEdit}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-app-border text-sm text-app-text"
-      >
-        ✏️
+      <button type="button" aria-label="Edit food details" onClick={onEdit} className="icon-button-subtle">
+        <Pencil size={16} strokeWidth={ICON_STROKE} />
       </button>
 
       <div ref={ratingRef} className="relative">
@@ -103,17 +98,17 @@ export function DishActionBar({
             setRatingOpen((prev) => !prev);
             setNoteOpen(false);
           }}
-          className="inline-flex h-8 min-w-8 items-center justify-center gap-1 rounded-full border border-app-border px-1.5 text-sm text-app-text"
+          className="icon-button-subtle"
         >
-          <span aria-hidden>✨</span>
-          {ratingValue ? <span className="text-[11px] leading-none">{IDENTITY_EMOJI[ratingValue]}</span> : null}
+          {SelectedRatingIcon ? <SelectedRatingIcon size={16} strokeWidth={ICON_STROKE} /> : <Sparkles size={16} strokeWidth={ICON_STROKE} />}
         </button>
 
         {ratingOpen && (
-          <div className="absolute left-0 top-9 z-30 rounded-xl border border-app-border bg-app-card p-1.5 shadow-sm">
+          <div className="absolute left-0 top-9 z-30 rounded-xl border border-app-border bg-app-card p-1.5">
             <div className="flex items-center gap-1">
               {IDENTITY_ORDER.map((tag) => {
                 const active = tag === ratingValue;
+                const TagIcon = IDENTITY_ICON[tag];
                 return (
                   <button
                     key={tag}
@@ -123,11 +118,9 @@ export function DishActionBar({
                       onSetRating(active ? null : tag);
                       setRatingOpen(false);
                     }}
-                    className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-base transition-all ${
-                      active ? 'bg-app-primary/15' : 'opacity-70 hover:opacity-100'
-                    }`}
+                    className={`icon-button-subtle ${active ? 'bg-app-primary/15' : ''}`}
                   >
-                    {IDENTITY_EMOJI[tag]}
+                    <TagIcon size={16} strokeWidth={ICON_STROKE} />
                   </button>
                 );
               })}
@@ -145,14 +138,14 @@ export function DishActionBar({
             setNoteOpen((prev) => !prev);
             setRatingOpen(false);
           }}
-          className="inline-flex h-8 min-w-8 items-center justify-center rounded-full border border-app-border px-1.5 text-sm text-app-text"
+          className="icon-button-subtle relative"
         >
-          <span aria-hidden>📝</span>
-          {noteValue.trim().length > 0 ? <span className="ml-1 h-1.5 w-1.5 rounded-full bg-app-primary" /> : null}
+          <FileText size={16} strokeWidth={ICON_STROKE} />
+          {noteValue.trim().length > 0 ? <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-app-primary" /> : null}
         </button>
 
         {noteOpen && (
-          <div className="absolute left-0 top-9 z-30 w-64 max-w-[80vw] rounded-xl border border-app-border bg-app-card p-2 shadow-sm">
+          <div className="absolute left-0 top-9 z-30 w-64 max-w-[80vw] rounded-xl border border-app-border bg-app-card p-2">
             <textarea
               ref={noteInputRef}
               value={draftNote}
@@ -191,5 +184,3 @@ export function DishActionBar({
     </div>
   );
 }
-
-

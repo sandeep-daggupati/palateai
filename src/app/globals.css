@@ -103,4 +103,11 @@ textarea::placeholder {
   .section-label {
     @apply text-sm font-medium uppercase tracking-wide text-app-muted;
   }
+
+  .icon-button-subtle {
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-full border border-app-border text-app-text transition-colors duration-150 hover:bg-neutral-100 dark:hover:bg-neutral-800;
+  }
 }
+
+
+
