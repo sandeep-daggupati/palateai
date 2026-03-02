@@ -8,7 +8,7 @@ import { Button } from '@/components/Button';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { DishEntry } from '@/lib/supabase/types';
 import { SignedPhoto } from '@/lib/photos/types';
-import { uploadOriginalPhotoDirect } from '@/lib/photos/clientUpload';
+import { deletePhoto, uploadDishPhoto as uploadDishPhotoRepo } from '@/lib/data/photosRepo';
 
 function truncate(value: string, max = 100): string {
   return value.length <= max ? value : `${value.slice(0, max)}...`;
@@ -17,16 +17,24 @@ function truncate(value: string, max = 100): string {
 export default function DishProfilePage() {
   const params = useParams<{ dishKey: string }>();
   const [entries, setEntries] = useState<DishEntry[]>([]);
-  const [photoByEntryId, setPhotoByEntryId] = useState<Record<string, SignedPhoto>>({});
+  const [photosByEntryId, setPhotosByEntryId] = useState<Record<string, SignedPhoto[]>>({});
   const [uploadingEntryId, setUploadingEntryId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [lightboxPhotos, setLightboxPhotos] = useState<SignedPhoto[]>([]);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadTargetId, setUploadTargetId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const supabase = getBrowserSupabaseClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    setCurrentUserId(user?.id ?? null);
+
     const { data } = await supabase
       .from('dish_entries')
-      .select('id,dish_name,price_original,price_usd,currency_original,identity_tag,comment,created_at,eaten_at,dish_key')
+      .select('id,dish_name,price_original,price_usd,currency_original,identity_tag,comment,created_at,eaten_at,dish_key,source_upload_id')
       .eq('dish_key', params.dishKey)
       .order('created_at', { ascending: true });
 
@@ -38,7 +46,7 @@ export default function DishProfilePage() {
     } = await supabase.auth.getSession();
 
     if (!session?.access_token || parsed.length === 0) {
-      setPhotoByEntryId({});
+      setPhotosByEntryId({});
       return;
     }
 
@@ -48,17 +56,21 @@ export default function DishProfilePage() {
     });
 
     if (!response.ok) {
-      setPhotoByEntryId({});
+      setPhotosByEntryId({});
       return;
     }
 
     const payload = (await response.json()) as { photos?: SignedPhoto[] };
-    const map: Record<string, SignedPhoto> = {};
+    const map: Record<string, SignedPhoto[]> = {};
     for (const photo of payload.photos ?? []) {
       if (!photo.dish_entry_id) continue;
-      if (!map[photo.dish_entry_id]) map[photo.dish_entry_id] = photo;
+      if (!map[photo.dish_entry_id]) map[photo.dish_entry_id] = [];
+      map[photo.dish_entry_id].push(photo);
     }
-    setPhotoByEntryId(map);
+    Object.keys(map).forEach((entryId) => {
+      map[entryId] = map[entryId].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+    });
+    setPhotosByEntryId(map);
   }, [params.dishKey]);
 
   useEffect(() => {
@@ -73,31 +85,13 @@ export default function DishProfilePage() {
     return { first, last, changePct };
   }, [entries]);
 
-  const uploadDishPhoto = async (file: File, dishEntryId: string) => {
-    const supabase = getBrowserSupabaseClient();
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session?.access_token) return;
-
+  const uploadDishPhotoForEntry = async (file: File, dishEntryId: string) => {
     setUploadingEntryId(dishEntryId);
     try {
-      const storageOriginal = await uploadOriginalPhotoDirect({ file, kind: 'dish' });
-      const response = await fetch('/api/photos/upload', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          kind: 'dish',
-          dish_entry_id: dishEntryId,
-          storage_original: storageOriginal,
-        }),
-      });
-
-      if (response.ok) {
+      const entry = entries.find((row) => row.id === dishEntryId);
+      if (!entry) return;
+      const photo = await uploadDishPhotoRepo(entry.source_upload_id, dishEntryId, file);
+      if (photo) {
         await load();
       }
     } finally {
@@ -125,7 +119,7 @@ export default function DishProfilePage() {
         onChange={(event) => {
           const file = event.target.files?.[0];
           if (file && uploadTargetId) {
-            void uploadDishPhoto(file, uploadTargetId);
+            void uploadDishPhotoForEntry(file, uploadTargetId);
           }
           event.currentTarget.value = '';
           setUploadTargetId(null);
@@ -137,14 +131,15 @@ export default function DishProfilePage() {
       ) : (
         <div className="divide-y divide-app-border rounded-2xl border border-app-border bg-app-card">
           {entries.map((entry) => {
-            const photo = photoByEntryId[entry.id];
+            const photos = photosByEntryId[entry.id] ?? [];
+            const cover = photos[0] ?? null;
             return (
               <div key={entry.id} className="px-3 py-3 text-sm">
                 <div className="mb-2 flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3">
-                    {photo?.signedUrls.thumb ? (
+                    {cover?.signedUrls.thumb ? (
                       <Image
-                        src={photo.signedUrls.thumb}
+                        src={cover.signedUrls.thumb}
                         alt={`${entry.dish_name} photo`}
                         width={64}
                         height={64}
@@ -174,7 +169,7 @@ export default function DishProfilePage() {
                 </div>
 
                 {entry.comment && <p className="text-xs text-app-muted">{truncate(entry.comment)}</p>}
-                <p className="text-xs text-app-muted">{new Date(entry.eaten_at ?? entry.created_at).toLocaleString()}</p>
+                    <p className="text-xs text-app-muted">{new Date(entry.eaten_at ?? entry.created_at).toLocaleString()}</p>
                 <div className="mt-2">
                   <Button
                     type="button"
@@ -187,18 +182,104 @@ export default function DishProfilePage() {
                       uploadInputRef.current?.click();
                     }}
                   >
-                    {photo ? 'Replace photo' : 'Add photo'}
+                    {cover ? 'Add more photos' : 'Add photo'}
                   </Button>
                 </div>
+                {photos.length > 0 && (
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    {photos.map((photo, index) => (
+                      <div key={photo.id} className="relative overflow-hidden rounded-lg border border-app-border">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLightboxPhotos(photos);
+                            setLightboxIndex(index);
+                          }}
+                          className="block w-full"
+                        >
+                          {photo.signedUrls.thumb ? (
+                            <Image src={photo.signedUrls.thumb} alt="Dish photo" width={220} height={220} className="h-24 w-full object-cover" unoptimized />
+                          ) : (
+                            <div className="h-24 w-full bg-app-card" />
+                          )}
+                        </button>
+                        {photo.user_id && currentUserId && photo.user_id === currentUserId && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const ok = await deletePhoto(photo.id);
+                              if (ok) await load();
+                            }}
+                            className="absolute right-1 top-1 rounded bg-black/60 px-1 text-[10px] text-white"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       )}
+
+      {lightboxPhotos.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75">
+          <button
+            type="button"
+            className="absolute inset-0"
+            aria-label="Close"
+            onClick={() => {
+              setLightboxPhotos([]);
+              setLightboxIndex(0);
+            }}
+          />
+          <div className="relative z-10 w-full max-w-3xl p-3">
+            <div className="relative overflow-hidden rounded-xl bg-black">
+              {lightboxPhotos[lightboxIndex]?.signedUrls.original || lightboxPhotos[lightboxIndex]?.signedUrls.medium ? (
+                <Image
+                  src={lightboxPhotos[lightboxIndex].signedUrls.original ?? lightboxPhotos[lightboxIndex].signedUrls.medium ?? ''}
+                  alt="Dish photo"
+                  width={1600}
+                  height={1200}
+                  className="max-h-[75vh] w-full object-contain"
+                  unoptimized
+                />
+              ) : (
+                <div className="h-72 w-full" />
+              )}
+            </div>
+            <div className="mt-2 flex items-center justify-between">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                fullWidth={false}
+                className="h-9 px-2 text-xs"
+                onClick={() => setLightboxIndex((prev) => (prev - 1 + lightboxPhotos.length) % lightboxPhotos.length)}
+              >
+                Prev
+              </Button>
+              <span className="text-xs text-white">
+                {lightboxIndex + 1} / {lightboxPhotos.length}
+              </span>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                fullWidth={false}
+                className="h-9 px-2 text-xs"
+                onClick={() => setLightboxIndex((prev) => (prev + 1) % lightboxPhotos.length)}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
-
-
 

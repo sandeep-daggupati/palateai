@@ -33,9 +33,24 @@ async function validateOwnership(params: {
       .from('hangouts')
       .select('id')
       .eq('id', params.hangoutId)
-      .eq('owner_user_id', params.userId)
       .maybeSingle();
-    if (canonical?.id) return true;
+    if (canonical?.id) {
+      const { data: participant } = await supabase
+        .from('hangout_participants')
+        .select('hangout_id')
+        .eq('hangout_id', params.hangoutId)
+        .eq('user_id', params.userId)
+        .maybeSingle();
+      if (participant?.hangout_id) return true;
+
+      const { data: owner } = await supabase
+        .from('hangouts')
+        .select('id')
+        .eq('id', params.hangoutId)
+        .eq('owner_user_id', params.userId)
+        .maybeSingle();
+      if (owner?.id) return true;
+    }
 
     const { data: legacy } = await supabase
       .from('receipt_uploads')
@@ -118,8 +133,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'hangout kind requires hangout_id only' }, { status: 400 });
   }
 
-  if (kind === 'dish' && (!dishEntryId || hangoutId)) {
-    return NextResponse.json({ error: 'dish kind requires dish_entry_id only' }, { status: 400 });
+  if (kind === 'dish' && !dishEntryId) {
+    return NextResponse.json({ error: 'dish kind requires dish_entry_id' }, { status: 400 });
   }
 
   if (!storageOriginal.startsWith(`${auth.userId}/photos/${kind}/`)) {
@@ -183,9 +198,11 @@ export async function POST(request: Request) {
     .from('photos')
     .insert({
       user_id: auth.userId,
+      created_by: auth.userId,
       kind,
       hangout_id: kind === 'hangout' ? hangoutId : null,
       dish_entry_id: kind === 'dish' ? dishEntryId : null,
+      storage_path: storageOriginal,
       storage_original: storageOriginal,
       storage_medium: mediumPath,
       storage_thumb: thumbPath,

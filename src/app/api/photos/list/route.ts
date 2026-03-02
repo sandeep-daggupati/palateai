@@ -94,6 +94,7 @@ export async function GET(request: Request) {
 
   const photos = rows.map((row, index) => ({
     id: row.id,
+    user_id: row.user_id,
     kind: row.kind,
     hangout_id: row.hangout_id,
     dish_entry_id: row.dish_entry_id,

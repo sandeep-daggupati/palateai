@@ -12,7 +12,7 @@ import { toDishKey } from '@/lib/utils';
 import { normalizeName } from '@/lib/extraction/normalize';
 import { getGoogleMapsLink } from '@/lib/google/mapsLinks';
 import { SignedPhoto } from '@/lib/photos/types';
-import { uploadOriginalPhotoDirect } from '@/lib/photos/clientUpload';
+import { listDishPhotosForHangout, listHangoutPhotos, uploadDishPhoto, uploadHangoutPhoto } from '@/lib/data/photosRepo';
 
 const VISIT_NOTE_MAX = 140;
 const IDENTITY_EMOJI: Record<DishIdentityTag, string> = {
@@ -160,10 +160,16 @@ export default function UploadDetailPage() {
 
   const [placeSyncLoading, setPlaceSyncLoading] = useState(false);
   const [hangoutPhotos, setHangoutPhotos] = useState<SignedPhoto[]>([]);
-  const [selectedHangoutPhotoId, setSelectedHangoutPhotoId] = useState<string | null>(null);
-  const [photoUploadLoading, setPhotoUploadLoading] = useState<string | null>(null);
+  const [dishPhotosByItemId, setDishPhotosByItemId] = useState<Record<string, SignedPhoto[]>>({});
+  const [entryMetaById, setEntryMetaById] = useState<Record<string, { hangout_item_id: string | null; dish_name: string }>>({});
+  const [lightboxPhotos, setLightboxPhotos] = useState<SignedPhoto[]>([]);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [hangoutSheetOpen, setHangoutSheetOpen] = useState(false);
   const hangoutCameraInputRef = useRef<HTMLInputElement | null>(null);
   const hangoutUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const dishCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const dishUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const [dishUploadTarget, setDishUploadTarget] = useState<{ hangoutItemId: string } | null>(null);
   const didAutoExtractRef = useRef(false);
 
   const isHost = Boolean(upload && currentUserId && upload.user_id === currentUserId);
@@ -202,59 +208,29 @@ export default function UploadDetailPage() {
 
 
   const loadHangoutPhotos = useCallback(async () => {
-    const headers = await getAuthHeader();
-    const response = await fetch(`/api/photos/list?kind=hangout&hangout_id=${encodeURIComponent(uploadId)}`, { headers });
-    if (!response.ok) {
-      setHangoutPhotos([]);
-      return;
-    }
-
-    const payload = (await response.json()) as { photos?: SignedPhoto[] };
-    const photos = payload.photos ?? [];
+    const photos = await listHangoutPhotos(uploadId);
     setHangoutPhotos(photos);
-    setSelectedHangoutPhotoId((prev) => prev ?? photos[0]?.id ?? null);
-  }, [getAuthHeader, uploadId]);
+  }, [uploadId]);
 
-  const uploadPhoto = useCallback(
-    async (file: File, targetId: string) => {
-      setPhotoUploadLoading(`hangout:${targetId}`);
-      try {
-        const storageOriginal = await uploadOriginalPhotoDirect({ file, kind: 'hangout' });
-        const headers = {
-          'Content-Type': 'application/json',
-          ...(await getAuthHeader()),
-        };
-
-        const response = await fetch('/api/photos/upload', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            kind: 'hangout',
-            hangout_id: targetId,
-            dish_entry_id: null,
-            storage_original: storageOriginal,
-          }),
-        });
-
-        if (!response.ok) {
-          return;
-        }
-
-        await loadHangoutPhotos();
-      } finally {
-        setPhotoUploadLoading(null);
+  const loadDishPhotos = useCallback(
+    async (entryMap: Record<string, { hangout_item_id: string | null; dish_name: string }>) => {
+      const photos = await listDishPhotosForHangout(uploadId);
+      const grouped: Record<string, SignedPhoto[]> = {};
+      for (const photo of photos) {
+        if (!photo.dish_entry_id) continue;
+        const meta = entryMap[photo.dish_entry_id];
+        if (!meta) continue;
+        const key = meta.hangout_item_id ?? normalizeDish(meta.dish_name);
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push(photo);
       }
+      Object.keys(grouped).forEach((key) => {
+        grouped[key] = grouped[key].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+      });
+      setDishPhotosByItemId(grouped);
     },
-    [getAuthHeader, loadHangoutPhotos],
+    [uploadId],
   );
-
-  const openHangoutViewer = useCallback(() => {
-    const active = selectedHangoutPhotoId ? hangoutPhotos.find((row) => row.id === selectedHangoutPhotoId) ?? null : hangoutPhotos[0] ?? null;
-    const target = active?.signedUrls.medium ?? active?.signedUrls.thumb ?? null;
-    if (target) {
-      window.open(target, '_blank', 'noopener,noreferrer');
-    }
-  }, [hangoutPhotos, selectedHangoutPhotoId]);
 
   const load = useCallback(async () => {
     const supabase = getBrowserSupabaseClient();
@@ -337,6 +313,19 @@ export default function UploadDetailPage() {
       >;
     }
 
+    const allEntriesPrimary = await supabase.from('dish_entries').select('id,hangout_item_id,dish_name').eq('hangout_id', uploadId);
+    const allEntriesResult =
+      allEntriesPrimary.error
+        ? await supabase.from('dish_entries').select('id,dish_name').eq('source_upload_id', uploadId)
+        : allEntriesPrimary;
+    const entryMap: Record<string, { hangout_item_id: string | null; dish_name: string }> = {};
+    for (const entry of (allEntriesResult.data ?? []) as Array<Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name'>>) {
+      entryMap[entry.id] = {
+        hangout_item_id: entry.hangout_item_id ?? null,
+        dish_name: entry.dish_name,
+      };
+    }
+
     const restaurantData = await restaurantPromise;
 
     const byItemId = new Map<string, Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>>();
@@ -359,6 +348,7 @@ export default function UploadDetailPage() {
     });
 
     setDishes(unifiedRows);
+    setEntryMetaById(entryMap);
     setRestaurant((restaurantData.data ?? null) as RestaurantDirectory | null);
     setVisitNote(typedUpload.visit_note ?? '');
 
@@ -373,6 +363,11 @@ export default function UploadDetailPage() {
     if (!upload) return;
     void loadHangoutPhotos();
   }, [loadHangoutPhotos, upload]);
+
+  useEffect(() => {
+    if (!upload) return;
+    void loadDishPhotos(entryMetaById);
+  }, [entryMetaById, loadDishPhotos, upload]);
 
 
   useEffect(() => {
@@ -557,6 +552,65 @@ export default function UploadDetailPage() {
     [currentUserId, restaurant?.name, upload],
   );
 
+  const ensureDishEntryForRow = useCallback(
+    async (row: UnifiedDishRow): Promise<Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'> | null> => {
+      if (row.myEntry?.id) return row.myEntry;
+      await upsertMyDishEntry(row, {});
+      if (!currentUserId || !upload?.id) return null;
+      const supabase = getBrowserSupabaseClient();
+      const primary = await supabase
+        .from('dish_entries')
+        .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
+        .eq('user_id', currentUserId)
+        .eq('hangout_id', upload.id)
+        .eq('hangout_item_id', row.hangoutItem.id)
+        .maybeSingle();
+      if (!primary.error && primary.data) {
+        return primary.data as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
+      }
+
+      const dishName = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+      const dishKey = toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`);
+      const legacy = await supabase
+        .from('dish_entries')
+        .select('id,dish_name,dish_key,identity_tag,comment')
+        .eq('user_id', currentUserId)
+        .eq('source_upload_id', upload.id)
+        .eq('dish_key', dishKey)
+        .maybeSingle();
+      if (!legacy.error && legacy.data) {
+        const entry = legacy.data as Pick<DishEntry, 'id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
+        return { ...entry, hangout_item_id: null };
+      }
+      return null;
+    },
+    [currentUserId, restaurant?.name, upload?.id, upsertMyDishEntry],
+  );
+
+  const handleUploadHangoutPhoto = useCallback(
+    async (file: File) => {
+      if (!upload?.id) return;
+      const created = await uploadHangoutPhoto(upload.id, file);
+      if (created) {
+        await loadHangoutPhotos();
+      }
+    },
+    [loadHangoutPhotos, upload?.id],
+  );
+
+  const handleUploadDishPhoto = useCallback(
+    async (row: UnifiedDishRow, file: File) => {
+      if (!upload?.id) return;
+      const ensured = await ensureDishEntryForRow(row);
+      if (!ensured?.id) return;
+      const created = await uploadDishPhoto(upload.id, ensured.id, file);
+      if (created) {
+        await load();
+      }
+    },
+    [ensureDishEntryForRow, load, upload?.id],
+  );
+
   const addParticipant = async () => {
     const email = shareEmail.trim().toLowerCase();
     if (!email || !upload) return;
@@ -642,8 +696,6 @@ export default function UploadDetailPage() {
     restaurant?.opening_hours && typeof restaurant.opening_hours === 'object' && !Array.isArray(restaurant.opening_hours)
       ? (restaurant.opening_hours as { open_now?: boolean }).open_now
       : undefined;
-  const selectedHangoutPhoto =
-    hangoutPhotos.find((photo) => photo.id === selectedHangoutPhotoId) ?? hangoutPhotos[0] ?? null;
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-2 pb-4">
@@ -698,79 +750,112 @@ export default function UploadDetailPage() {
           )}
         </div>
       </div>
-      <div className="card-surface p-3 space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="section-label">Hangout photos</h2>
-          <div className="flex gap-2">
-            <Button type="button" variant="secondary" size="sm" fullWidth={false} className="h-11 px-3 text-xs" onClick={() => hangoutCameraInputRef.current?.click()}>
-              Take photo
-            </Button>
-            <Button type="button" variant="secondary" size="sm" fullWidth={false} className="h-11 px-3 text-xs" onClick={() => hangoutUploadInputRef.current?.click()}>
-              Upload photo
+      <input
+        ref={hangoutCameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void handleUploadHangoutPhoto(file);
+          event.currentTarget.value = '';
+        }}
+      />
+      <input
+        ref={hangoutUploadInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void handleUploadHangoutPhoto(file);
+          event.currentTarget.value = '';
+        }}
+      />
+      <input
+        ref={dishCameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file && dishUploadTarget) {
+            const row = dishes.find((entry) => entry.hangoutItem.id === dishUploadTarget.hangoutItemId);
+            if (row) void handleUploadDishPhoto(row, file);
+          }
+          event.currentTarget.value = '';
+          setDishUploadTarget(null);
+        }}
+      />
+      <input
+        ref={dishUploadInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file && dishUploadTarget) {
+            const row = dishes.find((entry) => entry.hangoutItem.id === dishUploadTarget.hangoutItemId);
+            if (row) void handleUploadDishPhoto(row, file);
+          }
+          event.currentTarget.value = '';
+          setDishUploadTarget(null);
+        }}
+      />
+      {hangoutPhotos.length > 0 ? (
+        <div className="card-surface p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="section-label">Hangout photos</h2>
+            <Button type="button" variant="secondary" size="sm" fullWidth={false} className="h-9 px-2 text-xs" onClick={() => setHangoutSheetOpen(true)}>
+              Add hangout photo
             </Button>
           </div>
+          <div className="grid grid-cols-3 gap-2">
+            {hangoutPhotos.map((photo, index) => (
+              <button
+                key={photo.id}
+                type="button"
+                className="relative overflow-hidden rounded-lg border border-app-border"
+                onClick={() => {
+                  setLightboxPhotos(hangoutPhotos);
+                  setLightboxIndex(index);
+                }}
+              >
+                {photo.signedUrls.thumb ? (
+                  <Image src={photo.signedUrls.thumb} alt="Hangout thumbnail" width={200} height={200} className="h-24 w-full object-cover" unoptimized />
+                ) : (
+                  <div className="h-24 w-full bg-app-card" />
+                )}
+              </button>
+            ))}
+          </div>
         </div>
+      ) : (
+        <div>
+          <Button type="button" variant="secondary" size="sm" fullWidth={false} className="h-9 px-2 text-xs" onClick={() => setHangoutSheetOpen(true)}>
+            Add hangout photo
+          </Button>
+        </div>
+      )}
 
-        <input
-          ref={hangoutCameraInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file && upload?.id) {
-              void uploadPhoto(file, upload.id);
-            }
-            event.currentTarget.value = '';
-          }}
-        />
-        <input
-          ref={hangoutUploadInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file && upload?.id) {
-              void uploadPhoto(file, upload.id);
-            }
-            event.currentTarget.value = '';
-          }}
-        />
-
-        {selectedHangoutPhoto?.signedUrls.medium ? (
-          <>
-            <button type="button" className="relative block overflow-hidden rounded-xl border border-app-border" onClick={() => void openHangoutViewer()}>
-              <Image src={selectedHangoutPhoto.signedUrls.medium} alt="Hangout photo" width={1280} height={720} className="h-52 w-full object-cover" unoptimized />
-            </button>
-            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-              {hangoutPhotos.map((photo) => (
-                <button
-                  key={photo.id}
-                  type="button"
-                  className={`relative shrink-0 overflow-hidden rounded-lg border ${selectedHangoutPhoto.id === photo.id ? 'border-app-primary' : 'border-app-border'}`}
-                  onClick={() => setSelectedHangoutPhotoId(photo.id)}
-                >
-                  {photo.signedUrls.thumb ? (
-                    <Image src={photo.signedUrls.thumb} alt="Hangout thumbnail" width={120} height={120} className="h-16 w-16 object-cover" unoptimized />
-                  ) : (
-                    <div className="h-16 w-16 bg-app-card" />
-                  )}
-                </button>
-              ))}
+      {hangoutSheetOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/35">
+          <button type="button" className="absolute inset-0" aria-label="Close" onClick={() => setHangoutSheetOpen(false)} />
+          <div className="relative w-full max-w-md rounded-t-2xl border border-app-border bg-app-card p-3">
+            <div className="space-y-2">
+              <Button type="button" onClick={() => { setHangoutSheetOpen(false); hangoutCameraInputRef.current?.click(); }}>
+                Take photo
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => { setHangoutSheetOpen(false); hangoutUploadInputRef.current?.click(); }}>
+                Upload photo
+              </Button>
             </div>
-          </>
-        ) : (
-          <button
-            type="button"
-            onClick={() => hangoutUploadInputRef.current?.click()}
-            className="inline-flex h-24 w-full items-center justify-center rounded-xl border border-dashed border-app-border text-sm text-app-muted"
-          >
-            {photoUploadLoading === `hangout:${upload.id}` ? 'Uploading...' : 'Add a hangout pic (optional)'}
-          </button>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
+
       {showHostShareSection && (
         <div className="card-surface p-3 space-y-2">
           <h2 className="section-label">Who was in your crew?</h2>
@@ -872,6 +957,7 @@ export default function UploadDetailPage() {
               const noteOpen = openItemNotes[row.hangoutItem.id] || Boolean(row.myEntry?.comment);
               const identityValue = row.myEntry?.identity_tag ?? null;
               const isNeverAgain = identityValue === 'never_again';
+              const rowPhotos = dishPhotosByItemId[row.hangoutItem.id] ?? dishPhotosByItemId[normalizeDish(dishName)] ?? [];
 
               return (
                 <div key={row.hangoutItem.id} className={`space-y-1.5 p-2 ${isNeverAgain ? 'opacity-60' : ''}`}>
@@ -883,6 +969,39 @@ export default function UploadDetailPage() {
                       </p>
                     </div>
                     <p className="text-sm font-medium leading-5 text-app-text">{formatPrice(unitPrice)}</p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-app-border text-sm"
+                      onClick={() => {
+                        setDishUploadTarget({ hangoutItemId: row.hangoutItem.id });
+                        dishUploadInputRef.current?.click();
+                      }}
+                      aria-label="Add dish photo"
+                    >
+                      📷
+                    </button>
+                    {rowPhotos.slice(0, 2).map((photo, index) => (
+                      <button
+                        key={photo.id}
+                        type="button"
+                        className="h-9 w-9 overflow-hidden rounded-md border border-app-border"
+                        onClick={() => {
+                          setLightboxPhotos(rowPhotos);
+                          setLightboxIndex(index);
+                        }}
+                        aria-label="Open dish photo"
+                      >
+                        {photo.signedUrls.thumb ? (
+                          <Image src={photo.signedUrls.thumb} alt="Dish photo" width={40} height={40} className="h-full w-full object-cover" unoptimized />
+                        ) : (
+                          <span className="text-[10px] text-app-muted">img</span>
+                        )}
+                      </button>
+                    ))}
+                    {rowPhotos.length > 2 && <span className="text-xs text-app-muted">+{rowPhotos.length - 2}</span>}
                   </div>
 
                   <EmojiRatingSelector
@@ -970,16 +1089,61 @@ export default function UploadDetailPage() {
         </div>
       )}
 
+      {lightboxPhotos.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75">
+          <button
+            type="button"
+            className="absolute inset-0"
+            aria-label="Close"
+            onClick={() => {
+              setLightboxPhotos([]);
+              setLightboxIndex(0);
+            }}
+          />
+          <div className="relative z-10 w-full max-w-3xl p-3">
+            <div className="relative overflow-hidden rounded-xl bg-black">
+              {lightboxPhotos[lightboxIndex]?.signedUrls.original || lightboxPhotos[lightboxIndex]?.signedUrls.medium ? (
+                <Image
+                  src={lightboxPhotos[lightboxIndex].signedUrls.original ?? lightboxPhotos[lightboxIndex].signedUrls.medium ?? ''}
+                  alt="Photo"
+                  width={1600}
+                  height={1200}
+                  className="max-h-[75vh] w-full object-contain"
+                  unoptimized
+                />
+              ) : (
+                <div className="h-72 w-full" />
+              )}
+            </div>
+            <div className="mt-2 flex items-center justify-between">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                fullWidth={false}
+                className="h-9 px-2 text-xs"
+                onClick={() => setLightboxIndex((prev) => (prev - 1 + lightboxPhotos.length) % lightboxPhotos.length)}
+              >
+                Prev
+              </Button>
+              <span className="text-xs text-white">
+                {lightboxIndex + 1} / {lightboxPhotos.length}
+              </span>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                fullWidth={false}
+                className="h-9 px-2 text-xs"
+                onClick={() => setLightboxIndex((prev) => (prev + 1) % lightboxPhotos.length)}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
