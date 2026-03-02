@@ -1,5 +1,6 @@
 'use client';
 
+import { Flame, Heart, MapPin, Wallet } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
@@ -37,6 +38,8 @@ type AskResponse = {
   };
 };
 
+const ICON_STROKE = 1.5;
+
 const DEFAULT_CONTEXT: AskContext = {
   lastRestaurantName: null,
   lastRestaurantId: null,
@@ -45,11 +48,11 @@ const DEFAULT_CONTEXT: AskContext = {
   lastIntent: null,
 };
 
-const CANNED_ACTIONS: Array<{ label: string; intent: CannedIntent }> = [
-  { label: '\u2764\uFE0F Favorite dish', intent: { intent: 'favorite_dish', timeframe: 'last_30_days', source: 'canned' } },
-  { label: '\u{1F4CD} Last hangout', intent: { intent: 'last_hangout', timeframe: null, source: 'canned' } },
-  { label: '\u{1F525} Most ordered lately', intent: { intent: 'go_tos_lately', timeframe: 'last_30_days', source: 'canned' } },
-  { label: '\u{1F4B8} Cheapest logged item', intent: { intent: 'cheapest_item', timeframe: 'last_90_days', source: 'canned' } },
+const CANNED_ACTIONS: Array<{ label: string; icon: typeof Heart; intent: CannedIntent }> = [
+  { label: 'Favorite dish', icon: Heart, intent: { intent: 'favorite_dish', timeframe: 'last_30_days', source: 'canned' } },
+  { label: 'Last hangout', icon: MapPin, intent: { intent: 'last_hangout', timeframe: null, source: 'canned' } },
+  { label: 'Most ordered lately', icon: Flame, intent: { intent: 'go_tos_lately', timeframe: 'last_30_days', source: 'canned' } },
+  { label: 'Cheapest logged item', icon: Wallet, intent: { intent: 'cheapest_item', timeframe: 'last_90_days', source: 'canned' } },
 ];
 
 export function AskPalateAI() {
@@ -158,19 +161,23 @@ export function AskPalateAI() {
             </div>
 
             <div className="mb-3 flex flex-wrap gap-2">
-              {CANNED_ACTIONS.map((action) => (
-                <button
-                  key={action.label}
-                  type="button"
-                  className="inline-flex h-9 items-center rounded-full border border-app-border bg-app-card px-3 text-xs font-medium text-app-text"
-                  onClick={() => {
-                    void onCannedClick(action);
-                  }}
-                  disabled={loading}
-                >
-                  {action.label}
-                </button>
-              ))}
+              {CANNED_ACTIONS.map((action) => {
+                const Icon = action.icon;
+                return (
+                  <button
+                    key={action.label}
+                    type="button"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-full border border-app-border bg-app-card px-3 text-xs font-medium text-app-text"
+                    onClick={() => {
+                      void onCannedClick(action);
+                    }}
+                    disabled={loading}
+                  >
+                    <Icon size={14} strokeWidth={ICON_STROKE} aria-hidden />
+                    {action.label}
+                  </button>
+                );
+              })}
             </div>
 
             <div className="mb-3 max-h-60 space-y-2 overflow-y-auto rounded-xl border border-app-border p-3">
@@ -194,7 +201,7 @@ export function AskPalateAI() {
               <Input
                 value={question}
                 onChange={(event) => setQuestion(event.target.value)}
-                placeholder="Ask about your hangouts, dishes, or GO-TOs"
+                placeholder="Ask about your hangouts, food, or GO-TOs"
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && canAsk) {
                     event.preventDefault();
@@ -212,4 +219,3 @@ export function AskPalateAI() {
     </>
   );
 }
-

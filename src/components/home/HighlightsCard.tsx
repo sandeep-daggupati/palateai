@@ -1,11 +1,21 @@
 import Link from 'next/link';
+import { Clock3, Repeat, Trophy } from 'lucide-react';
 import { HighlightCard } from '@/lib/home/getHighlights';
 
+const ICON_STROKE = 1.5;
+
+const HIGHLIGHT_ICON: Record<HighlightCard['key'], typeof Trophy> = {
+  standout: Trophy,
+  repeat: Repeat,
+  memory: Clock3,
+};
+
 function HighlightCardItem({ card }: { card: HighlightCard }) {
+  const Icon = HIGHLIGHT_ICON[card.key];
   const content = (
     <>
-      <div className="mb-1 inline-flex h-7 w-7 items-center justify-center rounded-full bg-app-primary/10 text-xs font-semibold text-app-text">
-        {card.image_label}
+      <div className="mb-1 inline-flex h-7 w-7 items-center justify-center rounded-full border border-app-border text-app-text">
+        <Icon size={14} strokeWidth={ICON_STROKE} />
       </div>
       <p className="text-xs uppercase tracking-wide text-app-muted">{card.title}</p>
       <p className="mt-0.5 text-sm font-semibold leading-5 text-app-text">{card.body}</p>
@@ -45,4 +55,3 @@ export function HighlightsCard({ highlights }: { highlights: HighlightCard[] }) 
     </section>
   );
 }
-
