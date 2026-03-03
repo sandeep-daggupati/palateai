@@ -184,6 +184,7 @@ export default function FoodPage() {
   const identityParam = parseIdentityFilter(searchParams.get('identity'));
   const cuisineParam = normalizeToken(searchParams.get('cuisine'));
   const flavorParam = normalizeToken(searchParams.get('flavor'));
+  const isFoodGridPath = pathname === '/food';
 
   const [rows, setRows] = useState<DishEntry[]>([]);
   const [restaurantsById, setRestaurantsById] = useState<Record<string, RestaurantLookup>>({});
@@ -283,6 +284,7 @@ export default function FoodPage() {
   }, []);
 
   useEffect(() => {
+    if (!isFoodGridPath) return;
     const nextIdentity = identityParam;
     const nextCuisine = cuisineParam || 'all';
     const nextFlavor = flavorParam || 'all';
@@ -290,9 +292,10 @@ export default function FoodPage() {
     if (identityFilter !== nextIdentity) setIdentityFilter(nextIdentity);
     if (cuisineFilter !== nextCuisine) setCuisineFilter(nextCuisine);
     if (flavorFilter !== nextFlavor) setFlavorFilter(nextFlavor);
-  }, [cuisineParam, flavorParam, identityParam]);
+  }, [cuisineParam, flavorParam, identityParam, isFoodGridPath]);
 
   useEffect(() => {
+    if (!isFoodGridPath) return;
     const nextParams = new URLSearchParams(searchParams.toString());
 
     if (identityFilter === 'all') nextParams.delete('identity');
@@ -308,7 +311,7 @@ export default function FoodPage() {
     const next = nextParams.toString();
     if (current === next) return;
     router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
-  }, [cuisineFilter, flavorFilter, identityFilter, pathname, router, searchParams]);
+  }, [cuisineFilter, flavorFilter, identityFilter, isFoodGridPath, pathname, router, searchParams]);
 
   const cuisineOptions = useMemo<FilterOption[]>(() => {
     const values = new Set<string>();
@@ -443,7 +446,9 @@ export default function FoodPage() {
                       onClick={() => {
                         if (row.dish_key) {
                           window.sessionStorage.setItem(GRID_KEYS_STORAGE, JSON.stringify(visibleFoodKeys));
-                          router.push(`/food/${row.dish_key}`, { scroll: false });
+                          const currentParams = searchParams.toString();
+                          const nextHref = currentParams ? `/food/${row.dish_key}?${currentParams}` : `/food/${row.dish_key}`;
+                          router.push(nextHref, { scroll: false });
                           return;
                         }
                         router.push(target, { scroll: false });
