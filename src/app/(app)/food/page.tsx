@@ -2,9 +2,9 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
-import { useRouter, useSearchParams, useSelectedLayoutSegments } from 'next/navigation';
-import { FilterChips } from '@/components/FilterChips';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname, useRouter, useSearchParams, useSelectedLayoutSegments } from 'next/navigation';
+import { ChevronDown, Search, X } from 'lucide-react';
 import { IdentityTagPill } from '@/components/IdentityTagPill';
 import { cn } from '@/lib/utils';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
@@ -14,13 +14,13 @@ import { SignedPhoto } from '@/lib/photos/types';
 const LIST_LIMIT = 120;
 const GRID_KEYS_STORAGE = 'palate.food.grid.keys';
 
-const FOOD_FILTER_OPTIONS: Array<{ label: string; value: 'all' | DishIdentityTag; badge?: string }> = [
-  { label: 'All', value: 'all' },
-  { label: 'GO-TO', value: 'go_to', badge: 'Suggested' },
-  { label: 'Hidden Gem', value: 'hidden_gem' },
-  { label: 'Special Occasion', value: 'special_occasion' },
-  { label: 'Try Again', value: 'try_again' },
-  { label: 'Never Again', value: 'never_again' },
+const IDENTITY_OPTIONS: Array<{ value: 'all' | DishIdentityTag; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'go_to', label: 'Go-to' },
+  { value: 'hidden_gem', label: 'Hidden gem' },
+  { value: 'special_occasion', label: 'Special occasion' },
+  { value: 'try_again', label: 'Try again' },
+  { value: 'never_again', label: 'Never again' },
 ];
 
 type RestaurantLookup = {
@@ -32,6 +32,11 @@ type GridRow = DishEntry & {
   photo: SignedPhoto | null;
   recencyGroupKey: string;
   recencyGroupLabel: string;
+};
+
+type FilterOption = {
+  value: string;
+  label: string;
 };
 
 function parseTime(value: string | null | undefined): number {
@@ -55,15 +60,134 @@ function monthLabel(key: string): string {
   return parsed.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 }
 
+function normalizeToken(value: string | null | undefined): string {
+  if (!value) return '';
+  return value.trim().toLowerCase();
+}
+
+function titleCase(value: string): string {
+  return value
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(' ');
+}
+
+function parseIdentityFilter(value: string | null): 'all' | DishIdentityTag {
+  if (!value) return 'all';
+  const normalized = normalizeToken(value);
+  const valid = new Set<DishIdentityTag>(['go_to', 'hidden_gem', 'special_occasion', 'try_again', 'never_again']);
+  if (valid.has(normalized as DishIdentityTag)) return normalized as DishIdentityTag;
+  return 'all';
+}
+
+function FilterDropdown({
+  label,
+  options,
+  selectedValue,
+  onSelect,
+}: {
+  label: string;
+  options: FilterOption[];
+  selectedValue: string;
+  onSelect: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (rootRef.current && !rootRef.current.contains(target)) {
+        setOpen(false);
+      }
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
+  const selected = options.find((option) => option.value === selectedValue)?.label ?? 'All';
+  const filteredOptions = useMemo(() => {
+    const normalized = normalizeToken(query);
+    if (!normalized) return options;
+    return options.filter((option) => normalizeToken(option.label).includes(normalized));
+  }, [options, query]);
+
+  return (
+    <div ref={rootRef} className="relative min-w-[108px]">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="inline-flex h-8 w-full items-center justify-between gap-1 rounded-lg border border-app-border bg-app-card px-2 text-[11px] font-medium text-app-text"
+      >
+        <span className="truncate">{label}: {selected}</span>
+        <ChevronDown size={13} className="shrink-0 text-app-muted" />
+      </button>
+
+      {open ? (
+        <div className="absolute left-0 top-9 z-30 w-56 max-w-[85vw] rounded-xl border border-app-border bg-app-card p-2 shadow-sm">
+          <div className="relative mb-1.5">
+            <Search size={12} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-app-muted" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={`Search ${label.toLowerCase()}`}
+              className="h-8 w-full rounded-lg border border-app-border bg-app-bg pl-7 pr-2 text-xs text-app-text"
+            />
+          </div>
+
+          <div className="max-h-56 space-y-0.5 overflow-y-auto">
+            {filteredOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => {
+                  onSelect(option.value);
+                  setOpen(false);
+                  setQuery('');
+                }}
+                className={cn(
+                  'flex h-8 w-full items-center rounded-lg px-2 text-left text-xs',
+                  option.value === selectedValue ? 'bg-app-primary text-app-primary-text' : 'text-app-text hover:bg-app-bg',
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function FoodPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const modalSegments = useSelectedLayoutSegments('modal');
   const queryParam = (searchParams.get('query') ?? '').trim().toLowerCase();
+  const identityParam = parseIdentityFilter(searchParams.get('identity'));
+  const cuisineParam = normalizeToken(searchParams.get('cuisine'));
+  const flavorParam = normalizeToken(searchParams.get('flavor'));
 
   const [rows, setRows] = useState<DishEntry[]>([]);
   const [restaurantsById, setRestaurantsById] = useState<Record<string, RestaurantLookup>>({});
-  const [foodFilter, setFoodFilter] = useState<'all' | DishIdentityTag>('all');
+  const [identityFilter, setIdentityFilter] = useState<'all' | DishIdentityTag>(identityParam);
+  const [cuisineFilter, setCuisineFilter] = useState<string>(cuisineParam || 'all');
+  const [flavorFilter, setFlavorFilter] = useState<string>(flavorParam || 'all');
   const [photoByDishEntryId, setPhotoByDishEntryId] = useState<Record<string, SignedPhoto>>({});
 
   useEffect(() => {
@@ -80,17 +204,13 @@ export default function FoodPage() {
         return;
       }
 
-      let query = supabase
+      const query = supabase
         .from('dish_entries')
-        .select('id,dish_name,dish_key,restaurant_id,identity_tag,eaten_at,created_at,source_upload_id')
+        .select('id,dish_name,dish_key,restaurant_id,identity_tag,cuisine,flavor_tags,eaten_at,created_at,source_upload_id')
         .eq('user_id', user.id)
         .order('eaten_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false })
         .limit(LIST_LIMIT);
-
-      if (foodFilter !== 'all') {
-        query = query.eq('identity_tag', foodFilter);
-      }
 
       const [{ data: dishRows }, sessionResult] = await Promise.all([query, supabase.auth.getSession()]);
       const parsedRows = (dishRows ?? []) as DishEntry[];
@@ -141,7 +261,57 @@ export default function FoodPage() {
     };
 
     void load();
-  }, [foodFilter]);
+  }, []);
+
+  useEffect(() => {
+    const nextIdentity = identityParam;
+    const nextCuisine = cuisineParam || 'all';
+    const nextFlavor = flavorParam || 'all';
+
+    if (identityFilter !== nextIdentity) setIdentityFilter(nextIdentity);
+    if (cuisineFilter !== nextCuisine) setCuisineFilter(nextCuisine);
+    if (flavorFilter !== nextFlavor) setFlavorFilter(nextFlavor);
+  }, [cuisineFilter, cuisineParam, flavorFilter, flavorParam, identityFilter, identityParam]);
+
+  useEffect(() => {
+    const nextParams = new URLSearchParams(searchParams.toString());
+
+    if (identityFilter === 'all') nextParams.delete('identity');
+    else nextParams.set('identity', identityFilter);
+
+    if (cuisineFilter === 'all') nextParams.delete('cuisine');
+    else nextParams.set('cuisine', cuisineFilter);
+
+    if (flavorFilter === 'all') nextParams.delete('flavor');
+    else nextParams.set('flavor', flavorFilter);
+
+    const current = searchParams.toString();
+    const next = nextParams.toString();
+    if (current === next) return;
+    router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
+  }, [cuisineFilter, flavorFilter, identityFilter, pathname, router, searchParams]);
+
+  const cuisineOptions = useMemo<FilterOption[]>(() => {
+    const values = new Set<string>();
+    for (const row of rows) {
+      const normalized = normalizeToken(row.cuisine);
+      if (normalized) values.add(normalized);
+    }
+
+    return [{ value: 'all', label: 'All' }, ...Array.from(values).sort().map((value) => ({ value, label: titleCase(value) }))];
+  }, [rows]);
+
+  const flavorOptions = useMemo<FilterOption[]>(() => {
+    const values = new Set<string>();
+    for (const row of rows) {
+      for (const tag of row.flavor_tags ?? []) {
+        const normalized = normalizeToken(tag);
+        if (normalized) values.add(normalized);
+      }
+    }
+
+    return [{ value: 'all', label: 'All' }, ...Array.from(values).sort().map((value) => ({ value, label: titleCase(value) }))];
+  }, [rows]);
 
   const filteredRows = useMemo<GridRow[]>(() => {
     const base = rows
@@ -158,12 +328,17 @@ export default function FoodPage() {
       })
       .sort((a, b) => parseTime(b.eaten_at ?? b.created_at) - parseTime(a.eaten_at ?? a.created_at));
 
-    if (!queryParam) return base;
+    return base.filter((row) => {
+      const queryMatch =
+        !queryParam || row.dish_name.toLowerCase().includes(queryParam) || row.restaurantName.toLowerCase().includes(queryParam);
+      const identityMatch = identityFilter === 'all' || row.identity_tag === identityFilter;
+      const cuisineMatch = cuisineFilter === 'all' || normalizeToken(row.cuisine) === cuisineFilter;
+      const flavorMatch =
+        flavorFilter === 'all' || (row.flavor_tags ?? []).some((tag) => normalizeToken(tag) === flavorFilter);
 
-    return base.filter(
-      (row) => row.dish_name.toLowerCase().includes(queryParam) || row.restaurantName.toLowerCase().includes(queryParam),
-    );
-  }, [photoByDishEntryId, queryParam, restaurantsById, rows]);
+      return queryMatch && identityMatch && cuisineMatch && flavorMatch;
+    });
+  }, [cuisineFilter, flavorFilter, identityFilter, photoByDishEntryId, queryParam, restaurantsById, rows]);
 
   const groupedRows = useMemo(() => {
     const map = new Map<string, { label: string; rows: GridRow[] }>();
@@ -188,6 +363,7 @@ export default function FoodPage() {
   );
 
   const isFoodDetailOpen = modalSegments[0] === 'food' && typeof modalSegments[1] === 'string';
+  const hasActiveFilters = identityFilter !== 'all' || cuisineFilter !== 'all' || flavorFilter !== 'all';
 
   return (
     <div className={cn('space-y-3 pb-5', isFoodDetailOpen && 'select-none')}>
@@ -202,7 +378,30 @@ export default function FoodPage() {
       </section>
 
       <section className="space-y-2">
-        <FilterChips options={FOOD_FILTER_OPTIONS} selected={foodFilter} onChange={setFoodFilter} />
+        <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-app-border bg-app-card p-1.5">
+          <FilterDropdown
+            label="Identity"
+            selectedValue={identityFilter}
+            onSelect={(value) => setIdentityFilter(value as 'all' | DishIdentityTag)}
+            options={IDENTITY_OPTIONS}
+          />
+          <FilterDropdown label="Cuisine" selectedValue={cuisineFilter} onSelect={setCuisineFilter} options={cuisineOptions} />
+          <FilterDropdown label="Flavor" selectedValue={flavorFilter} onSelect={setFlavorFilter} options={flavorOptions} />
+          {hasActiveFilters ? (
+            <button
+              type="button"
+              onClick={() => {
+                setIdentityFilter('all');
+                setCuisineFilter('all');
+                setFlavorFilter('all');
+              }}
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-app-border px-2 text-[11px] text-app-muted"
+            >
+              <X size={12} />
+              Clear
+            </button>
+          ) : null}
+        </div>
 
         {groupedRows.length === 0 ? (
           <p className="empty-surface">No food yet.</p>
