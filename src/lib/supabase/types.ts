@@ -259,6 +259,8 @@ export type Database = {
           source_upload_id: string;
           dish_key: string;
           identity_tag: Database['public']['Enums']['dish_identity'] | null;
+          cuisine: string | null;
+          flavor_tags: string[] | null;
           rating: number | null;
           comment: string | null;
           had_it: boolean | null;
@@ -279,6 +281,8 @@ export type Database = {
           source_upload_id: string;
           dish_key: string;
           identity_tag?: Database['public']['Enums']['dish_identity'] | null;
+          cuisine?: string | null;
+          flavor_tags?: string[] | null;
           rating?: number | null;
           comment?: string | null;
           had_it?: boolean | null;
@@ -299,6 +303,8 @@ export type Database = {
           source_upload_id?: string;
           dish_key?: string;
           identity_tag?: Database['public']['Enums']['dish_identity'] | null;
+          cuisine?: string | null;
+          flavor_tags?: string[] | null;
           rating?: number | null;
           comment?: string | null;
           had_it?: boolean | null;
@@ -688,7 +694,6 @@ export type Photo = Database['public']['Tables']['photos']['Row'];
 export type TableRow<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
 export type TableInsert<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Insert'];
 export type TableUpdate<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Update'];
-
 
 
 

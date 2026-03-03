@@ -4,6 +4,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Globe, MapPinned, Phone, SlidersHorizontal, Star } from 'lucide-react';
+import { IdentityTagIcon } from '@/components/IdentityTagIcon';
 import { SignedPhoto } from '@/lib/photos/types';
 import { uploadDishPhoto } from '@/lib/data/photosRepo';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
@@ -155,19 +156,6 @@ function telHref(raw: string | null | undefined): string | null {
   return `tel:${cleaned}`;
 }
 
-function TagChip({ tag }: { tag: CanonicalTag }) {
-  const active = tag !== 'none';
-  return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-        active ? 'border-app-primary/40 bg-app-primary/10 text-app-primary' : 'border-app-border text-app-muted'
-      }`}
-    >
-      {TAG_LABELS[tag]}
-    </span>
-  );
-}
-
 function FoodEntryEditorSheet({
   entry,
   open,
@@ -298,6 +286,10 @@ function FoodEntryEditorSheet({
             <label className="text-xs text-app-muted" htmlFor="entry-tag-select">
               Tag
             </label>
+            <div className="mb-1 inline-flex items-center gap-1 text-xs text-app-muted">
+              <IdentityTagIcon tag={tag} showNone />
+              <span>{TAG_LABELS[tag]}</span>
+            </div>
             <select
               id="entry-tag-select"
               value={tag}
@@ -571,9 +563,9 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
           </div>
 
           {uniqueHeaderTags.length > 0 ? (
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-1.5">
               {uniqueHeaderTags.map((tag) => (
-                <TagChip key={tag} tag={tag} />
+                <IdentityTagIcon key={tag} tag={tag} />
               ))}
             </div>
           ) : (
@@ -653,7 +645,7 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
                           </div>
 
                           <div className="flex items-center gap-2 text-xs text-app-muted">
-                            {entry.canonicalTag !== 'none' ? <TagChip tag={entry.canonicalTag} /> : <span>No tag</span>}
+                            <IdentityTagIcon tag={entry.canonicalTag} showNone />
                             {entry.rating ? <span>{entry.rating}/5</span> : null}
                           </div>
 
