@@ -290,7 +290,7 @@ export default function FoodPage() {
     if (identityFilter !== nextIdentity) setIdentityFilter(nextIdentity);
     if (cuisineFilter !== nextCuisine) setCuisineFilter(nextCuisine);
     if (flavorFilter !== nextFlavor) setFlavorFilter(nextFlavor);
-  }, [cuisineFilter, cuisineParam, flavorFilter, flavorParam, identityFilter, identityParam]);
+  }, [cuisineParam, flavorParam, identityParam]);
 
   useEffect(() => {
     const nextParams = new URLSearchParams(searchParams.toString());
