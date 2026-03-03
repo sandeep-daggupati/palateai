@@ -36,7 +36,7 @@ const FALLBACK_HIGHLIGHTS: HighlightCard[] = [
     title: 'On repeat',
     body: 'Your repeats will show up here.',
     hint: 'Patterns update as you log',
-    href: '/dishes',
+    href: '/food',
     image_label: 'R',
   },
   {
