@@ -8,7 +8,7 @@ import { ChevronDown, Search, X } from 'lucide-react';
 import { IdentityTagPill } from '@/components/IdentityTagPill';
 import { cn } from '@/lib/utils';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { DishEntry, DishIdentityTag, Restaurant } from '@/lib/supabase/types';
+import { DishCatalog, DishEntry, DishIdentityTag, Restaurant } from '@/lib/supabase/types';
 import { SignedPhoto } from '@/lib/photos/types';
 
 const LIST_LIMIT = 120;
@@ -26,6 +26,8 @@ const IDENTITY_OPTIONS: Array<{ value: 'all' | DishIdentityTag; label: string }>
 type RestaurantLookup = {
   name: string;
 };
+
+type DishCatalogLookup = Pick<DishCatalog, 'dish_key' | 'cuisine' | 'flavor_tags'>;
 
 type GridRow = DishEntry & {
   restaurantName: string;
@@ -189,6 +191,7 @@ export default function FoodPage() {
   const [cuisineFilter, setCuisineFilter] = useState<string>(cuisineParam || 'all');
   const [flavorFilter, setFlavorFilter] = useState<string>(flavorParam || 'all');
   const [photoByDishEntryId, setPhotoByDishEntryId] = useState<Record<string, SignedPhoto>>({});
+  const [catalogByDishKey, setCatalogByDishKey] = useState<Record<string, DishCatalogLookup>>({});
 
   useEffect(() => {
     const load = async () => {
@@ -201,6 +204,7 @@ export default function FoodPage() {
         setRows([]);
         setRestaurantsById({});
         setPhotoByDishEntryId({});
+        setCatalogByDishKey({});
         return;
       }
 
@@ -214,6 +218,7 @@ export default function FoodPage() {
 
       const [{ data: dishRows }, sessionResult] = await Promise.all([query, supabase.auth.getSession()]);
       const parsedRows = (dishRows ?? []) as DishEntry[];
+      const dishKeys = Array.from(new Set(parsedRows.map((row) => row.dish_key).filter(Boolean)));
 
       const restaurantIds = Array.from(new Set(parsedRows.map((entry) => entry.restaurant_id).filter((id): id is string => Boolean(id))));
       if (restaurantIds.length > 0) {
@@ -228,6 +233,20 @@ export default function FoodPage() {
         setRestaurantsById(lookup);
       } else {
         setRestaurantsById({});
+      }
+
+      if (dishKeys.length > 0) {
+        const { data: catalogRows } = await supabase.from('dish_catalog').select('dish_key,cuisine,flavor_tags').in('dish_key', dishKeys);
+        const nextCatalog = ((catalogRows ?? []) as DishCatalogLookup[]).reduce(
+          (acc, row) => {
+            acc[row.dish_key] = row;
+            return acc;
+          },
+          {} as Record<string, DishCatalogLookup>,
+        );
+        setCatalogByDishKey(nextCatalog);
+      } else {
+        setCatalogByDishKey({});
       }
 
       setRows(parsedRows);
@@ -294,24 +313,26 @@ export default function FoodPage() {
   const cuisineOptions = useMemo<FilterOption[]>(() => {
     const values = new Set<string>();
     for (const row of rows) {
-      const normalized = normalizeToken(row.cuisine);
+      const effectiveCuisine = row.cuisine ?? catalogByDishKey[row.dish_key]?.cuisine ?? null;
+      const normalized = normalizeToken(effectiveCuisine);
       if (normalized) values.add(normalized);
     }
 
     return [{ value: 'all', label: 'All' }, ...Array.from(values).sort().map((value) => ({ value, label: titleCase(value) }))];
-  }, [rows]);
+  }, [catalogByDishKey, rows]);
 
   const flavorOptions = useMemo<FilterOption[]>(() => {
     const values = new Set<string>();
     for (const row of rows) {
-      for (const tag of row.flavor_tags ?? []) {
+      const effectiveFlavorTags = row.flavor_tags ?? catalogByDishKey[row.dish_key]?.flavor_tags ?? [];
+      for (const tag of effectiveFlavorTags ?? []) {
         const normalized = normalizeToken(tag);
         if (normalized) values.add(normalized);
       }
     }
 
     return [{ value: 'all', label: 'All' }, ...Array.from(values).sort().map((value) => ({ value, label: titleCase(value) }))];
-  }, [rows]);
+  }, [catalogByDishKey, rows]);
 
   const filteredRows = useMemo<GridRow[]>(() => {
     const base = rows
@@ -332,13 +353,15 @@ export default function FoodPage() {
       const queryMatch =
         !queryParam || row.dish_name.toLowerCase().includes(queryParam) || row.restaurantName.toLowerCase().includes(queryParam);
       const identityMatch = identityFilter === 'all' || row.identity_tag === identityFilter;
-      const cuisineMatch = cuisineFilter === 'all' || normalizeToken(row.cuisine) === cuisineFilter;
+      const effectiveCuisine = row.cuisine ?? catalogByDishKey[row.dish_key]?.cuisine ?? null;
+      const effectiveFlavorTags = row.flavor_tags ?? catalogByDishKey[row.dish_key]?.flavor_tags ?? [];
+      const cuisineMatch = cuisineFilter === 'all' || normalizeToken(effectiveCuisine) === cuisineFilter;
       const flavorMatch =
-        flavorFilter === 'all' || (row.flavor_tags ?? []).some((tag) => normalizeToken(tag) === flavorFilter);
+        flavorFilter === 'all' || (effectiveFlavorTags ?? []).some((tag) => normalizeToken(tag) === flavorFilter);
 
       return queryMatch && identityMatch && cuisineMatch && flavorMatch;
     });
-  }, [cuisineFilter, flavorFilter, identityFilter, photoByDishEntryId, queryParam, restaurantsById, rows]);
+  }, [catalogByDishKey, cuisineFilter, flavorFilter, identityFilter, photoByDishEntryId, queryParam, restaurantsById, rows]);
 
   const groupedRows = useMemo(() => {
     const map = new Map<string, { label: string; rows: GridRow[] }>();
@@ -380,7 +403,7 @@ export default function FoodPage() {
       <section className="space-y-2">
         <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-app-border bg-app-card p-1.5">
           <FilterDropdown
-            label="Identity"
+            label="Vibe"
             selectedValue={identityFilter}
             onSelect={(value) => setIdentityFilter(value as 'all' | DishIdentityTag)}
             options={IDENTITY_OPTIONS}
