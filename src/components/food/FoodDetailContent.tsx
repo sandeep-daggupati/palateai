@@ -2,9 +2,10 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { IdentityTagPill, identityTagLabel } from '@/components/IdentityTagPill';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Globe, MapPinned, Phone, SlidersHorizontal, Star } from 'lucide-react';
 import { SignedPhoto } from '@/lib/photos/types';
+import { uploadDishPhoto } from '@/lib/data/photosRepo';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { DishCatalog, DishEntry, DishIdentityTag } from '@/lib/supabase/types';
 
@@ -13,21 +14,84 @@ type FoodDetailContentProps = {
   showBackLink?: boolean;
 };
 
-type FoodTimelineEntry = Pick<
-  DishEntry,
-  'id' | 'dish_name' | 'dish_key' | 'restaurant_id' | 'identity_tag' | 'comment' | 'created_at' | 'eaten_at' | 'price_original' | 'currency_original' | 'source_upload_id'
-> & {
-  restaurantName: string;
-  photo: SignedPhoto | null;
+type CanonicalTag = DishIdentityTag | 'none';
+
+type RestaurantMeta = {
+  id: string;
+  name: string;
+  address: string | null;
+  lat: number | null;
+  lng: number | null;
+  phone_number: string | null;
+  website: string | null;
+  maps_url: string | null;
 };
 
-const TAG_OPTIONS: Array<{ label: string; value: DishIdentityTag }> = [
-  { label: 'GO-TO', value: 'go_to' },
-  { label: 'Hidden Gem', value: 'hidden_gem' },
-  { label: 'Special Occasion', value: 'special_occasion' },
-  { label: 'Try Again', value: 'try_again' },
-  { label: 'Never Again', value: 'never_again' },
-];
+type FoodTimelineEntry = Pick<
+  DishEntry,
+  | 'id'
+  | 'dish_name'
+  | 'dish_key'
+  | 'restaurant_id'
+  | 'identity_tag'
+  | 'comment'
+  | 'created_at'
+  | 'eaten_at'
+  | 'price_original'
+  | 'currency_original'
+  | 'source_upload_id'
+  | 'rating'
+> & {
+  restaurant: RestaurantMeta | null;
+  photo: SignedPhoto | null;
+  canonicalTag: CanonicalTag;
+};
+
+type EntryUpdatePayload = {
+  tag: CanonicalTag;
+  note: string;
+  rating: number | null;
+  photoFile: File | null;
+};
+
+const TAG_ORDER: CanonicalTag[] = ['go_to', 'hidden_gem', 'special_occasion', 'try_again', 'never_again', 'none'];
+
+const TAG_LABELS: Record<CanonicalTag, string> = {
+  go_to: 'Go-to',
+  hidden_gem: 'Hidden gem',
+  special_occasion: 'Special occasion',
+  try_again: 'Try again',
+  never_again: 'Never again',
+  none: 'No tag',
+};
+
+function normalizeTag(value: string | null | undefined): CanonicalTag {
+  if (!value) return 'none';
+
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (!normalized) return 'none';
+
+  const map: Record<string, CanonicalTag> = {
+    go_to: 'go_to',
+    goto: 'go_to',
+    hidden_gem: 'hidden_gem',
+    hiddengem: 'hidden_gem',
+    special_occasion: 'special_occasion',
+    specialoccasion: 'special_occasion',
+    try_again: 'try_again',
+    tryagain: 'try_again',
+    never_again: 'never_again',
+    neveragain: 'never_again',
+    none: 'none',
+    null: 'none',
+  };
+
+  return map[normalized] ?? 'none';
+}
+
+function toDbTag(value: CanonicalTag): DishIdentityTag | null {
+  return value === 'none' ? null : value;
+}
 
 function entryTime(entry: Pick<FoodTimelineEntry, 'eaten_at' | 'created_at'>): number {
   const parsed = new Date(entry.eaten_at ?? entry.created_at).getTime();
@@ -65,11 +129,245 @@ function monthLabelFromKey(key: string): string {
   });
 }
 
+function websiteHref(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+  return `https://${trimmed}`;
+}
+
+function directionsHref(restaurant: RestaurantMeta | null): string | null {
+  if (!restaurant) return null;
+  if (restaurant.lat != null && restaurant.lng != null) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${restaurant.lat},${restaurant.lng}`;
+  }
+  if (restaurant.address) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(restaurant.address)}`;
+  }
+  return restaurant.maps_url ?? null;
+}
+
+function telHref(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const cleaned = raw.trim();
+  if (!cleaned) return null;
+  return `tel:${cleaned}`;
+}
+
+function TagChip({ tag }: { tag: CanonicalTag }) {
+  const active = tag !== 'none';
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+        active ? 'border-app-primary/40 bg-app-primary/10 text-app-primary' : 'border-app-border text-app-muted'
+      }`}
+    >
+      {TAG_LABELS[tag]}
+    </span>
+  );
+}
+
+function FoodEntryEditorSheet({
+  entry,
+  open,
+  saving,
+  onClose,
+  onSave,
+}: {
+  entry: FoodTimelineEntry | null;
+  open: boolean;
+  saving: boolean;
+  onClose: () => void;
+  onSave: (entryId: string, payload: EntryUpdatePayload) => Promise<void>;
+}) {
+  const [tag, setTag] = useState<CanonicalTag>('none');
+  const [note, setNote] = useState('');
+  const [rating, setRating] = useState<number | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [ratingPickerOpen, setRatingPickerOpen] = useState(false);
+  const touchStartY = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!entry || !open) return;
+    setTag(entry.canonicalTag);
+    setNote(entry.comment ?? '');
+    setRating(entry.rating ?? null);
+    setPhotoFile(null);
+    setRatingPickerOpen(false);
+  }, [entry, open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose, open]);
+
+  if (!open || !entry) return null;
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end">
+      <button
+        type="button"
+        aria-label="Close editor"
+        className="absolute inset-0 bg-black/45"
+        onClick={onClose}
+      />
+
+      <section
+        className="relative z-10 w-full rounded-t-2xl border border-app-border bg-app-card p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+        onTouchStart={(event) => {
+          touchStartY.current = event.touches[0]?.clientY ?? null;
+        }}
+        onTouchEnd={(event) => {
+          if (touchStartY.current == null) return;
+          const touchEnd = event.changedTouches[0]?.clientY;
+          if (touchEnd == null) return;
+          if (touchEnd - touchStartY.current > 70) {
+            onClose();
+          }
+        }}
+      >
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <button type="button" className="text-xs font-medium text-app-link" onClick={onClose}>
+            Cancel
+          </button>
+          <div className="h-1.5 w-12 rounded-full bg-app-border" />
+          <button
+            type="button"
+            onClick={() => void onSave(entry.id, { tag, note, rating, photoFile })}
+            className="text-xs font-semibold text-app-link"
+            disabled={saving}
+          >
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm font-semibold text-app-text">Edit entry</p>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setRatingPickerOpen((prev) => !prev)}
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-app-border px-2 text-xs text-app-text"
+            >
+              <Star size={14} />
+              <span>{rating ? `${rating}/5` : 'No rating'}</span>
+            </button>
+
+            {ratingPickerOpen ? (
+              <div className="flex items-center gap-1 rounded-lg border border-app-border bg-app-bg p-1">
+                {[1, 2, 3, 4, 5].map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => {
+                      setRating(value);
+                      setRatingPickerOpen(false);
+                    }}
+                    className={`inline-flex h-7 w-7 items-center justify-center rounded text-xs ${
+                      rating === value ? 'bg-app-primary text-app-primary-text' : 'text-app-muted'
+                    }`}
+                  >
+                    {value}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRating(null);
+                    setRatingPickerOpen(false);
+                  }}
+                  className="h-7 rounded px-2 text-xs text-app-muted"
+                >
+                  Clear
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs text-app-muted" htmlFor="entry-tag-select">
+              Tag
+            </label>
+            <select
+              id="entry-tag-select"
+              value={tag}
+              onChange={(event) => setTag(normalizeTag(event.target.value))}
+              className="h-9 w-full rounded-lg border border-app-border bg-app-bg px-2 text-xs text-app-text"
+            >
+              {TAG_ORDER.map((value) => (
+                <option key={value} value={value}>
+                  {TAG_LABELS[value]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs text-app-muted" htmlFor="entry-note">
+              Note
+            </label>
+            <textarea
+              id="entry-note"
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              rows={3}
+              maxLength={220}
+              placeholder="Add a quick note"
+              className="w-full rounded-lg border border-app-border bg-app-bg px-2 py-1.5 text-xs text-app-text"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <p className="text-xs text-app-muted">Photo</p>
+            <div className="flex items-center gap-2">
+              {entry.photo?.signedUrls.thumb ? (
+                <Image
+                  src={entry.photo.signedUrls.thumb}
+                  alt="Current dish photo"
+                  width={56}
+                  height={56}
+                  className="h-12 w-12 rounded-lg object-cover"
+                  unoptimized
+                />
+              ) : (
+                <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-app-bg text-[10px] text-app-muted">None</div>
+              )}
+              <label className="inline-flex h-8 cursor-pointer items-center rounded-lg border border-app-border px-2 text-xs text-app-text">
+                {photoFile ? 'Replace selected' : 'Add or replace'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(event) => {
+                    setPhotoFile(event.target.files?.[0] ?? null);
+                  }}
+                />
+              </label>
+              {photoFile ? <span className="text-xs text-app-muted">{photoFile.name}</span> : null}
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailContentProps) {
   const [entries, setEntries] = useState<FoodTimelineEntry[]>([]);
   const [catalog, setCatalog] = useState<DishCatalog | null>(null);
   const [loading, setLoading] = useState(true);
-  const [savingTagEntryId, setSavingTagEntryId] = useState<string | null>(null);
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [savingEntryId, setSavingEntryId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const supabase = getBrowserSupabaseClient();
@@ -89,7 +387,7 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
     const [entriesResponse, catalogResponse, sessionResponse] = await Promise.all([
       supabase
         .from('dish_entries')
-        .select('id,dish_name,dish_key,restaurant_id,identity_tag,comment,created_at,eaten_at,price_original,currency_original,source_upload_id')
+        .select('id,dish_name,dish_key,restaurant_id,identity_tag,comment,created_at,eaten_at,price_original,currency_original,source_upload_id,rating')
         .eq('user_id', user.id)
         .eq('dish_key', foodKey)
         .order('eaten_at', { ascending: false, nullsFirst: false })
@@ -102,12 +400,15 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
     setCatalog((catalogResponse.data ?? null) as DishCatalog | null);
 
     const restaurantIds = Array.from(new Set(parsedEntries.map((row) => row.restaurant_id).filter((id): id is string => Boolean(id))));
-    const restaurantLookup = new Map<string, string>();
+    const restaurantLookup = new Map<string, RestaurantMeta>();
 
     if (restaurantIds.length > 0) {
-      const { data: restaurantRows } = await supabase.from('restaurants').select('id,name').in('id', restaurantIds);
-      for (const row of (restaurantRows ?? []) as Array<{ id: string; name: string }>) {
-        restaurantLookup.set(row.id, row.name);
+      const { data: restaurantRows } = await supabase
+        .from('restaurants')
+        .select('id,name,address,lat,lng,phone_number,website,maps_url')
+        .in('id', restaurantIds);
+      for (const row of (restaurantRows ?? []) as RestaurantMeta[]) {
+        restaurantLookup.set(row.id, row);
       }
     }
 
@@ -133,7 +434,8 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
     setEntries(
       parsedEntries.map((entry) => ({
         ...entry,
-        restaurantName: entry.restaurant_id ? restaurantLookup.get(entry.restaurant_id) ?? 'Unknown restaurant' : 'Unknown restaurant',
+        canonicalTag: normalizeTag(entry.identity_tag),
+        restaurant: entry.restaurant_id ? restaurantLookup.get(entry.restaurant_id) ?? null : null,
         photo: byEntryId[entry.id] ?? null,
       })),
     );
@@ -163,28 +465,68 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
       }));
   }, [entries]);
 
-  const tagCounts = useMemo(() => {
-    const counts = new Map<DishIdentityTag, number>();
+  const uniqueHeaderTags = useMemo(() => {
+    const tags = new Set<CanonicalTag>();
     for (const entry of entries) {
-      if (!entry.identity_tag) continue;
-      counts.set(entry.identity_tag, (counts.get(entry.identity_tag) ?? 0) + 1);
+      const canonical = normalizeTag(entry.canonicalTag);
+      if (canonical === 'none') continue;
+      tags.add(canonical);
     }
-    return counts;
+    return TAG_ORDER.filter((tag) => tag !== 'none' && tags.has(tag));
   }, [entries]);
 
-  const setTag = async (entryId: string, value: DishIdentityTag | null) => {
+  const latestEntry = entries[0] ?? null;
+  const editingEntry = entries.find((entry) => entry.id === editingEntryId) ?? null;
+
+  const saveEntry = async (entryId: string, payload: EntryUpdatePayload) => {
     const previous = entries;
-    setEntries((current) => current.map((entry) => (entry.id === entryId ? { ...entry, identity_tag: value } : entry)));
-    setSavingTagEntryId(entryId);
+    const nextIdentityTag = toDbTag(payload.tag);
+    const nextNote = payload.note.trim() || null;
+
+    setEntries((current) =>
+      current.map((entry) =>
+        entry.id === entryId
+          ? {
+              ...entry,
+              identity_tag: nextIdentityTag,
+              canonicalTag: payload.tag,
+              comment: nextNote,
+              rating: payload.rating,
+            }
+          : entry,
+      ),
+    );
+
+    setSavingEntryId(entryId);
 
     const supabase = getBrowserSupabaseClient();
-    const { error } = await supabase.from('dish_entries').update({ identity_tag: value }).eq('id', entryId);
+    const { error } = await supabase
+      .from('dish_entries')
+      .update({
+        identity_tag: nextIdentityTag,
+        comment: nextNote,
+        rating: payload.rating,
+      })
+      .eq('id', entryId);
 
     if (error) {
       setEntries(previous);
+      setSavingEntryId(null);
+      return;
     }
 
-    setSavingTagEntryId(null);
+    if (payload.photoFile) {
+      const targetEntry = previous.find((entry) => entry.id === entryId);
+      if (targetEntry) {
+        const uploaded = await uploadDishPhoto(targetEntry.source_upload_id, entryId, payload.photoFile);
+        if (uploaded) {
+          setEntries((current) => current.map((entry) => (entry.id === entryId ? { ...entry, photo: uploaded } : entry)));
+        }
+      }
+    }
+
+    setSavingEntryId(null);
+    setEditingEntryId(null);
   };
 
   if (loading) {
@@ -198,117 +540,153 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
   const title = catalog?.name_canonical ?? entries[0]?.dish_name ?? 'Food detail';
 
   return (
-    <div className="space-y-3 pb-2">
-      {showBackLink ? (
-        <Link href="/food" className="inline-flex text-xs font-medium text-app-link">
-          Back to Food
-        </Link>
-      ) : null}
+    <>
+      <div className="space-y-2 pb-2">
+        {showBackLink ? (
+          <Link href="/food" className="inline-flex text-xs font-medium text-app-link">
+            Back to Food
+          </Link>
+        ) : null}
 
-      <header data-food-detail-header className="card-surface space-y-1.5">
-        <h1 className="text-xl font-semibold text-app-text">{title}</h1>
-        {catalog?.description ? <p className="text-sm text-app-muted">{catalog.description}</p> : null}
-        <p className="text-xs text-app-muted">{entries.length} logged instance{entries.length === 1 ? '' : 's'}</p>
-      </header>
-
-      <section className="card-surface space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-sm font-medium text-app-text">Tags</p>
-          <p className="text-xs text-app-muted">Edit per entry below</p>
-        </div>
-
-        {tagCounts.size === 0 ? (
-          <p className="text-xs text-app-muted">No tags yet.</p>
-        ) : (
-          <div className="flex flex-wrap gap-1.5">
-            {Array.from(tagCounts.entries()).map(([tag, count]) => (
-              <span key={tag} className="inline-flex items-center gap-1">
-                <IdentityTagPill tag={tag} />
-                <span className="text-xs text-app-muted">x{count}</span>
-              </span>
-            ))}
+        <header data-food-detail-header className="card-surface space-y-1 p-2.5">
+          <div className="flex items-start justify-between gap-2">
+            <h1 className="text-lg font-semibold leading-tight text-app-text">{title}</h1>
+            <button
+              type="button"
+              aria-label="Edit tags"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-app-border text-app-muted"
+              onClick={() => {
+                if (latestEntry) setEditingEntryId(latestEntry.id);
+              }}
+            >
+              <SlidersHorizontal size={14} />
+            </button>
           </div>
-        )}
-      </section>
 
-      <section className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-app-muted">Timeline</p>
+          {catalog?.description ? <p className="text-xs leading-5 text-app-muted">{catalog.description}</p> : null}
 
-        {groupedTimeline.map((group) => (
-          <div key={group.key} className="space-y-1.5">
-            <h2 className="text-sm font-semibold text-app-text">{group.label}</h2>
+          <div className="flex items-center gap-2 text-xs text-app-muted">
+            <span>{entries.length} logged</span>
+            {latestEntry?.rating ? <span>Latest {latestEntry.rating}/5</span> : null}
+          </div>
 
-            <div className="divide-y divide-app-border rounded-2xl border border-app-border bg-app-card">
-              {group.rows.map((entry) => (
-                <article key={entry.id} className="space-y-2 px-3 py-3">
-                  <div className="flex items-start gap-3">
-                    {entry.photo?.signedUrls.thumb ? (
-                      <Image
-                        src={entry.photo.signedUrls.thumb}
-                        alt={`${entry.dish_name} photo`}
-                        width={72}
-                        height={72}
-                        className="h-16 w-16 rounded-lg object-cover"
-                        unoptimized
-                      />
-                    ) : (
-                      <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-100 to-lime-100 text-[10px] font-medium text-emerald-800">
-                        No photo
-                      </div>
-                    )}
-
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-semibold text-app-text">{entry.dish_name}</p>
-                          <p className="truncate text-xs text-app-muted">{entry.restaurantName}</p>
-                          <p className="text-xs text-app-muted">{formatTimestamp(entry.eaten_at ?? entry.created_at)}</p>
-                        </div>
-                        {entry.identity_tag ? <IdentityTagPill tag={entry.identity_tag} /> : null}
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <label className="text-xs text-app-muted" htmlFor={`tag-${entry.id}`}>
-                          Tag
-                        </label>
-                        <select
-                          id={`tag-${entry.id}`}
-                          value={entry.identity_tag ?? ''}
-                          onChange={(event) => {
-                            const nextValue = event.target.value as DishIdentityTag | '';
-                            void setTag(entry.id, nextValue || null);
-                          }}
-                          className="h-8 rounded-lg border border-app-border bg-app-bg px-2 text-xs text-app-text"
-                          disabled={savingTagEntryId === entry.id}
-                        >
-                          <option value="">No tag</option>
-                          {TAG_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {identityTagLabel(option.value)} {option.label}
-                            </option>
-                          ))}
-                        </select>
-                        {savingTagEntryId === entry.id ? <span className="text-xs text-app-muted">Saving...</span> : null}
-                      </div>
-
-                      {entry.comment ? <p className="text-xs text-app-muted">{entry.comment}</p> : null}
-
-                      <div className="flex items-center justify-between gap-2 text-xs text-app-muted">
-                        <span>
-                          {entry.price_original != null ? `${entry.currency_original} ${entry.price_original.toFixed(2)}` : 'Price unavailable'}
-                        </span>
-                        <Link href={`/uploads/${entry.source_upload_id}`} className="font-medium text-app-link">
-                          Edit entry
-                        </Link>
-                      </div>
-                    </div>
-                  </div>
-                </article>
+          {uniqueHeaderTags.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {uniqueHeaderTags.map((tag) => (
+                <TagChip key={tag} tag={tag} />
               ))}
             </div>
-          </div>
-        ))}
-      </section>
-    </div>
+          ) : (
+            <p className="text-xs text-app-muted">No tags yet</p>
+          )}
+        </header>
+
+        <section className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-app-muted">Timeline</p>
+
+          {groupedTimeline.map((group) => (
+            <div key={group.key} className="space-y-1">
+              <h2 className="text-sm font-semibold text-app-text">{group.label}</h2>
+
+              <div className="divide-y divide-app-border rounded-2xl border border-app-border bg-app-card">
+                {group.rows.map((entry) => {
+                  const directions = directionsHref(entry.restaurant);
+                  const call = telHref(entry.restaurant?.phone_number);
+                  const website = websiteHref(entry.restaurant?.website);
+
+                  return (
+                    <article key={entry.id} className="space-y-1.5 px-3 py-2.5">
+                      <div className="flex items-start gap-3">
+                        {entry.photo?.signedUrls.thumb ? (
+                          <Image
+                            src={entry.photo.signedUrls.thumb}
+                            alt={`${entry.dish_name} photo`}
+                            width={72}
+                            height={72}
+                            className="h-16 w-16 rounded-lg object-cover"
+                            unoptimized
+                          />
+                        ) : (
+                          <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-100 to-lime-100 text-[10px] font-medium text-emerald-800">
+                            No photo
+                          </div>
+                        )}
+
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold leading-5 text-app-text">{entry.dish_name}</p>
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="truncate text-xs text-app-muted">{entry.restaurant?.name ?? 'Unknown restaurant'} · {formatTimestamp(entry.eaten_at ?? entry.created_at)}</p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1">
+                              {directions ? (
+                                <a
+                                  href={directions}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  aria-label="Directions"
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-app-border text-app-muted"
+                                >
+                                  <MapPinned size={14} />
+                                </a>
+                              ) : null}
+                              {call ? (
+                                <a href={call} aria-label="Call" className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-app-border text-app-muted">
+                                  <Phone size={14} />
+                                </a>
+                              ) : null}
+                              {website ? (
+                                <a
+                                  href={website}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  aria-label="Website"
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-app-border text-app-muted"
+                                >
+                                  <Globe size={14} />
+                                </a>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 text-xs text-app-muted">
+                            {entry.canonicalTag !== 'none' ? <TagChip tag={entry.canonicalTag} /> : <span>No tag</span>}
+                            {entry.rating ? <span>{entry.rating}/5</span> : null}
+                          </div>
+
+                          {entry.comment ? <p className="text-xs leading-5 text-app-muted">{entry.comment}</p> : null}
+
+                          <div className="flex items-center justify-between gap-2 text-xs text-app-muted">
+                            <span>{entry.price_original != null ? `${entry.currency_original} ${entry.price_original.toFixed(2)}` : 'Price unavailable'}</span>
+                            <button
+                              type="button"
+                              className="font-medium text-app-link"
+                              onClick={() => setEditingEntryId(entry.id)}
+                            >
+                              Edit entry
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </section>
+      </div>
+
+      <FoodEntryEditorSheet
+        entry={editingEntry}
+        open={Boolean(editingEntry)}
+        saving={Boolean(editingEntry && savingEntryId === editingEntry.id)}
+        onClose={() => setEditingEntryId(null)}
+        onSave={saveEntry}
+      />
+    </>
   );
 }
