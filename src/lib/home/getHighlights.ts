@@ -217,3 +217,5 @@ export async function getHighlights(
   const defaults = placeholderCards();
   return [standout ?? defaults[0], repeat ?? defaults[1], memory ?? defaults[2]];
 }
+
+

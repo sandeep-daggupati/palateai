@@ -86,7 +86,7 @@ export function ForYouTodayCard({ insight }: { insight: InsightPayload | null })
 
             {insight.evidence_type === 'dish' && (
               <div className="space-y-2 rounded-xl border border-app-border p-3 text-sm text-app-text">
-                <p><span className="text-app-muted">Dish:</span> {typeof evidence.dish_name === 'string' ? evidence.dish_name : 'Unknown dish'}</p>
+                <p><span className="text-app-muted">Food:</span> {typeof evidence.dish_name === 'string' ? evidence.dish_name : 'Unknown dish'}</p>
                 <p><span className="text-app-muted">Count:</span> {typeof evidence.count === 'number' ? evidence.count : 0}</p>
                 {typeof evidence.last_hangout_date === 'string' && <p><span className="text-app-muted">Last hangout:</span> {evidence.last_hangout_date}</p>}
                 {crewNames.length > 0 && <p><span className="text-app-muted">Crew:</span> {crewNames.join(', ')}</p>}
@@ -144,3 +144,4 @@ export function ForYouTodayCard({ insight }: { insight: InsightPayload | null })
     </>
   );
 }
+

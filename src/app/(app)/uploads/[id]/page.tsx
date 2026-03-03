@@ -3,6 +3,7 @@
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { Clock3, Globe, MapPin, Navigation, Phone, X } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { DishActionBar } from '@/components/DishActionBar';
@@ -172,7 +173,7 @@ export default function UploadDetailPage() {
   const [upload, setUpload] = useState<ReceiptUpload | null>(null);
   const [restaurant, setRestaurant] = useState<RestaurantDirectory | null>(null);
 
-  const [dishes, setDishes] = useState<UnifiedDishRow[]>([]);
+  const [dishes, setFood] = useState<UnifiedDishRow[]>([]);
   const [catalogByDishKey, setCatalogByDishKey] = useState<Record<string, DishCatalog>>({});
 
   const [visitNote, setVisitNote] = useState('');
@@ -317,7 +318,7 @@ export default function UploadDetailPage() {
 
     if (!typedUpload || !user) {
       setRestaurant(null);
-      setDishes([]);
+      setFood([]);
       setVisitNote('');
       setParticipants([]);
       return;
@@ -437,7 +438,7 @@ export default function UploadDetailPage() {
       nextCatalogByDishKey = Object.fromEntries(typedRows.map((row) => [row.dish_key, row]));
     }
 
-    setDishes(unifiedRows);
+    setFood(unifiedRows);
     setCatalogByDishKey(nextCatalogByDishKey);
     setEntryMetaById(entryMap);
     setRestaurant((restaurantData.data ?? null) as RestaurantDirectory | null);
@@ -590,7 +591,7 @@ export default function UploadDetailPage() {
 
         if (!updatedLegacyError && updatedLegacy) {
           const savedLegacy = updatedLegacy as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
-          setDishes((prev) =>
+          setFood((prev) =>
             prev.map((entry) =>
               entry.hangoutItem.id === row.hangoutItem.id
                 ? {
@@ -632,7 +633,7 @@ export default function UploadDetailPage() {
 
       if (!saved) return;
       void enrichDishCatalog(saved.id);
-      setDishes((prev) =>
+      setFood((prev) =>
         prev.map((entry) =>
           entry.hangoutItem.id === row.hangoutItem.id
             ? {
@@ -838,8 +839,8 @@ export default function UploadDetailPage() {
   const visitDate = formatDate(upload.visited_at ?? upload.created_at);
   const isSharedVisit = Boolean(upload.is_shared);
   const showHostShareSection = isHost && isSharedVisit;
-  const visibleDishes = dishes.filter((row) => row.hangoutItem.included);
-  const hiddenDishes = dishes.filter((row) => !row.hangoutItem.included);
+  const visibleFood = dishes.filter((row) => row.hangoutItem.included);
+  const hiddenFood = dishes.filter((row) => !row.hangoutItem.included);
   const withNames = participants
     .filter((participant) => participant.status === 'active')
     .map((participant) => participant.display_name ?? 'Buddy');
@@ -873,47 +874,45 @@ export default function UploadDetailPage() {
         ) : null}
         {visitNote && <p className="text-sm italic leading-5 text-app-text">“{visitNote}”</p>}
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {directionsHref && (
-            <a
-              href={directionsHref}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="Open directions"
-              className="inline-flex h-11 items-center justify-center rounded-xl border border-app-border bg-app-card px-3 text-base"
-            >
-              🧭
+            <a href={directionsHref} target="_blank" rel="noreferrer" aria-label="Open directions" className="icon-button-subtle">
+              <Navigation size={16} strokeWidth={1.5} />
             </a>
           )}
           {restaurant?.phone_number && (
-            <a
-              href={`tel:${restaurant.phone_number}`}
-              aria-label="Call restaurant"
-              className="inline-flex h-11 items-center justify-center rounded-xl border border-app-border bg-app-card px-3 text-base"
-            >
-              📞
+            <a href={`tel:${restaurant.phone_number}`} aria-label="Call restaurant" className="icon-button-subtle">
+              <Phone size={16} strokeWidth={1.5} />
             </a>
           )}
           {restaurant?.website && (
-            <a
-              href={restaurant.website}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="Open website"
-              className="inline-flex h-11 items-center justify-center rounded-xl border border-app-border bg-app-card px-3 text-base"
-            >
-              🌐
+            <a href={restaurant.website} target="_blank" rel="noreferrer" aria-label="Open website" className="icon-button-subtle">
+              <Globe size={16} strokeWidth={1.5} />
             </a>
           )}
-          {restaurant?.address && <p className="flex items-center text-xs leading-4 text-app-muted">📍 {restaurant.address}</p>}
-          {openNow === true && <p className="flex items-center text-xs leading-4 text-emerald-700 dark:text-emerald-300">🟢 Open now</p>}
-          {openNow === false && <p className="flex items-center text-xs leading-4 text-app-muted">🔴 Closed now</p>}
+          {restaurant?.address && (
+            <p className="flex items-center gap-1 text-xs leading-4 text-app-muted">
+              <MapPin size={13} strokeWidth={1.5} />
+              {restaurant.address}
+            </p>
+          )}
+          {openNow === true && <p className="flex items-center text-xs leading-4 text-emerald-700 dark:text-emerald-300">Open now</p>}
+          {openNow === false && <p className="flex items-center text-xs leading-4 text-app-muted">Closed now</p>}
           {todayHours ? (
-            <p className="flex items-center text-xs leading-4 text-app-muted">🕒 {todayHours}</p>
+            <p className="flex items-center gap-1 text-xs leading-4 text-app-muted">
+              <Clock3 size={13} strokeWidth={1.5} />
+              {todayHours}
+            </p>
           ) : placeSyncLoading ? (
-            <p className="flex items-center text-xs leading-4 text-app-muted">🕒 Syncing hours...</p>
+            <p className="flex items-center gap-1 text-xs leading-4 text-app-muted">
+              <Clock3 size={13} strokeWidth={1.5} />
+              Syncing hours...
+            </p>
           ) : (
-            <p className="flex items-center text-xs leading-4 text-app-muted">🕒 Hours not available yet.</p>
+            <p className="flex items-center gap-1 text-xs leading-4 text-app-muted">
+              <Clock3 size={13} strokeWidth={1.5} />
+              Hours not available yet.
+            </p>
           )}
         </div>
       </div>
@@ -1071,26 +1070,33 @@ export default function UploadDetailPage() {
               <p className="text-xs text-app-muted">No crew yet. Add your buddies.</p>
             ) : (
               <div className="flex flex-wrap gap-2">
-                {participants.map((participant) => {
-                  const name = participant.display_name ?? 'Crew member';
-                  return (
-                    <span
-                      key={participant.id}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-app-border bg-app-card px-3 py-1.5 text-sm font-medium text-app-text"
-                    >
-                      <span className="max-w-[11rem] truncate">{name}</span>
-                      <button
-                        type="button"
-                        aria-label={`Remove ${name}`}
-                        className="inline-flex h-6 w-6 items-center justify-center rounded-full text-app-muted transition-colors hover:text-app-text focus:outline-none focus:ring-2 focus:ring-app-primary/40"
-                        onClick={() => removeParticipant(participant.id)}
-                        disabled={shareLoading}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  );
-                })}
+                {participants
+                  .filter((participant) => participant.status !== 'removed')
+                  .map((participant) => {
+                    const isPending = participant.status === 'invited' && !participant.user_id;
+                    const name =
+                      participant.display_name?.trim() ||
+                      participant.invited_email ||
+                      (isPending ? 'Invite pending' : 'Buddy');
+                    const canRemove = isHost && participant.user_id !== upload.user_id;
+
+                    return (
+                      <div key={participant.id} className="inline-flex items-center gap-2 rounded-full border border-app-border bg-app-card px-2 py-1">
+                        <span className="text-xs font-medium text-app-text">{name}</span>
+                        {isPending ? <span className="text-[11px] text-app-muted">Invite pending</span> : null}
+                        {canRemove ? (
+                          <button
+                            type="button"
+                            aria-label={`Remove ${name}`}
+                            onClick={() => void removeParticipant(participant.id)}
+                            className="icon-button-subtle"
+                          >
+                            <X size={14} strokeWidth={1.5} />
+                          </button>
+                        ) : null}
+                      </div>
+                    );
+                  })}
               </div>
             )}
           </div>
@@ -1099,7 +1105,7 @@ export default function UploadDetailPage() {
 
       <div className="card-surface p-3 space-y-2">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="section-label">Dishes</h2>
+          <h2 className="section-label">Food</h2>
           {isHost &&
             (showExtractionPrompt ? (
               <Button type="button" onClick={runExtraction}>
@@ -1116,9 +1122,9 @@ export default function UploadDetailPage() {
             ))}
         </div>
 
-        {visibleDishes.length > 0 ? (
+        {visibleFood.length > 0 ? (
           <div className="divide-y divide-app-border/60">
-            {visibleDishes.map((row) => {
+            {visibleFood.map((row) => {
               const dishName = row.hangoutItem.name_final || row.hangoutItem.name_raw;
               const quantity = Math.max(1, row.hangoutItem.quantity ?? 1);
               const unitPrice = row.hangoutItem.unit_price;
@@ -1159,7 +1165,7 @@ export default function UploadDetailPage() {
                       onEdit={() => openDishCatalogEditor(row)}
                       ratingValue={identityValue}
                       onSetRating={(value) => {
-                        setDishes((prev) =>
+                        setFood((prev) =>
                           prev.map((entry) =>
                             entry.hangoutItem.id === row.hangoutItem.id
                               ? {
@@ -1180,7 +1186,7 @@ export default function UploadDetailPage() {
                       }}
                       noteValue={row.myEntry?.comment ?? ''}
                       onSaveNote={(value) => {
-                        setDishes((prev) =>
+                        setFood((prev) =>
                           prev.map((entry) =>
                             entry.hangoutItem.id === row.hangoutItem.id
                               ? {
@@ -1209,7 +1215,7 @@ export default function UploadDetailPage() {
                           setLightboxPhotos(rowPhotos);
                           setLightboxIndex(index);
                         }}
-                        aria-label="Open dish photo"
+                        aria-label="Open food photo"
                       >
                         {photo.signedUrls.thumb ? (
                           <Image src={photo.signedUrls.thumb} alt="Dish photo" width={40} height={40} className="h-full w-full object-cover" unoptimized />
@@ -1226,22 +1232,22 @@ export default function UploadDetailPage() {
           </div>
         ) : (
           <p className="text-sm text-app-muted">
-            {hiddenDishes.length > 0 ? 'All extracted lines are hidden (fees/tax/tip).' : 'No dishes yet. Scan the receipt to start your recap.'}
+            {hiddenFood.length > 0 ? 'All extracted lines are hidden (fees/tax/tip).' : 'No food items yet. Scan the receipt to start your recap.'}
           </p>
         )}
 
-        {hiddenDishes.length > 0 && (
+        {hiddenFood.length > 0 && (
           <div className="pt-1">
             <button
               type="button"
               className="inline-flex h-9 items-center text-xs font-medium text-app-link underline underline-offset-2"
               onClick={() => setHiddenItemsOpen((prev) => !prev)}
             >
-              {hiddenItemsOpen ? 'Hide hidden items' : `Hidden items (${hiddenDishes.length})`}
+              {hiddenItemsOpen ? 'Hide hidden items' : `Hidden items (${hiddenFood.length})`}
             </button>
             {hiddenItemsOpen && (
               <div className="mt-1 divide-y divide-app-border/50 rounded-lg border border-app-border/70 bg-app-card/50">
-                {hiddenDishes.map((row) => {
+                {hiddenFood.map((row) => {
                   const name = row.hangoutItem.name_final || row.hangoutItem.name_raw;
                   const qty = Math.max(1, row.hangoutItem.quantity ?? 1);
                   return (
@@ -1334,7 +1340,7 @@ export default function UploadDetailPage() {
           <div className="relative w-full max-w-md rounded-t-2xl border border-app-border bg-app-card p-3">
             <div className="space-y-2">
               <p className="text-sm font-semibold text-app-text">Edit dish details</p>
-              <Input value={editNameCanonical} onChange={(event) => setEditNameCanonical(event.target.value)} placeholder="Dish name" />
+              <Input value={editNameCanonical} onChange={(event) => setEditNameCanonical(event.target.value)} placeholder="Food item name" />
               <textarea
                 value={editDescription}
                 onChange={(event) => setEditDescription(event.target.value)}
@@ -1358,3 +1364,8 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
+
+
+
+
