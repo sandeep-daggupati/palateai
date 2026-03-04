@@ -265,7 +265,7 @@ function OnboardingOverlay({
 }
 
 export default function HomePage() {
-  const [hasAnyHangouts, setHasAnyHangouts] = useState(false);
+  const [hasLoggedEntries, setHasLoggedEntries] = useState(false);
   const [insight, setInsight] = useState<InsightPayload | null>(null);
   const [highlights, setHighlights] = useState<HighlightCard[]>(FALLBACK_HIGHLIGHTS);
   const [hangoutChips, setHangoutChips] = useState<HangoutChip[]>([]);
@@ -282,7 +282,7 @@ export default function HomePage() {
       } = await supabase.auth.getUser();
 
       if (!user) {
-        setHasAnyHangouts(false);
+        setHasLoggedEntries(false);
         setInsight(null);
         setHighlights(FALLBACK_HIGHLIGHTS);
         setHangoutChips([]);
@@ -324,14 +324,15 @@ export default function HomePage() {
         }
       }
 
-      const [highlightCards, chipPayload] = await Promise.all([
+      const [highlightCards, chipPayload, entryProbe] = await Promise.all([
         getHighlights(supabase, user.id),
         getHangoutChips(supabase, user.id),
+        supabase.from('dish_entries').select('id').eq('user_id', user.id).limit(1),
       ]);
 
       setHighlights(highlightCards.slice(0, 3));
       setHangoutChips(chipPayload.chips);
-      setHasAnyHangouts(chipPayload.hasHangouts);
+      setHasLoggedEntries(((entryProbe.data ?? []) as Array<{ id: string }>).length > 0);
     };
 
     void load();
@@ -404,28 +405,27 @@ export default function HomePage() {
     };
   }, [showOnboarding]);
 
-  const heading = useMemo(() => {
-    if (displayName) return `Welcome back, ${displayName}.`;
-    return 'What did you eat today?';
-  }, [displayName]);
+  const heroHeading = useMemo(() => {
+    if (hasLoggedEntries && displayName) return `Welcome back, ${displayName}.`;
+    if (hasLoggedEntries) return 'Welcome back.';
+    return 'Welcome to PalateAI';
+  }, [displayName, hasLoggedEntries]);
 
   return (
     <>
       <div className="space-y-2 pb-4">
-        <section className="card-surface p-3 space-y-1.5">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-semibold text-app-text">{heading}</h1>
-              {displayName ? <p className="text-sm text-app-muted">What did you eat today?</p> : null}
-            </div>
+        <section className="space-y-1.5 py-1">
+          <h1 className="text-xl font-semibold text-app-text">{heroHeading}</h1>
+          <p className="text-sm text-app-muted">{hasLoggedEntries ? 'What did you eat today?' : 'Start building your food story.'}</p>
+          <div className="pt-1">
             <Link
               href="/add"
-              className="inline-flex h-11 items-center justify-center rounded-xl border border-transparent bg-app-primary px-4 text-sm font-semibold text-app-primary-text"
+              className="inline-flex h-10 items-center justify-center rounded-xl border border-transparent bg-app-primary px-4 text-sm font-semibold text-app-primary-text"
             >
-              Add
+              {hasLoggedEntries ? 'Add a meal' : 'Add your first meal'}
             </Link>
           </div>
-          {!hasAnyHangouts && <p className="text-sm text-app-muted">Upload a receipt, review your food items, and save the hangout.</p>}
+          {!hasLoggedEntries ? <p className="text-xs text-app-muted">Log a dish, scan a receipt, or add a photo.</p> : null}
         </section>
 
         <ForYouTodayCard insight={insight} />
