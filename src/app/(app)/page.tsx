@@ -233,7 +233,7 @@ function OnboardingOverlay({
         {step === 3 ? (
           <>
             <p className="text-base font-semibold text-app-text">Home tab</p>
-            <p className="mt-1 text-sm text-app-muted">Every dish you log lives here. See what you loved, what you want again, and your full food history.</p>
+            <p className="mt-1 text-sm text-app-muted">Home shows your highlights, insights, and recent hangouts — a quick snapshot of your palate.</p>
             <Button type="button" className="mt-3" onClick={onNext}>
               Next
             </Button>
