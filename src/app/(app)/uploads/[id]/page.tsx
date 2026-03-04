@@ -61,6 +61,12 @@ type RestaurantDirectory = Pick<
   | 'last_place_sync'
 >;
 
+function inferCaptureMode(upload: ReceiptUpload | null): 'receipt' | 'food_photo' {
+  if (!upload) return 'receipt';
+  const firstPath = upload.image_paths?.find((value) => typeof value === 'string' && value.length > 0) ?? '';
+  return firstPath.includes('/dish/') ? 'food_photo' : 'receipt';
+}
+
 function isPlaceSyncStale(value: string | null): boolean {
   if (!value) return true;
   const stamp = new Date(value).getTime();
@@ -221,7 +227,9 @@ export default function UploadDetailPage() {
 
   const canViewVisit = isHost || isActiveParticipant;
   const hasAnyExtractedItems = dishes.length > 0;
-  const showExtractionPrompt = Boolean(isHost && upload && !hasAnyExtractedItems);
+  const captureMode = useMemo(() => inferCaptureMode(upload), [upload]);
+  const isReceiptCapture = captureMode === 'receipt';
+  const showExtractionPrompt = Boolean(isHost && upload && !hasAnyExtractedItems && isReceiptCapture);
 
   const getAuthHeader = useCallback(async (): Promise<Record<string, string>> => {
     const supabase = getBrowserSupabaseClient();
@@ -538,12 +546,13 @@ export default function UploadDetailPage() {
   useEffect(() => {
     if (didAutoExtractRef.current) return;
     if (!isHost || !upload) return;
+    if (!isReceiptCapture) return;
     if (!upload.image_paths || upload.image_paths.length === 0) return;
     if (hasAnyExtractedItems) return;
 
     didAutoExtractRef.current = true;
     void runExtraction();
-  }, [hasAnyExtractedItems, isHost, runExtraction, upload]);
+  }, [hasAnyExtractedItems, isHost, isReceiptCapture, runExtraction, upload]);
 
   const upsertMyDishEntry = useCallback(
     async (row: UnifiedDishRow, patch: { identity_tag?: DishIdentityTag | null; comment?: string }) => {
@@ -1117,7 +1126,7 @@ export default function UploadDetailPage() {
                 onClick={() => void runExtraction()}
                 className="inline-flex h-11 items-center text-xs font-medium text-app-link underline underline-offset-2"
               >
-                Re-scan receipt
+                {isReceiptCapture ? 'Re-scan receipt' : 'Analyze photo'}
               </button>
             ))}
         </div>
@@ -1232,7 +1241,11 @@ export default function UploadDetailPage() {
           </div>
         ) : (
           <p className="text-sm text-app-muted">
-            {hiddenFood.length > 0 ? 'All extracted lines are hidden (fees/tax/tip).' : 'No food items yet. Scan the receipt to start your recap.'}
+            {hiddenFood.length > 0
+              ? 'All extracted lines are hidden (fees/tax/tip).'
+              : isReceiptCapture
+                ? 'No food items yet. Scan the receipt to start your recap.'
+                : 'No food items yet. Analyze your photo or add dishes manually.'}
           </p>
         )}
 
@@ -1364,7 +1377,6 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
 
 
 
