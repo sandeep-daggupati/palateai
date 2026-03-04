@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Globe, MapPinned, Phone, SlidersHorizontal, Star } from 'lucide-react';
+import { Globe, MapPinned, Phone, SlidersHorizontal } from 'lucide-react';
 import { IdentityTagIcon } from '@/components/IdentityTagIcon';
 import { SignedPhoto } from '@/lib/photos/types';
 import { uploadDishPhoto } from '@/lib/data/photosRepo';
@@ -41,7 +41,6 @@ type FoodTimelineEntry = Pick<
   | 'price_original'
   | 'currency_original'
   | 'source_upload_id'
-  | 'rating'
 > & {
   restaurant: RestaurantMeta | null;
   photo: SignedPhoto | null;
@@ -51,7 +50,6 @@ type FoodTimelineEntry = Pick<
 type EntryUpdatePayload = {
   tag: CanonicalTag;
   note: string;
-  rating: number | null;
   photoFile: File | null;
 };
 
@@ -171,18 +169,14 @@ function FoodEntryEditorSheet({
 }) {
   const [tag, setTag] = useState<CanonicalTag>('none');
   const [note, setNote] = useState('');
-  const [rating, setRating] = useState<number | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [ratingPickerOpen, setRatingPickerOpen] = useState(false);
   const touchStartY = useRef<number | null>(null);
 
   useEffect(() => {
     if (!entry || !open) return;
     setTag(entry.canonicalTag);
     setNote(entry.comment ?? '');
-    setRating(entry.rating ?? null);
     setPhotoFile(null);
-    setRatingPickerOpen(false);
   }, [entry, open]);
 
   useEffect(() => {
@@ -230,7 +224,7 @@ function FoodEntryEditorSheet({
           <div className="h-1.5 w-12 rounded-full bg-app-border" />
           <button
             type="button"
-            onClick={() => void onSave(entry.id, { tag, note, rating, photoFile })}
+            onClick={() => void onSave(entry.id, { tag, note, photoFile })}
             className="text-xs font-semibold text-app-link"
             disabled={saving}
           >
@@ -241,67 +235,35 @@ function FoodEntryEditorSheet({
         <div className="space-y-2">
           <p className="text-sm font-semibold text-app-text">Edit entry</p>
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setRatingPickerOpen((prev) => !prev)}
-              className="inline-flex h-8 items-center gap-1 rounded-lg border border-app-border px-2 text-xs text-app-text"
-            >
-              <Star size={14} />
-              <span>{rating ? `${rating}/5` : 'No rating'}</span>
-            </button>
-
-            {ratingPickerOpen ? (
-              <div className="flex items-center gap-1 rounded-lg border border-app-border bg-app-bg p-1">
-                {[1, 2, 3, 4, 5].map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => {
-                      setRating(value);
-                      setRatingPickerOpen(false);
-                    }}
-                    className={`inline-flex h-7 w-7 items-center justify-center rounded text-xs ${
-                      rating === value ? 'bg-app-primary text-app-primary-text' : 'text-app-muted'
-                    }`}
-                  >
-                    {value}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRating(null);
-                    setRatingPickerOpen(false);
-                  }}
-                  className="h-7 rounded px-2 text-xs text-app-muted"
-                >
-                  Clear
-                </button>
-              </div>
-            ) : null}
-          </div>
-
           <div className="space-y-1">
-            <label className="text-xs text-app-muted" htmlFor="entry-tag-select">
+            <label className="text-xs text-app-muted">
               Tag
             </label>
             <div className="mb-1 inline-flex items-center gap-1 text-xs text-app-muted">
               <IdentityTagIcon tag={tag} showNone />
               <span>{TAG_LABELS[tag]}</span>
             </div>
-            <select
-              id="entry-tag-select"
-              value={tag}
-              onChange={(event) => setTag(normalizeTag(event.target.value))}
-              className="h-9 w-full rounded-lg border border-app-border bg-app-bg px-2 text-xs text-app-text"
-            >
-              {TAG_ORDER.map((value) => (
-                <option key={value} value={value}>
-                  {TAG_LABELS[value]}
-                </option>
-              ))}
-            </select>
+            <div className="flex flex-wrap gap-1.5 rounded-lg border border-app-border bg-app-bg p-1.5">
+              {TAG_ORDER.map((value) => {
+                const active = tag === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-label={`Set tag ${TAG_LABELS[value]}`}
+                    onClick={() => setTag(value)}
+                    className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs ${
+                      active
+                        ? 'border-app-primary bg-app-primary/10 text-app-primary'
+                        : 'border-app-border bg-app-card text-app-muted'
+                    }`}
+                  >
+                    <IdentityTagIcon tag={value} showNone className="h-5 w-5" />
+                    <span>{TAG_LABELS[value]}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div className="space-y-1">
@@ -379,7 +341,7 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
     const [entriesResponse, catalogResponse, sessionResponse] = await Promise.all([
       supabase
         .from('dish_entries')
-        .select('id,dish_name,dish_key,restaurant_id,identity_tag,comment,created_at,eaten_at,price_original,currency_original,source_upload_id,rating')
+        .select('id,dish_name,dish_key,restaurant_id,identity_tag,comment,created_at,eaten_at,price_original,currency_original,source_upload_id')
         .eq('user_id', user.id)
         .eq('dish_key', foodKey)
         .order('eaten_at', { ascending: false, nullsFirst: false })
@@ -483,7 +445,6 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
               identity_tag: nextIdentityTag,
               canonicalTag: payload.tag,
               comment: nextNote,
-              rating: payload.rating,
             }
           : entry,
       ),
@@ -497,7 +458,6 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
       .update({
         identity_tag: nextIdentityTag,
         comment: nextNote,
-        rating: payload.rating,
       })
       .eq('id', entryId);
 
@@ -559,7 +519,6 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
 
           <div className="flex items-center gap-2 text-xs text-app-muted">
             <span>{entries.length} logged</span>
-            {latestEntry?.rating ? <span>Latest {latestEntry.rating}/5</span> : null}
           </div>
 
           {uniqueHeaderTags.length > 0 ? (
@@ -646,7 +605,6 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
 
                           <div className="flex items-center gap-2 text-xs text-app-muted">
                             <IdentityTagIcon tag={entry.canonicalTag} showNone />
-                            {entry.rating ? <span>{entry.rating}/5</span> : null}
                           </div>
 
                           {entry.comment ? <p className="text-xs leading-5 text-app-muted">{entry.comment}</p> : null}
