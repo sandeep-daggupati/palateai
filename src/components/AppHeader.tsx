@@ -94,7 +94,15 @@ export function AppHeader() {
             <Link
               key={item.href}
               href={item.href}
-              data-onboarding-target={item.href === '/food' ? 'food-tab' : undefined}
+              data-onboarding-target={
+                item.href === '/'
+                  ? 'home-tab'
+                  : item.href === '/food'
+                    ? 'food-tab'
+                    : item.href === '/hangouts'
+                      ? 'hangouts-tab'
+                      : undefined
+              }
               className={cn(
                 'inline-flex h-9 items-center rounded-lg border px-3 text-xs font-medium transition-colors duration-200',
                 active
