@@ -219,6 +219,9 @@ export default function UploadDetailPage() {
   const [manualDishName, setManualDishName] = useState('');
   const [manualDishPrice, setManualDishPrice] = useState('');
   const [manualDishSaving, setManualDishSaving] = useState(false);
+  const [manualDishError, setManualDishError] = useState<string | null>(null);
+  const [uploadingHangoutPhoto, setUploadingHangoutPhoto] = useState(false);
+  const [uploadingDishPhotoFor, setUploadingDishPhotoFor] = useState<string | null>(null);
   const didAutoExtractRef = useRef(false);
 
   const isHost = Boolean(upload && currentUserId && upload.user_id === currentUserId);
@@ -706,9 +709,14 @@ export default function UploadDetailPage() {
   const handleUploadHangoutPhoto = useCallback(
     async (file: File) => {
       if (!upload?.id) return;
-      const created = await uploadHangoutPhoto(upload.id, file);
-      if (created) {
-        await loadHangoutPhotos();
+      setUploadingHangoutPhoto(true);
+      try {
+        const created = await uploadHangoutPhoto(upload.id, file);
+        if (created) {
+          await loadHangoutPhotos();
+        }
+      } finally {
+        setUploadingHangoutPhoto(false);
       }
     },
     [loadHangoutPhotos, upload?.id],
@@ -717,11 +725,16 @@ export default function UploadDetailPage() {
   const handleUploadDishPhoto = useCallback(
     async (row: UnifiedDishRow, file: File) => {
       if (!upload?.id) return;
-      const ensured = await ensureDishEntryForRow(row);
-      if (!ensured?.id) return;
-      const created = await uploadDishPhoto(upload.id, ensured.id, file);
-      if (created) {
-        await load();
+      setUploadingDishPhotoFor(row.hangoutItem.id);
+      try {
+        const ensured = await ensureDishEntryForRow(row);
+        if (!ensured?.id) return;
+        const created = await uploadDishPhoto(upload.id, ensured.id, file);
+        if (created) {
+          await load();
+        }
+      } finally {
+        setUploadingDishPhotoFor(null);
       }
     },
     [ensureDishEntryForRow, load, upload?.id],
@@ -729,33 +742,76 @@ export default function UploadDetailPage() {
 
   const addManualDishItem = useCallback(async () => {
     const name = manualDishName.trim();
-    if (!name || !upload?.id || !isHost) return;
+    if (!name || !upload?.id || !isHost || !currentUserId) return;
 
     setManualDishSaving(true);
+    setManualDishError(null);
     try {
       const parsedPrice = Number(manualDishPrice.trim());
       const unitPrice = Number.isFinite(parsedPrice) && parsedPrice > 0 ? parsedPrice : null;
       const supabase = getBrowserSupabaseClient();
-      const { error } = await supabase.from('hangout_items').insert({
-        hangout_id: upload.id,
-        source_id: null,
-        name_raw: name,
-        name_final: name,
-        quantity: 1,
-        unit_price: unitPrice,
-        currency: upload.currency_detected || 'USD',
-        included: true,
-        confidence: null,
+      await supabase.from('hangouts').upsert({
+        id: upload.id,
+        owner_user_id: upload.user_id,
+        restaurant_id: upload.restaurant_id,
+        occurred_at: upload.visited_at ?? upload.created_at,
+        note: upload.visit_note ?? null,
       });
+      await supabase.from('hangout_participants').upsert(
+        {
+          hangout_id: upload.id,
+          user_id: upload.user_id,
+        },
+        { onConflict: 'hangout_id,user_id' },
+      );
+
+      const { data: insertedItem, error } = await supabase
+        .from('hangout_items')
+        .insert({
+          hangout_id: upload.id,
+          source_id: null,
+          name_raw: name,
+          name_final: name,
+          quantity: 1,
+          unit_price: unitPrice,
+          currency: upload.currency_detected || 'USD',
+          included: true,
+          confidence: null,
+        })
+        .select('id,quantity,unit_price')
+        .single();
 
       if (error) throw error;
+
+      const dishKey = toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${name}`);
+      await supabase.from('dish_entries').upsert(
+        {
+          user_id: currentUserId,
+          restaurant_id: upload.restaurant_id,
+          hangout_id: upload.id,
+          hangout_item_id: insertedItem.id,
+          dish_name: name,
+          price_original: insertedItem.unit_price,
+          currency_original: upload.currency_detected || 'USD',
+          price_usd: insertedItem.unit_price,
+          quantity: insertedItem.quantity,
+          eaten_at: upload.visited_at ?? upload.created_at,
+          source_upload_id: upload.id,
+          dish_key: dishKey,
+          identity_tag: null,
+          comment: null,
+        },
+        { onConflict: 'user_id,hangout_item_id' },
+      );
       setManualDishName('');
       setManualDishPrice('');
       await load();
+    } catch (error) {
+      setManualDishError(error instanceof Error ? error.message : 'Could not add dish');
     } finally {
       setManualDishSaving(false);
     }
-  }, [isHost, load, manualDishName, manualDishPrice, upload]);
+  }, [currentUserId, isHost, load, manualDishName, manualDishPrice, restaurant?.name, upload]);
 
   const openDishCatalogEditor = useCallback(
     (row: UnifiedDishRow) => {
@@ -1025,8 +1081,16 @@ export default function UploadDetailPage() {
         <div className="card-surface p-3 space-y-2">
           <div className="flex items-center justify-between gap-2">
             <h2 className="section-label">Hangout photos</h2>
-            <Button type="button" variant="secondary" size="sm" fullWidth={false} className="h-9 px-2 text-xs" onClick={() => setHangoutSheetOpen(true)}>
-              Add hangout photo
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              fullWidth={false}
+              className="h-9 px-2 text-xs"
+              onClick={() => setHangoutSheetOpen(true)}
+              disabled={uploadingHangoutPhoto}
+            >
+              {uploadingHangoutPhoto ? 'Uploading photo...' : 'Add hangout photo'}
             </Button>
           </div>
           <div className="grid grid-cols-3 gap-2">
@@ -1051,8 +1115,16 @@ export default function UploadDetailPage() {
         </div>
       ) : (
         <div>
-          <Button type="button" variant="secondary" size="sm" fullWidth={false} className="h-9 px-2 text-xs" onClick={() => setHangoutSheetOpen(true)}>
-            Add hangout photo
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            fullWidth={false}
+            className="h-9 px-2 text-xs"
+            onClick={() => setHangoutSheetOpen(true)}
+            disabled={uploadingHangoutPhoto}
+          >
+            {uploadingHangoutPhoto ? 'Uploading photo...' : 'Add hangout photo'}
           </Button>
         </div>
       )}
@@ -1198,8 +1270,11 @@ export default function UploadDetailPage() {
                 {manualDishSaving ? 'Adding...' : 'Add dish'}
               </Button>
             </div>
+            {manualDishError ? <p className="text-xs text-rose-700 dark:text-rose-300">{manualDishError}</p> : null}
           </div>
         ) : null}
+
+        {uploadingDishPhotoFor ? <p className="text-xs text-app-muted">Uploading dish photo...</p> : null}
 
         {visibleFood.length > 0 ? (
           <div className="divide-y divide-app-border/60">
@@ -1447,5 +1522,3 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
-
