@@ -218,6 +218,19 @@ export default function AddPage() {
     setSaveError(null);
   };
 
+  const cancelFlow = () => {
+    setCaptureMode(null);
+    setImageFile(null);
+    setProgress(0);
+    setDishName('');
+    setDishPrice('');
+    setSaveError(null);
+    setRestaurantId('');
+    setRestaurantQuery('');
+    setSelectedPlace(null);
+    setSuggestions([]);
+  };
+
   const ensureRestaurantId = async (userId: string): Promise<string | null> => {
     let finalRestaurantId: string | null = restaurantId || null;
     if (!finalRestaurantId && restaurantQuery.trim()) {
@@ -306,7 +319,7 @@ export default function AddPage() {
       file: imageFile,
       userId: user.id,
       uploadId,
-      category: 'receipt',
+      category: 'temp_receipt',
       onProgress: setProgress,
     });
 
@@ -595,15 +608,32 @@ export default function AddPage() {
           ) : null}
           {saveError ? <p className="text-xs text-rose-700 dark:text-rose-300">{saveError}</p> : null}
 
-          <Button
-            type="button"
-            variant="primary"
-            size="lg"
-            onClick={onSubmit}
-            disabled={!imageFile || loading || (captureMode === 'food_photo' && dishName.trim().length === 0)}
-          >
-            {loading ? 'Saving...' : captureMode === 'receipt' ? 'Continue to review' : 'Save food'}
-          </Button>
+          {captureMode === 'food_photo' ? (
+            <div className="grid grid-cols-2 gap-2">
+              <Button type="button" variant="secondary" size="lg" onClick={cancelFlow} disabled={loading}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                size="lg"
+                onClick={onSubmit}
+                disabled={!imageFile || loading || dishName.trim().length === 0}
+              >
+                {loading ? 'Saving...' : 'Save food'}
+              </Button>
+            </div>
+          ) : (
+            <Button
+              type="button"
+              variant="primary"
+              size="lg"
+              onClick={onSubmit}
+              disabled={!imageFile || loading}
+            >
+              {loading ? 'Saving...' : 'Continue to review'}
+            </Button>
+          )}
         </section>
       )}
     </div>
