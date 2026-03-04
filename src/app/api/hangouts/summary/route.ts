@@ -54,7 +54,7 @@ export async function GET(request: Request) {
   try {
     const summary = await getOrCreateHangoutSummary(hangoutId, auth.user.id);
     if (!summary) {
-      return NextResponse.json({ ok: false, error: 'Hangout not found' }, { status: 404 });
+      return NextResponse.json({ ok: true, summary: null });
     }
 
     return NextResponse.json({ ok: true, summary });
