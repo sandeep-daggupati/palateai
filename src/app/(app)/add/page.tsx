@@ -248,6 +248,21 @@ export default function AddPage() {
       if (uploadError) throw uploadError;
 
       const uploadId = createdUpload.id as string;
+      await supabase.from('hangouts').upsert({
+        id: uploadId,
+        owner_user_id: user.id,
+        restaurant_id: finalRestaurantId,
+        occurred_at: new Date().toISOString(),
+        note: null,
+      });
+      await supabase.from('hangout_participants').upsert(
+        {
+          hangout_id: uploadId,
+          user_id: user.id,
+        },
+        { onConflict: 'hangout_id,user_id' },
+      );
+
       const imagePath = await uploadImage({
         file: imageFile,
         userId: user.id,
