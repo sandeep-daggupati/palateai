@@ -109,31 +109,46 @@ function OnboardingOverlay({
   onFinish,
 }: {
   open: boolean;
-  step: 1 | 2 | 3;
+  step: 1 | 2 | 3 | 4 | 5;
   onNext: () => void;
   onFinish: () => Promise<void>;
 }) {
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
 
   useEffect(() => {
-    if (!open) {
+    if (!open || typeof window === 'undefined') {
       setTargetRect(null);
       return;
     }
 
-    if (step === 2) {
-      const target = document.querySelector('[data-onboarding-target="add-button"]') as HTMLElement | null;
-      setTargetRect(target?.getBoundingClientRect() ?? null);
+    const selectorByStep: Partial<Record<1 | 2 | 3 | 4 | 5, string>> = {
+      2: '[data-onboarding-target="add-button"]',
+      3: '[data-onboarding-target="home-tab"]',
+      4: '[data-onboarding-target="food-tab"]',
+      5: '[data-onboarding-target="hangouts-tab"]',
+    };
+
+    const selector = selectorByStep[step];
+    if (!selector) {
+      setTargetRect(null);
       return;
     }
 
-    if (step === 3) {
-      const target = document.querySelector('[data-onboarding-target="food-tab"]') as HTMLElement | null;
+    const updateRect = () => {
+      const target = document.querySelector(selector) as HTMLElement | null;
       setTargetRect(target?.getBoundingClientRect() ?? null);
-      return;
-    }
+    };
 
-    setTargetRect(null);
+    updateRect();
+    const raf = window.requestAnimationFrame(updateRect);
+    window.addEventListener('resize', updateRect);
+    window.addEventListener('scroll', updateRect, true);
+
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.removeEventListener('resize', updateRect);
+      window.removeEventListener('scroll', updateRect, true);
+    };
   }, [open, step]);
 
   if (!open) return null;
@@ -145,10 +160,10 @@ function OnboardingOverlay({
         <div
           className="pointer-events-none absolute rounded-xl border-2 border-app-primary shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]"
           style={{
-            left: `${targetRect.left - 4}px`,
-            top: `${targetRect.top - 4}px`,
-            width: `${targetRect.width + 8}px`,
-            height: `${targetRect.height + 8}px`,
+            left: `${targetRect.left}px`,
+            top: `${targetRect.top}px`,
+            width: `${targetRect.width}px`,
+            height: `${targetRect.height}px`,
           }}
         />
       ) : null}
@@ -178,8 +193,28 @@ function OnboardingOverlay({
 
         {step === 3 ? (
           <>
-            <p className="text-base font-semibold text-app-text">Check Food</p>
-            <p className="mt-1 text-sm text-app-muted">Use the Food tab to browse your recent logs and patterns.</p>
+            <p className="text-base font-semibold text-app-text">Home tab</p>
+            <p className="mt-1 text-sm text-app-muted">Your Home tab is where highlights and insights live.</p>
+            <Button type="button" className="mt-3" onClick={onNext}>
+              Next
+            </Button>
+          </>
+        ) : null}
+
+        {step === 4 ? (
+          <>
+            <p className="text-base font-semibold text-app-text">Food tab</p>
+            <p className="mt-1 text-sm text-app-muted">Use Food to explore your logged dishes and patterns.</p>
+            <Button type="button" className="mt-3" onClick={onNext}>
+              Next
+            </Button>
+          </>
+        ) : null}
+
+        {step === 5 ? (
+          <>
+            <p className="text-base font-semibold text-app-text">Hangouts tab</p>
+            <p className="mt-1 text-sm text-app-muted">Hangouts helps you revisit each meal session with context.</p>
             <Button type="button" className="mt-3" onClick={() => void onFinish()}>
               Finish
             </Button>
@@ -197,8 +232,8 @@ export default function HomePage() {
   const [hangoutChips, setHangoutChips] = useState<HangoutChip[]>([]);
   const [profile, setProfile] = useState<ProfileState | null>(null);
   const [savingDisplayName, setSavingDisplayName] = useState(false);
-  const [onboardingStep, setOnboardingStep] = useState<1 | 2 | 3>(1);
-  const onboardingStepRef = useRef<1 | 2 | 3>(1);
+  const [onboardingStep, setOnboardingStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const onboardingStepRef = useRef<1 | 2 | 3 | 4 | 5>(1);
 
   useEffect(() => {
     const load = async () => {
@@ -319,7 +354,7 @@ export default function HomePage() {
     const onPopState = () => {
       const current = onboardingStepRef.current;
       if (current > 1) {
-        setOnboardingStep((prev) => (prev > 1 ? ((prev - 1) as 1 | 2 | 3) : prev));
+        setOnboardingStep((prev) => (prev > 1 ? ((prev - 1) as 1 | 2 | 3 | 4 | 5) : prev));
       }
       window.history.pushState(marker, '');
     };
@@ -371,7 +406,7 @@ export default function HomePage() {
       <OnboardingOverlay
         open={showOnboarding}
         step={onboardingStep}
-        onNext={() => setOnboardingStep((prev) => (prev < 3 ? ((prev + 1) as 1 | 2 | 3) : prev))}
+        onNext={() => setOnboardingStep((prev) => (prev < 5 ? ((prev + 1) as 1 | 2 | 3 | 4 | 5) : prev))}
         onFinish={finishOnboarding}
       />
     </>
