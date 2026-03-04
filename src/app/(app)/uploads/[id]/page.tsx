@@ -216,6 +216,9 @@ export default function UploadDetailPage() {
   const dishCameraInputRef = useRef<HTMLInputElement | null>(null);
   const dishUploadInputRef = useRef<HTMLInputElement | null>(null);
   const [dishUploadTarget, setDishUploadTarget] = useState<{ hangoutItemId: string } | null>(null);
+  const [manualDishName, setManualDishName] = useState('');
+  const [manualDishPrice, setManualDishPrice] = useState('');
+  const [manualDishSaving, setManualDishSaving] = useState(false);
   const didAutoExtractRef = useRef(false);
 
   const isHost = Boolean(upload && currentUserId && upload.user_id === currentUserId);
@@ -272,6 +275,11 @@ export default function UploadDetailPage() {
   }, [getAuthHeader, uploadId]);
 
   const loadHangoutSummary = useCallback(async () => {
+    if (!isReceiptCapture) {
+      setHangoutSummary(null);
+      return;
+    }
+
     const headers = await getAuthHeader();
     if (!headers.Authorization) return;
 
@@ -283,7 +291,7 @@ export default function UploadDetailPage() {
 
     const payload = (await response.json()) as { summary?: HangoutSummary };
     setHangoutSummary(payload.summary ?? null);
-  }, [getAuthHeader, uploadId]);
+  }, [getAuthHeader, isReceiptCapture, uploadId]);
 
 
   const loadHangoutPhotos = useCallback(async () => {
@@ -453,7 +461,11 @@ export default function UploadDetailPage() {
     setVisitNote(typedUpload.visit_note ?? '');
 
     await loadParticipants();
-    await loadHangoutSummary();
+    if (inferCaptureMode(typedUpload) === 'receipt') {
+      await loadHangoutSummary();
+    } else {
+      setHangoutSummary(null);
+    }
   }, [loadHangoutSummary, loadParticipants, uploadId]);
 
   useEffect(() => {
@@ -714,6 +726,36 @@ export default function UploadDetailPage() {
     },
     [ensureDishEntryForRow, load, upload?.id],
   );
+
+  const addManualDishItem = useCallback(async () => {
+    const name = manualDishName.trim();
+    if (!name || !upload?.id || !isHost) return;
+
+    setManualDishSaving(true);
+    try {
+      const parsedPrice = Number(manualDishPrice.trim());
+      const unitPrice = Number.isFinite(parsedPrice) && parsedPrice > 0 ? parsedPrice : null;
+      const supabase = getBrowserSupabaseClient();
+      const { error } = await supabase.from('hangout_items').insert({
+        hangout_id: upload.id,
+        source_id: null,
+        name_raw: name,
+        name_final: name,
+        quantity: 1,
+        unit_price: unitPrice,
+        currency: upload.currency_detected || 'USD',
+        included: true,
+        confidence: null,
+      });
+
+      if (error) throw error;
+      setManualDishName('');
+      setManualDishPrice('');
+      await load();
+    } finally {
+      setManualDishSaving(false);
+    }
+  }, [isHost, load, manualDishName, manualDishPrice, upload]);
 
   const openDishCatalogEditor = useCallback(
     (row: UnifiedDishRow) => {
@@ -1131,6 +1173,34 @@ export default function UploadDetailPage() {
             ))}
         </div>
 
+        {isHost && !isReceiptCapture ? (
+          <div className="rounded-xl border border-app-border bg-app-card/60 p-2.5 space-y-2">
+            <p className="text-xs text-app-muted">Add dishes manually</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_120px_auto]">
+              <Input
+                value={manualDishName}
+                onChange={(event) => setManualDishName(event.target.value)}
+                placeholder="Dish name"
+              />
+              <Input
+                value={manualDishPrice}
+                onChange={(event) => setManualDishPrice(event.target.value)}
+                placeholder="Price (optional)"
+                inputMode="decimal"
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                fullWidth={false}
+                onClick={() => void addManualDishItem()}
+                disabled={manualDishSaving || manualDishName.trim().length === 0}
+              >
+                {manualDishSaving ? 'Adding...' : 'Add dish'}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
         {visibleFood.length > 0 ? (
           <div className="divide-y divide-app-border/60">
             {visibleFood.map((row) => {
@@ -1377,7 +1447,5 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
-
 
 
