@@ -75,6 +75,7 @@ export type Database = {
           display_name: string | null;
           avatar_url: string | null;
           email: string | null;
+          onboarded: boolean;
           updated_at: string;
           created_at: string;
         };
@@ -83,6 +84,7 @@ export type Database = {
           display_name?: string | null;
           avatar_url?: string | null;
           email?: string | null;
+          onboarded?: boolean;
           updated_at?: string;
           created_at?: string;
         };
@@ -91,6 +93,7 @@ export type Database = {
           display_name?: string | null;
           avatar_url?: string | null;
           email?: string | null;
+          onboarded?: boolean;
           updated_at?: string;
           created_at?: string;
         };
@@ -694,7 +697,6 @@ export type Photo = Database['public']['Tables']['photos']['Row'];
 export type TableRow<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
 export type TableInsert<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Insert'];
 export type TableUpdate<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Update'];
-
 
 
 

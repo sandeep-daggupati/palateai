@@ -289,9 +289,9 @@ export default function FoodPage() {
     const nextCuisine = cuisineParam || 'all';
     const nextFlavor = flavorParam || 'all';
 
-    if (identityFilter !== nextIdentity) setIdentityFilter(nextIdentity);
-    if (cuisineFilter !== nextCuisine) setCuisineFilter(nextCuisine);
-    if (flavorFilter !== nextFlavor) setFlavorFilter(nextFlavor);
+    setIdentityFilter((prev) => (prev === nextIdentity ? prev : nextIdentity));
+    setCuisineFilter((prev) => (prev === nextCuisine ? prev : nextCuisine));
+    setFlavorFilter((prev) => (prev === nextFlavor ? prev : nextFlavor));
   }, [cuisineParam, flavorParam, identityParam, isFoodGridPath]);
 
   useEffect(() => {
