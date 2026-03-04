@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { uploadAudio } from '@/lib/storage/uploadAudio';
 import { uploadImage } from '@/lib/storage/uploadImage';
 
 type PlaceSuggestion = {
@@ -28,12 +27,14 @@ type UserLocation = {
   lng: number;
 };
 
+type CaptureMode = 'receipt' | 'food_photo';
+
 const fieldLabelClass = 'section-label';
 
 export default function AddPage() {
   const router = useRouter();
-  const [receiptFile, setReceiptFile] = useState<File | null>(null);
-  const [uploadType, setUploadType] = useState<'receipt' | 'menu'>('receipt');
+  const [captureMode, setCaptureMode] = useState<CaptureMode | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [restaurantId, setRestaurantId] = useState<string>('');
   const [restaurantQuery, setRestaurantQuery] = useState('');
   const [selectedPlace, setSelectedPlace] = useState<PlaceDetails | null>(null);
@@ -48,15 +49,12 @@ export default function AddPage() {
   const [isSharedVisit, setIsSharedVisit] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  const receiptPickerRef = useRef<HTMLInputElement | null>(null);
-  const receiptCameraRef = useRef<HTMLInputElement | null>(null);
-
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<BlobPart[]>([]);
-  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
-  const [recording, setRecording] = useState(false);
+  const imagePickerRef = useRef<HTMLInputElement | null>(null);
+  const imageCameraRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
+    if (!captureMode) return;
+
     if (restaurantQuery.trim().length < 2) {
       setSuggestions([]);
       setAutocompleteError(null);
@@ -103,7 +101,7 @@ export default function AddPage() {
       controller.abort();
       window.clearTimeout(timeoutId);
     };
-  }, [restaurantQuery, userLocation]);
+  }, [captureMode, restaurantQuery, userLocation]);
 
   const useMyLocation = () => {
     if (!navigator.geolocation) {
@@ -184,25 +182,22 @@ export default function AddPage() {
     }
   };
 
-  const toggleRecording = async () => {
-    if (recording) {
-      mediaRecorderRef.current?.stop();
-      setRecording(false);
-      return;
-    }
+  const clearRestaurant = () => {
+    setRestaurantId('');
+    setRestaurantQuery('');
+    setSelectedPlace(null);
+    setSuggestions([]);
+    setAutocompleteError(null);
+  };
 
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const recorder = new MediaRecorder(stream);
-    chunksRef.current = [];
-    recorder.ondataavailable = (event) => chunksRef.current.push(event.data);
-    recorder.onstop = () => setAudioBlob(new Blob(chunksRef.current, { type: 'audio/webm' }));
-    recorder.start();
-    mediaRecorderRef.current = recorder;
-    setRecording(true);
+  const selectMode = (mode: CaptureMode) => {
+    setCaptureMode(mode);
+    setImageFile(null);
+    setProgress(0);
   };
 
   const onSubmit = async () => {
-    if (!receiptFile) return;
+    if (!captureMode || !imageFile) return;
     setLoading(true);
 
     try {
@@ -239,7 +234,7 @@ export default function AddPage() {
           user_id: user.id,
           restaurant_id: finalRestaurantId,
           status: 'uploaded',
-          type: uploadType,
+          type: 'receipt',
           image_paths: [],
           visited_at: new Date().toISOString(),
           is_shared: isSharedVisit,
@@ -253,24 +248,19 @@ export default function AddPage() {
       if (uploadError) throw uploadError;
 
       const uploadId = createdUpload.id as string;
-      const receiptPath = await uploadImage({
-        file: receiptFile,
+      const imagePath = await uploadImage({
+        file: imageFile,
         userId: user.id,
         uploadId,
-        category: uploadType,
+        category: captureMode === 'receipt' ? 'receipt' : 'dish',
         onProgress: setProgress,
       });
-
-      let audioPath: string | null = null;
-      if (audioBlob) {
-        audioPath = await uploadAudio({ blob: audioBlob, userId: user.id, uploadId });
-      }
 
       const { error: finalizeError } = await supabase
         .from('receipt_uploads')
         .update({
-          image_paths: [receiptPath],
-          audio_path: audioPath,
+          image_paths: [imagePath],
+          audio_path: null,
         })
         .eq('id', uploadId);
 
@@ -286,149 +276,150 @@ export default function AddPage() {
     <div className="mx-auto w-full max-w-md space-y-4 pb-6">
       <div className="space-y-1">
         <h1 className="text-xl font-semibold text-app-text">Add</h1>
-        <p className="text-sm text-app-muted">Capture a receipt or menu, then review and save your hangout.</p>
+        <p className="text-sm text-app-muted">Capture your meal</p>
       </div>
 
-      <div className="card-surface space-y-4">
-        <div className="space-y-2">
-          <p className={fieldLabelClass}>Receipt or Menu Image</p>
+      {!captureMode ? (
+        <section className="card-surface space-y-3">
+          <button
+            type="button"
+            onClick={() => selectMode('receipt')}
+            className="w-full rounded-2xl border border-app-border bg-app-card p-4 text-left transition-colors hover:border-app-primary"
+          >
+            <p className="text-base font-semibold text-app-text">Scan receipt</p>
+            <p className="mt-1 text-sm text-app-muted">Extract dishes automatically from a receipt.</p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => selectMode('food_photo')}
+            className="w-full rounded-2xl border border-app-border bg-app-card p-4 text-left transition-colors hover:border-app-primary"
+          >
+            <p className="text-base font-semibold text-app-text">Add food photo</p>
+            <p className="mt-1 text-sm text-app-muted">Snap a picture of your plate and log it manually.</p>
+          </button>
+        </section>
+      ) : (
+        <section className="card-surface space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <p className={fieldLabelClass}>{captureMode === 'receipt' ? 'Receipt upload' : 'Food photo upload'}</p>
+            <button type="button" className="text-xs font-medium text-app-link" onClick={() => setCaptureMode(null)}>
+              Change
+            </button>
+          </div>
+
           <input
-            ref={receiptPickerRef}
+            ref={imagePickerRef}
             type="file"
             accept="image/*"
             className="hidden"
-            onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
           />
           <input
-            ref={receiptCameraRef}
+            ref={imageCameraRef}
             type="file"
             accept="image/*"
             capture="environment"
             className="hidden"
-            onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
           />
           <div className="grid grid-cols-2 gap-2">
-            <Button type="button" variant="primary" size="sm" onClick={() => receiptPickerRef.current?.click()}>
+            <Button type="button" variant="primary" size="sm" onClick={() => imagePickerRef.current?.click()}>
               Upload photo
             </Button>
-            <Button type="button" variant="secondary" size="sm" onClick={() => receiptCameraRef.current?.click()}>
+            <Button type="button" variant="secondary" size="sm" onClick={() => imageCameraRef.current?.click()}>
               Take photo
             </Button>
           </div>
-          <p className="text-xs text-app-muted">{receiptFile ? `Selected: ${receiptFile.name}` : 'No file selected.'}</p>
-        </div>
+          <p className="text-xs text-app-muted">{imageFile ? `Selected: ${imageFile.name}` : 'No file selected.'}</p>
 
-        <div className="space-y-2">
-          <label className={fieldLabelClass}>Who is this for?</label>
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              type="button"
-              variant={!isSharedVisit ? 'primary' : 'secondary'}
-              size="sm"
-              onClick={() => setIsSharedVisit(false)}
-            >
-              Just me
-            </Button>
-            <Button
-              type="button"
-              variant={isSharedVisit ? 'primary' : 'secondary'}
-              size="sm"
-              onClick={() => setIsSharedVisit(true)}
-            >
-              With crew
-            </Button>
-          </div>
-          <p className="text-xs text-app-muted">
-            {isSharedVisit
-              ? 'Invite your buddies on the next screen. Everyone can log their own experience.'
-              : 'Just you: extract, review, and save in one quick pass.'}
-          </p>
-        </div>
+          <div className="space-y-2">
+            <label className={fieldLabelClass}>Restaurant</label>
+            <div className="relative">
+              <Input
+                value={restaurantQuery}
+                placeholder="Search restaurant, cafe, bar..."
+                onFocus={() => setIsRestaurantFocused(true)}
+                onBlur={() => {
+                  window.setTimeout(() => setIsRestaurantFocused(false), 120);
+                }}
+                onChange={(e) => {
+                  setRestaurantQuery(e.target.value);
+                  setRestaurantId('');
+                  setSelectedPlace(null);
+                }}
+              />
 
-        <div className="space-y-2">
-          <label className={fieldLabelClass}>Upload Type</label>
-          <select
-            className="h-11 w-full rounded-xl border border-app-border bg-app-card px-3 text-base leading-6 text-app-text outline-none transition-colors duration-200 focus:border-app-primary focus:ring-2 focus:ring-app-accent/60"
-            value={uploadType}
-            onChange={(e) => setUploadType(e.target.value as 'receipt' | 'menu')}
-          >
-            <option value="receipt">Receipt</option>
-            <option value="menu">Menu</option>
-          </select>
-        </div>
+              {isRestaurantFocused && restaurantQuery.trim().length >= 2 && (
+                <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-app-border bg-app-card shadow-sm">
+                  {autocompleteLoading && <p className="p-3 text-sm text-app-muted">Searching nearby places...</p>}
+                  {!autocompleteLoading && suggestions.length === 0 && <p className="p-3 text-sm text-app-muted">No matching places found.</p>}
+                  {!autocompleteLoading &&
+                    suggestions.map((suggestion) => (
+                      <button
+                        key={suggestion.placeId}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => void selectSuggestion(suggestion)}
+                        className="w-full border-b border-app-border px-3 py-3 text-left last:border-b-0"
+                      >
+                        <p className="text-sm font-medium text-app-text">{suggestion.primaryText}</p>
+                        {suggestion.secondaryText ? <p className="text-xs text-app-muted">{suggestion.secondaryText}</p> : null}
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
 
-        <div className="space-y-2">
-          <label className={fieldLabelClass}>Restaurant</label>
-          <div className="relative">
-            <Input
-              value={restaurantQuery}
-              placeholder="Search restaurant, cafe, bar..."
-              onFocus={() => setIsRestaurantFocused(true)}
-              onBlur={() => {
-                window.setTimeout(() => setIsRestaurantFocused(false), 120);
-              }}
-              onChange={(e) => {
-                setRestaurantQuery(e.target.value);
-                setRestaurantId('');
-                setSelectedPlace(null);
-              }}
-            />
+            {selectedPlace?.address ? <p className="text-xs text-app-muted">Selected: {selectedPlace.address}</p> : null}
+            {autocompleteError ? <p className="text-xs text-rose-700 dark:text-rose-300">{autocompleteError}</p> : null}
 
-            {isRestaurantFocused && restaurantQuery.trim().length >= 2 && (
-              <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-app-border bg-app-card shadow-sm">
-                {autocompleteLoading && <p className="p-3 text-sm text-app-muted">Searching nearby places...</p>}
-                {!autocompleteLoading && suggestions.length === 0 && (
-                  <p className="p-3 text-sm text-app-muted">No matching places found.</p>
-                )}
-                {!autocompleteLoading &&
-                  suggestions.map((suggestion) => (
-                    <button
-                      key={suggestion.placeId}
-                      type="button"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => void selectSuggestion(suggestion)}
-                      className="w-full border-b border-app-border px-3 py-3 text-left last:border-b-0"
-                    >
-                      <p className="text-sm font-medium text-app-text">{suggestion.primaryText}</p>
-                      {suggestion.secondaryText && <p className="text-xs text-app-muted">{suggestion.secondaryText}</p>}
-                    </button>
-                  ))}
-              </div>
-            )}
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="secondary" size="sm" onClick={useMyLocation} disabled={locationLoading}>
+                {locationLoading ? 'Locating...' : 'Use my location'}
+              </Button>
+              <Button type="button" variant="secondary" size="sm" onClick={clearRestaurant}>
+                Skip
+              </Button>
+            </div>
+
+            {userLocation ? (
+              <p className="text-xs text-app-muted">
+                Using location bias: {userLocation.lat.toFixed(4)}, {userLocation.lng.toFixed(4)}
+              </p>
+            ) : null}
+            {locationError ? <p className="text-xs text-rose-700 dark:text-rose-300">{locationError}</p> : null}
           </div>
 
-          {selectedPlace?.address && <p className="text-xs text-app-muted">Selected: {selectedPlace.address}</p>}
-          {autocompleteError && <p className="text-xs text-rose-700 dark:text-rose-300">{autocompleteError}</p>}
+          <div className="space-y-2">
+            <label className={fieldLabelClass}>Who is this for?</label>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant={!isSharedVisit ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => setIsSharedVisit(false)}
+              >
+                Just me
+              </Button>
+              <Button
+                type="button"
+                variant={isSharedVisit ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => setIsSharedVisit(true)}
+              >
+                With crew
+              </Button>
+            </div>
+          </div>
 
-          <Button type="button" variant="secondary" size="sm" onClick={useMyLocation} disabled={locationLoading}>
-            {locationLoading ? 'Locating...' : 'Use my location'}
+          {loading ? <p className="text-sm text-app-muted">Uploading... {Math.round(progress)}%</p> : null}
+
+          <Button type="button" variant="primary" size="lg" onClick={onSubmit} disabled={!imageFile || loading}>
+            {loading ? 'Saving...' : 'Continue to review'}
           </Button>
-
-          {userLocation && (
-            <p className="text-xs text-app-muted">
-              Using location bias: {userLocation.lat.toFixed(4)}, {userLocation.lng.toFixed(4)}
-            </p>
-          )}
-          {locationError && <p className="text-xs text-rose-700 dark:text-rose-300">{locationError}</p>}
-        </div>
-
-        <div className="space-y-2">
-          <p className={fieldLabelClass}>Audio Note</p>
-          <Button type="button" variant="secondary" onClick={toggleRecording}>
-            {recording ? 'Stop recording' : audioBlob ? 'Re-record audio note' : 'Record audio note'}
-          </Button>
-          <p className="text-xs text-app-muted">{audioBlob ? 'Audio note attached.' : 'Optional: add a short voice note.'}</p>
-        </div>
-
-        {loading && <p className="text-sm text-app-muted">Uploading... {Math.round(progress)}%</p>}
-
-        <Button type="button" variant="primary" size="lg" onClick={onSubmit} disabled={!receiptFile || loading}>
-          {loading ? 'Saving...' : 'Save upload'}
-        </Button>
-      </div>
+        </section>
+      )}
     </div>
   );
 }
-
-
-
