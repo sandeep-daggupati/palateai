@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { Clock3, Globe, MapPin, Navigation, Phone, X } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
@@ -14,6 +14,7 @@ import { normalizeName } from '@/lib/extraction/normalize';
 import { getGoogleMapsLink } from '@/lib/google/mapsLinks';
 import { SignedPhoto } from '@/lib/photos/types';
 import { listDishPhotosForHangout, listHangoutPhotos, uploadDishPhoto, uploadHangoutPhoto } from '@/lib/data/photosRepo';
+import { uploadImage } from '@/lib/storage/uploadImage';
 
 const VISIT_NOTE_MAX = 140;
 
@@ -43,6 +44,19 @@ type CrewMember = VisitParticipant & {
 type ShareUserSuggestion = {
   id: string;
   email: string;
+};
+type PlaceSuggestion = {
+  placeId: string;
+  primaryText: string;
+  secondaryText: string;
+};
+type PlaceDetails = {
+  placeId: string;
+  name: string;
+  address: string;
+  lat: number | null;
+  lng: number | null;
+  googleMapsUrl?: string | null;
 };
 type RestaurantDirectory = Pick<
   Restaurant,
@@ -172,6 +186,7 @@ function normalizeDish(value: string): string {
 }
 
 export default function UploadDetailPage() {
+  const router = useRouter();
   const params = useParams<{ id: string }>();
   const uploadId = params.id;
 
@@ -222,6 +237,18 @@ export default function UploadDetailPage() {
   const [manualDishError, setManualDishError] = useState<string | null>(null);
   const [uploadingHangoutPhoto, setUploadingHangoutPhoto] = useState(false);
   const [uploadingDishPhotoFor, setUploadingDishPhotoFor] = useState<string | null>(null);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [hasTriedExtraction, setHasTriedExtraction] = useState(false);
+  const [manualEntryForReceipt, setManualEntryForReceipt] = useState(false);
+  const [saveHangoutLoading, setSaveHangoutLoading] = useState(false);
+  const [saveHangoutError, setSaveHangoutError] = useState<string | null>(null);
+  const [saveHangoutToast, setSaveHangoutToast] = useState<string | null>(null);
+  const [restaurantQuery, setRestaurantQuery] = useState('');
+  const [restaurantSuggestions, setRestaurantSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [restaurantLookupLoading, setRestaurantLookupLoading] = useState(false);
+  const [restaurantLookupError, setRestaurantLookupError] = useState<string | null>(null);
+  const [restaurantFocused, setRestaurantFocused] = useState(false);
+  const receiptReplaceInputRef = useRef<HTMLInputElement | null>(null);
   const didAutoExtractRef = useRef(false);
 
   const isHost = Boolean(upload && currentUserId && upload.user_id === currentUserId);
@@ -295,6 +322,48 @@ export default function UploadDetailPage() {
     const payload = (await response.json()) as { summary?: HangoutSummary };
     setHangoutSummary(payload.summary ?? null);
   }, [getAuthHeader, isReceiptCapture, uploadId]);
+
+  useEffect(() => {
+    if (!restaurant) {
+      setRestaurantQuery('');
+      return;
+    }
+    setRestaurantQuery(restaurant.name ?? '');
+  }, [restaurant]);
+
+  useEffect(() => {
+    if (restaurantQuery.trim().length < 2) {
+      setRestaurantSuggestions([]);
+      setRestaurantLookupError(null);
+      setRestaurantLookupLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        setRestaurantLookupLoading(true);
+        setRestaurantLookupError(null);
+        const response = await fetch(`/api/places/autocomplete?q=${encodeURIComponent(restaurantQuery.trim())}`, {
+          signal: controller.signal,
+        });
+        const payload = (await response.json()) as { results?: PlaceSuggestion[]; error?: string };
+        if (!response.ok) throw new Error(payload.error ?? 'Failed to search restaurants');
+        setRestaurantSuggestions(payload.results ?? []);
+      } catch (error) {
+        if ((error as { name?: string }).name === 'AbortError') return;
+        setRestaurantLookupError(error instanceof Error ? error.message : 'Failed to search restaurants');
+        setRestaurantSuggestions([]);
+      } finally {
+        setRestaurantLookupLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [restaurantQuery]);
 
 
   const loadHangoutPhotos = useCallback(async () => {
@@ -515,12 +584,18 @@ export default function UploadDetailPage() {
   }, [getAuthHeader, isHost, shareEmail]);
 
   const runExtraction = useCallback(async () => {
-    await fetch('/api/extract', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uploadId }),
-    });
-    await load();
+    setIsExtracting(true);
+    setHasTriedExtraction(true);
+    try {
+      await fetch('/api/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uploadId }),
+      });
+      await load();
+    } finally {
+      setIsExtracting(false);
+    }
   }, [load, uploadId]);
 
 
@@ -922,6 +997,117 @@ export default function UploadDetailPage() {
     }
   };
 
+  const onSelectRestaurantSuggestion = useCallback(
+    async (suggestion: PlaceSuggestion) => {
+      if (!upload || !currentUserId) return;
+      try {
+        setRestaurantLookupError(null);
+        const detailsResponse = await fetch(`/api/places/details?placeId=${encodeURIComponent(suggestion.placeId)}`);
+        const detailsPayload = (await detailsResponse.json()) as PlaceDetails & { error?: string };
+        if (!detailsResponse.ok) throw new Error(detailsPayload.error ?? 'Could not fetch place details');
+
+        const supabase = getBrowserSupabaseClient();
+        const { data: upsertedRestaurant, error: upsertError } = await supabase
+          .from('restaurants')
+          .upsert(
+            {
+              user_id: currentUserId,
+              place_id: detailsPayload.placeId,
+              name: detailsPayload.name,
+              address: detailsPayload.address,
+              lat: detailsPayload.lat,
+              lng: detailsPayload.lng,
+            },
+            { onConflict: 'user_id,place_id' },
+          )
+          .select('id,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
+          .single();
+        if (upsertError) throw upsertError;
+
+        const { error: uploadUpdateError } = await supabase.from('receipt_uploads').update({ restaurant_id: upsertedRestaurant.id }).eq('id', upload.id);
+        if (uploadUpdateError) throw uploadUpdateError;
+        await supabase.from('hangouts').update({ restaurant_id: upsertedRestaurant.id }).eq('id', upload.id);
+
+        setRestaurant((upsertedRestaurant ?? null) as RestaurantDirectory | null);
+        setRestaurantQuery(upsertedRestaurant.name);
+        setRestaurantSuggestions([]);
+        setRestaurantFocused(false);
+      } catch (error) {
+        setRestaurantLookupError(error instanceof Error ? error.message : 'Could not update restaurant');
+      }
+    },
+    [currentUserId, upload],
+  );
+
+  const replaceReceiptAndRescan = useCallback(
+    async (file: File) => {
+      if (!upload || !currentUserId) return;
+      setIsExtracting(true);
+      setHasTriedExtraction(true);
+      try {
+        const imagePath = await uploadImage({
+          file,
+          userId: currentUserId,
+          uploadId: upload.id,
+          category: 'receipt',
+        });
+        const supabase = getBrowserSupabaseClient();
+        const { error: updateError } = await supabase
+          .from('receipt_uploads')
+          .update({ image_paths: [imagePath], status: 'uploaded' })
+          .eq('id', upload.id);
+        if (updateError) throw updateError;
+        await runExtraction();
+      } catch (error) {
+        setSaveHangoutError(error instanceof Error ? error.message : 'Could not upload new receipt');
+      } finally {
+        setIsExtracting(false);
+      }
+    },
+    [currentUserId, runExtraction, upload],
+  );
+
+  const saveHangout = useCallback(async () => {
+    if (!upload || !currentUserId) return;
+    setSaveHangoutError(null);
+    const activeFood = dishes.filter((row) => row.hangoutItem.included);
+    if (activeFood.length === 0) {
+      setSaveHangoutError('Add at least one food item before saving.');
+      return;
+    }
+
+    setSaveHangoutLoading(true);
+    try {
+      for (const row of activeFood) {
+        await upsertMyDishEntry(row, {});
+      }
+      const supabase = getBrowserSupabaseClient();
+      await supabase
+        .from('receipt_uploads')
+        .update({
+          visit_note: visitNote?.trim() ? visitNote.trim() : null,
+          status: 'approved',
+        })
+        .eq('id', upload.id);
+
+      await supabase
+        .from('hangouts')
+        .update({
+          note: visitNote?.trim() ? visitNote.trim() : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', upload.id)
+        .eq('owner_user_id', currentUserId);
+
+      setSaveHangoutToast('Hangout saved');
+      window.setTimeout(() => setSaveHangoutToast(null), 1800);
+      await new Promise((resolve) => window.setTimeout(resolve, 500));
+      router.push(`/hangouts/${upload.id}`);
+    } finally {
+      setSaveHangoutLoading(false);
+    }
+  }, [currentUserId, dishes, router, upload, upsertMyDishEntry, visitNote]);
+
   const removeParticipant = async (participantId: string) => {
     if (!upload) return;
 
@@ -976,10 +1162,43 @@ export default function UploadDetailPage() {
   return (
     <div className="mx-auto w-full max-w-3xl space-y-2 pb-4">
       <div className="card-surface p-3 space-y-2">
-        <h1 className="text-2xl font-semibold leading-7 text-app-text">{restaurant?.name ?? 'Unknown restaurant'}</h1>
+        <h1 className="text-2xl font-semibold leading-7 text-app-text">{restaurant?.name ?? 'Restaurant not detected'}</h1>
         <p className="text-xs leading-4 text-app-muted">
           {visitDate} · With {withLabel}
         </p>
+        {isHost ? (
+          <div className="relative space-y-1">
+            <Input
+              value={restaurantQuery}
+              onChange={(event) => setRestaurantQuery(event.target.value)}
+              onFocus={() => setRestaurantFocused(true)}
+              onBlur={() => window.setTimeout(() => setRestaurantFocused(false), 120)}
+              placeholder="Search restaurant"
+            />
+            {restaurantFocused && restaurantQuery.trim().length >= 2 ? (
+              <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-app-border bg-app-card shadow-sm">
+                {restaurantLookupLoading ? <p className="p-3 text-sm text-app-muted">Searching...</p> : null}
+                {!restaurantLookupLoading && restaurantSuggestions.length === 0 ? (
+                  <p className="p-3 text-sm text-app-muted">No matching places found.</p>
+                ) : null}
+                {!restaurantLookupLoading &&
+                  restaurantSuggestions.map((suggestion) => (
+                    <button
+                      key={suggestion.placeId}
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => void onSelectRestaurantSuggestion(suggestion)}
+                      className="w-full border-b border-app-border px-3 py-3 text-left last:border-b-0"
+                    >
+                      <p className="text-sm font-medium text-app-text">{suggestion.primaryText}</p>
+                      {suggestion.secondaryText ? <p className="text-xs text-app-muted">{suggestion.secondaryText}</p> : null}
+                    </button>
+                  ))}
+              </div>
+            ) : null}
+            {restaurantLookupError ? <p className="text-xs text-rose-700 dark:text-rose-300">{restaurantLookupError}</p> : null}
+          </div>
+        ) : null}
         {hangoutSummary?.summary_text ? (
           <div className="rounded-lg border border-app-border bg-app-card/70 px-2.5 py-2">
             <p className="text-sm leading-5 text-app-text">
@@ -1040,6 +1259,17 @@ export default function UploadDetailPage() {
           )}
         </div>
       </div>
+      <input
+        ref={receiptReplaceInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void replaceReceiptAndRescan(file);
+          event.currentTarget.value = '';
+        }}
+      />
       <input
         ref={hangoutCameraInputRef}
         type="file"
@@ -1248,21 +1478,22 @@ export default function UploadDetailPage() {
           <h2 className="section-label">Food</h2>
           {isHost &&
             (showExtractionPrompt ? (
-              <Button type="button" onClick={runExtraction}>
-                Scan receipt
+              <Button type="button" onClick={runExtraction} disabled={isExtracting}>
+                {isExtracting ? 'Analyzing...' : 'Scan receipt'}
               </Button>
             ) : (
               <button
                 type="button"
                 onClick={() => void runExtraction()}
+                disabled={isExtracting}
                 className="inline-flex h-11 items-center text-xs font-medium text-app-link underline underline-offset-2"
               >
-                {isReceiptCapture ? 'Re-scan receipt' : 'Analyze photo'}
+                {isExtracting ? 'Analyzing...' : isReceiptCapture ? 'Re-scan receipt' : 'Analyze photo'}
               </button>
             ))}
         </div>
 
-        {isHost && !isReceiptCapture ? (
+        {isHost && (!isReceiptCapture || manualEntryForReceipt) ? (
           <div className="rounded-xl border border-app-border bg-app-card/60 p-2.5 space-y-2">
             <p className="text-xs text-app-muted">Add dishes manually</p>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_120px_auto]">
@@ -1402,13 +1633,29 @@ export default function UploadDetailPage() {
             })}
           </div>
         ) : (
-          <p className="text-sm text-app-muted">
-            {hiddenFood.length > 0
-              ? 'All extracted lines are hidden (fees/tax/tip).'
-              : isReceiptCapture
-                ? 'No food items yet. Scan the receipt to start your recap.'
-                : 'No food items yet. Analyze your photo or add dishes manually.'}
-          </p>
+          <>
+            {isReceiptCapture && hasTriedExtraction && !isExtracting && hiddenFood.length === 0 ? (
+              <div className="rounded-xl border border-rose-300 bg-rose-50/60 p-3 dark:border-rose-900 dark:bg-rose-950/30">
+                <p className="text-sm font-medium text-app-text">We couldn&apos;t detect a receipt.</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button type="button" variant="secondary" size="sm" onClick={() => receiptReplaceInputRef.current?.click()}>
+                    Upload another receipt
+                  </Button>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => setManualEntryForReceipt(true)}>
+                    Log food manually
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-app-muted">
+                {hiddenFood.length > 0
+                  ? 'All extracted lines are hidden (fees/tax/tip).'
+                  : isReceiptCapture
+                    ? 'No food items yet. Scan the receipt to start your recap.'
+                    : 'No food items yet. Analyze your photo or add dishes manually.'}
+              </p>
+            )}
+          </>
         )}
 
         {hiddenFood.length > 0 && (
@@ -1453,6 +1700,21 @@ export default function UploadDetailPage() {
           <p className="text-xs text-app-muted">{visitNote.length}/{VISIT_NOTE_MAX}</p>
         </div>
       )}
+
+      {isHost ? (
+        <div className="card-surface p-3 space-y-2">
+          {saveHangoutError ? <p className="text-sm text-rose-700 dark:text-rose-300">{saveHangoutError}</p> : null}
+          <Button type="button" size="lg" onClick={() => void saveHangout()} disabled={saveHangoutLoading} className="w-full">
+            {saveHangoutLoading ? 'Saving...' : 'Save Hangout'}
+          </Button>
+        </div>
+      ) : null}
+
+      {saveHangoutToast ? (
+        <div className="fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-app-border bg-app-card px-3 py-2 text-sm text-app-text shadow-lg">
+          {saveHangoutToast}
+        </div>
+      ) : null}
 
       {lightboxPhotos.length > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75">
