@@ -248,20 +248,29 @@ export default function AddPage() {
       if (uploadError) throw uploadError;
 
       const uploadId = createdUpload.id as string;
-      await supabase.from('hangouts').upsert({
+      const { error: hangoutError } = await supabase.from('hangouts').upsert({
         id: uploadId,
         owner_user_id: user.id,
         restaurant_id: finalRestaurantId,
         occurred_at: new Date().toISOString(),
         note: null,
       });
-      await supabase.from('hangout_participants').upsert(
-        {
+      if (hangoutError) throw hangoutError;
+
+      const { data: participantExisting, error: participantExistingError } = await supabase
+        .from('hangout_participants')
+        .select('hangout_id')
+        .eq('hangout_id', uploadId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (participantExistingError) throw participantExistingError;
+      if (!participantExisting) {
+        const { error: participantError } = await supabase.from('hangout_participants').insert({
           hangout_id: uploadId,
           user_id: user.id,
-        },
-        { onConflict: 'hangout_id,user_id' },
-      );
+        });
+        if (participantError) throw participantError;
+      }
 
       const imagePath = await uploadImage({
         file: imageFile,

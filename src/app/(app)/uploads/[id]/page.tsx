@@ -750,20 +750,29 @@ export default function UploadDetailPage() {
       const parsedPrice = Number(manualDishPrice.trim());
       const unitPrice = Number.isFinite(parsedPrice) && parsedPrice > 0 ? parsedPrice : null;
       const supabase = getBrowserSupabaseClient();
-      await supabase.from('hangouts').upsert({
+      const { error: hangoutError } = await supabase.from('hangouts').upsert({
         id: upload.id,
         owner_user_id: upload.user_id,
         restaurant_id: upload.restaurant_id,
         occurred_at: upload.visited_at ?? upload.created_at,
         note: upload.visit_note ?? null,
       });
-      await supabase.from('hangout_participants').upsert(
-        {
+      if (hangoutError) throw hangoutError;
+
+      const { data: participantExisting, error: participantExistingError } = await supabase
+        .from('hangout_participants')
+        .select('hangout_id')
+        .eq('hangout_id', upload.id)
+        .eq('user_id', upload.user_id)
+        .maybeSingle();
+      if (participantExistingError) throw participantExistingError;
+      if (!participantExisting) {
+        const { error: participantError } = await supabase.from('hangout_participants').insert({
           hangout_id: upload.id,
           user_id: upload.user_id,
-        },
-        { onConflict: 'hangout_id,user_id' },
-      );
+        });
+        if (participantError) throw participantError;
+      }
 
       const { data: insertedItem, error } = await supabase
         .from('hangout_items')
