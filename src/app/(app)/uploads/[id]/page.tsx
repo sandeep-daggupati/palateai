@@ -225,6 +225,7 @@ export default function UploadDetailPage() {
   const [editNameCanonical, setEditNameCanonical] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editFlavorTags, setEditFlavorTags] = useState('');
+  const [editPrice, setEditPrice] = useState('');
   const [savingDishCatalog, setSavingDishCatalog] = useState(false);
   const hangoutCameraInputRef = useRef<HTMLInputElement | null>(null);
   const hangoutUploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -251,7 +252,9 @@ export default function UploadDetailPage() {
   const [manualRestaurantMode, setManualRestaurantMode] = useState(false);
   const [manualRestaurantName, setManualRestaurantName] = useState('');
   const [cancelingDraft, setCancelingDraft] = useState(false);
-  const receiptReplaceInputRef = useRef<HTMLInputElement | null>(null);
+  const [receiptReplaceSheetOpen, setReceiptReplaceSheetOpen] = useState(false);
+  const receiptReplaceCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const receiptReplaceUploadInputRef = useRef<HTMLInputElement | null>(null);
   const didAutoExtractRef = useRef(false);
 
   const isHost = Boolean(upload && currentUserId && upload.user_id === currentUserId);
@@ -921,6 +924,7 @@ export default function UploadDetailPage() {
       setEditNameCanonical(catalog?.name_canonical ?? dishName);
       setEditDescription(catalog?.description ?? '');
       setEditFlavorTags((catalog?.flavor_tags ?? []).join(', '));
+      setEditPrice(row.hangoutItem.unit_price != null ? String(row.hangoutItem.unit_price) : '');
     },
     [catalogByDishKey, restaurant?.name],
   );
@@ -935,6 +939,8 @@ export default function UploadDetailPage() {
       .split(',')
       .map((tag) => tag.trim())
       .filter(Boolean);
+    const parsedPrice = Number(editPrice.trim());
+    const nextPrice = Number.isFinite(parsedPrice) && parsedPrice > 0 ? parsedPrice : null;
 
     setSavingDishCatalog(true);
     try {
@@ -955,17 +961,42 @@ export default function UploadDetailPage() {
 
       const payload = (await response.json().catch(() => null)) as { ok?: boolean; catalog?: DishCatalog } | null;
       const catalog = payload?.catalog;
+      const supabase = getBrowserSupabaseClient();
+      await supabase.from('hangout_items').update({ unit_price: nextPrice }).eq('id', editingDishRow.hangoutItemId);
+      await supabase
+        .from('dish_entries')
+        .update({
+          price_original: nextPrice,
+          price_usd: nextPrice,
+        })
+        .eq('hangout_id', uploadId)
+        .eq('hangout_item_id', editingDishRow.hangoutItemId);
+
+      setFood((prev) =>
+        prev.map((entry) =>
+          entry.hangoutItem.id === editingDishRow.hangoutItemId
+            ? {
+                ...entry,
+                hangoutItem: {
+                  ...entry.hangoutItem,
+                  unit_price: nextPrice,
+                },
+              }
+            : entry,
+        ),
+      );
+
       if (response.ok && payload?.ok && catalog) {
         setCatalogByDishKey((prev) => ({
           ...prev,
           [catalog.dish_key]: catalog,
         }));
-        setEditingDishRow(null);
       }
+      setEditingDishRow(null);
     } finally {
       setSavingDishCatalog(false);
     }
-  }, [editDescription, editFlavorTags, editNameCanonical, editingDishRow, getAuthHeader, uploadId]);
+  }, [editDescription, editFlavorTags, editNameCanonical, editPrice, editingDishRow, getAuthHeader, uploadId]);
 
   const addParticipant = async () => {
     const email = shareEmail.trim().toLowerCase();
@@ -1122,6 +1153,7 @@ export default function UploadDetailPage() {
   const replaceReceiptAndRescan = useCallback(
     async (file: File) => {
       if (!upload || !currentUserId) return;
+      setReceiptReplaceSheetOpen(false);
       setIsExtracting(true);
       setHasTriedExtraction(true);
       try {
@@ -1137,6 +1169,8 @@ export default function UploadDetailPage() {
           .update({ image_paths: [imagePath], status: 'uploaded' })
           .eq('id', upload.id);
         if (updateError) throw updateError;
+        setUpload((current) => (current ? { ...current, image_paths: [imagePath], status: 'uploaded' } : current));
+        await new Promise((resolve) => window.setTimeout(resolve, 200));
         await runExtraction();
       } catch (error) {
         setSaveHangoutError(error instanceof Error ? error.message : 'Could not upload new receipt');
@@ -1374,9 +1408,21 @@ export default function UploadDetailPage() {
         </div>
       </div>
       <input
-        ref={receiptReplaceInputRef}
+        ref={receiptReplaceUploadInputRef}
         type="file"
         accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void replaceReceiptAndRescan(file);
+          event.currentTarget.value = '';
+        }}
+      />
+      <input
+        ref={receiptReplaceCameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
         className="hidden"
         onChange={(event) => {
           const file = event.target.files?.[0];
@@ -1506,6 +1552,35 @@ export default function UploadDetailPage() {
         </div>
       )}
 
+      {receiptReplaceSheetOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/35">
+          <button type="button" className="absolute inset-0" aria-label="Close" onClick={() => setReceiptReplaceSheetOpen(false)} />
+          <div className="relative w-full max-w-md rounded-t-2xl border border-app-border bg-app-card p-3">
+            <div className="space-y-2">
+              <Button
+                type="button"
+                onClick={() => {
+                  setReceiptReplaceSheetOpen(false);
+                  receiptReplaceCameraInputRef.current?.click();
+                }}
+              >
+                Take photo
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  setReceiptReplaceSheetOpen(false);
+                  receiptReplaceUploadInputRef.current?.click();
+                }}
+              >
+                Upload photo
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showHostShareSection && (
         <div className="card-surface p-3 space-y-2">
           <h2 className="section-label">Who was in your crew?</h2>
@@ -1598,7 +1673,13 @@ export default function UploadDetailPage() {
             ) : (
               <button
                 type="button"
-                onClick={() => void runExtraction()}
+                onClick={() => {
+                  if (isReceiptCapture) {
+                    setReceiptReplaceSheetOpen(true);
+                    return;
+                  }
+                  void runExtraction();
+                }}
                 disabled={isExtracting}
                 className="inline-flex h-11 items-center text-xs font-medium text-app-link underline underline-offset-2"
               >
@@ -1752,7 +1833,7 @@ export default function UploadDetailPage() {
               <div className="rounded-xl border border-rose-300 bg-rose-50/60 p-3 dark:border-rose-900 dark:bg-rose-950/30">
                 <p className="text-sm font-medium text-app-text">We couldn&apos;t detect a receipt in this image.</p>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <Button type="button" variant="secondary" size="sm" onClick={() => receiptReplaceInputRef.current?.click()}>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => setReceiptReplaceSheetOpen(true)}>
                     Upload another receipt
                   </Button>
                   <Button type="button" variant="secondary" size="sm" onClick={() => setManualEntryForReceipt(true)}>
@@ -1900,6 +1981,7 @@ export default function UploadDetailPage() {
             <div className="space-y-2">
               <p className="text-sm font-semibold text-app-text">Edit dish details</p>
               <Input value={editNameCanonical} onChange={(event) => setEditNameCanonical(event.target.value)} placeholder="Food item name" />
+              <Input value={editPrice} onChange={(event) => setEditPrice(event.target.value)} placeholder="Price" inputMode="decimal" />
               <textarea
                 value={editDescription}
                 onChange={(event) => setEditDescription(event.target.value)}
