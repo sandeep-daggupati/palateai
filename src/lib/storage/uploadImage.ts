@@ -7,7 +7,7 @@ export async function uploadImage(params: {
   file: File;
   userId: string;
   uploadId: string;
-  category: 'receipt' | 'menu' | 'dish';
+  category: 'receipt' | 'menu' | 'dish' | 'temp_receipt';
   onProgress?: (progress: number) => void;
 }) {
   const { file, userId, uploadId, category, onProgress } = params;
