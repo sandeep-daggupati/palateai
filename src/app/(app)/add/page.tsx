@@ -1,11 +1,14 @@
 'use client';
 
+import Image from 'next/image';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
+import { uploadOriginalPhotoDirect } from '@/lib/photos/clientUpload';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { uploadImage } from '@/lib/storage/uploadImage';
+import { toDishKey } from '@/lib/utils';
 
 type PlaceSuggestion = {
   placeId: string;
@@ -48,6 +51,10 @@ export default function AddPage() {
   const [loading, setLoading] = useState(false);
   const [isSharedVisit, setIsSharedVisit] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [dishName, setDishName] = useState('');
+  const [dishPrice, setDishPrice] = useState('');
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
 
   const imagePickerRef = useRef<HTMLInputElement | null>(null);
   const imageCameraRef = useRef<HTMLInputElement | null>(null);
@@ -102,6 +109,18 @@ export default function AddPage() {
       window.clearTimeout(timeoutId);
     };
   }, [captureMode, restaurantQuery, userLocation]);
+
+  useEffect(() => {
+    if (!imageFile) {
+      setPhotoPreviewUrl(null);
+      return;
+    }
+    const nextUrl = URL.createObjectURL(imageFile);
+    setPhotoPreviewUrl(nextUrl);
+    return () => {
+      URL.revokeObjectURL(nextUrl);
+    };
+  }, [imageFile]);
 
   const useMyLocation = () => {
     if (!navigator.geolocation) {
@@ -194,111 +213,214 @@ export default function AddPage() {
     setCaptureMode(mode);
     setImageFile(null);
     setProgress(0);
+    setDishName('');
+    setDishPrice('');
+    setSaveError(null);
+  };
+
+  const ensureRestaurantId = async (userId: string): Promise<string | null> => {
+    let finalRestaurantId: string | null = restaurantId || null;
+    if (!finalRestaurantId && restaurantQuery.trim()) {
+      const supabase = getBrowserSupabaseClient();
+      const { data: createdRestaurant, error: restaurantError } = await supabase
+        .from('restaurants')
+        .insert({
+          user_id: userId,
+          name: restaurantQuery.trim(),
+          place_id: selectedPlace?.placeId ?? null,
+          address: selectedPlace?.address ?? null,
+          lat: selectedPlace?.lat ?? null,
+          lng: selectedPlace?.lng ?? null,
+        })
+        .select('id')
+        .single();
+
+      if (restaurantError) throw restaurantError;
+      finalRestaurantId = createdRestaurant.id;
+    }
+    return finalRestaurantId;
+  };
+
+  const saveReceiptFlow = async () => {
+    if (!imageFile) return;
+    const supabase = getBrowserSupabaseClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) throw new Error('Missing user session.');
+
+    const finalRestaurantId = await ensureRestaurantId(user.id);
+    const { data: createdUpload, error: uploadError } = await supabase
+      .from('receipt_uploads')
+      .insert({
+        user_id: user.id,
+        restaurant_id: finalRestaurantId,
+        status: 'uploaded',
+        type: 'receipt',
+        image_paths: [],
+        visited_at: new Date().toISOString(),
+        is_shared: isSharedVisit,
+        share_visibility: 'private',
+        visit_lat: userLocation?.lat ?? null,
+        visit_lng: userLocation?.lng ?? null,
+      })
+      .select('id')
+      .single();
+
+    if (uploadError) throw uploadError;
+    const uploadId = createdUpload.id as string;
+
+    const { data: hangoutExisting, error: hangoutExistingError } = await supabase
+      .from('hangouts')
+      .select('id')
+      .eq('id', uploadId)
+      .maybeSingle();
+    if (hangoutExistingError) throw hangoutExistingError;
+    if (!hangoutExisting) {
+      const { error: hangoutInsertError } = await supabase.from('hangouts').insert({
+        id: uploadId,
+        owner_user_id: user.id,
+        restaurant_id: finalRestaurantId,
+        occurred_at: new Date().toISOString(),
+        note: null,
+      });
+      if (hangoutInsertError) throw hangoutInsertError;
+    }
+
+    const { data: participantExisting, error: participantExistingError } = await supabase
+      .from('hangout_participants')
+      .select('hangout_id')
+      .eq('hangout_id', uploadId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (participantExistingError) throw participantExistingError;
+    if (!participantExisting) {
+      const { error: participantError } = await supabase.from('hangout_participants').insert({
+        hangout_id: uploadId,
+        user_id: user.id,
+      });
+      if (participantError) throw participantError;
+    }
+
+    const imagePath = await uploadImage({
+      file: imageFile,
+      userId: user.id,
+      uploadId,
+      category: 'receipt',
+      onProgress: setProgress,
+    });
+
+    const { error: finalizeError } = await supabase
+      .from('receipt_uploads')
+      .update({
+        image_paths: [imagePath],
+        audio_path: null,
+      })
+      .eq('id', uploadId);
+
+    if (finalizeError) throw finalizeError;
+    router.push(`/uploads/${uploadId}`);
+  };
+
+  const saveFoodPhotoFlow = async () => {
+    if (!imageFile) return;
+    const name = dishName.trim();
+    if (!name) {
+      setSaveError('Dish name is required.');
+      return;
+    }
+
+    const supabase = getBrowserSupabaseClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) throw new Error('Missing user session.');
+
+    const finalRestaurantId = await ensureRestaurantId(user.id);
+    const numericPrice = Number(dishPrice.trim());
+    const price = Number.isFinite(numericPrice) && numericPrice > 0 ? numericPrice : null;
+    const dishKey = toDishKey(`${restaurantQuery.trim() || 'unknown-restaurant'} ${name}`);
+    const eatenAt = new Date().toISOString();
+
+    const { data: sourceUpload, error: sourceUploadError } = await supabase
+      .from('receipt_uploads')
+      .insert({
+        user_id: user.id,
+        restaurant_id: finalRestaurantId,
+        status: 'uploaded',
+        type: 'receipt',
+        image_paths: [],
+        visited_at: eatenAt,
+        is_shared: false,
+        share_visibility: 'private',
+      })
+      .select('id')
+      .single();
+    if (sourceUploadError) throw sourceUploadError;
+
+    const sourceUploadId = sourceUpload.id;
+    const entryInsert = await supabase
+      .from('dish_entries')
+      .insert({
+        user_id: user.id,
+        restaurant_id: finalRestaurantId,
+        hangout_id: null,
+        hangout_item_id: null,
+        source_upload_id: sourceUploadId,
+        dish_name: name,
+        price_original: price,
+        currency_original: 'USD',
+        price_usd: price,
+        quantity: 1,
+        eaten_at: eatenAt,
+        dish_key: dishKey,
+        identity_tag: null,
+        comment: null,
+        had_it: true,
+      })
+      .select('id')
+      .single();
+    if (entryInsert.error || !entryInsert.data?.id) throw entryInsert.error ?? new Error('Failed to save food');
+    const dishEntryId = entryInsert.data.id;
+
+    const storageOriginal = await uploadOriginalPhotoDirect({ file: imageFile, kind: 'dish' });
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
+
+    const photoResponse = await fetch('/api/photos/upload', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        kind: 'dish',
+        dish_entry_id: dishEntryId,
+        storage_original: storageOriginal,
+      }),
+    });
+    if (!photoResponse.ok) {
+      const payload = (await photoResponse.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error ?? 'Photo upload failed');
+    }
+
+    await supabase.from('receipt_uploads').update({ image_paths: [storageOriginal] }).eq('id', sourceUploadId);
+
+    router.push('/food');
   };
 
   const onSubmit = async () => {
     if (!captureMode || !imageFile) return;
     setLoading(true);
-
+    setSaveError(null);
     try {
-      const supabase = getBrowserSupabaseClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) throw new Error('Missing user session.');
-
-      let finalRestaurantId: string | null = restaurantId || null;
-
-      if (!finalRestaurantId && restaurantQuery.trim()) {
-        const { data: createdRestaurant, error: restaurantError } = await supabase
-          .from('restaurants')
-          .insert({
-            user_id: user.id,
-            name: restaurantQuery.trim(),
-            place_id: selectedPlace?.placeId ?? null,
-            address: selectedPlace?.address ?? null,
-            lat: selectedPlace?.lat ?? null,
-            lng: selectedPlace?.lng ?? null,
-          })
-          .select('id')
-          .single();
-
-        if (restaurantError) throw restaurantError;
-        finalRestaurantId = createdRestaurant.id;
+      if (captureMode === 'receipt') {
+        await saveReceiptFlow();
+      } else {
+        await saveFoodPhotoFlow();
       }
-
-      const { data: createdUpload, error: uploadError } = await supabase
-        .from('receipt_uploads')
-        .insert({
-          user_id: user.id,
-          restaurant_id: finalRestaurantId,
-          status: 'uploaded',
-          type: 'receipt',
-          image_paths: [],
-          visited_at: new Date().toISOString(),
-          is_shared: isSharedVisit,
-          share_visibility: 'private',
-          visit_lat: userLocation?.lat ?? null,
-          visit_lng: userLocation?.lng ?? null,
-        })
-        .select('id')
-        .single();
-
-      if (uploadError) throw uploadError;
-
-      const uploadId = createdUpload.id as string;
-      const { data: hangoutExisting, error: hangoutExistingError } = await supabase
-        .from('hangouts')
-        .select('id')
-        .eq('id', uploadId)
-        .maybeSingle();
-      if (hangoutExistingError) throw hangoutExistingError;
-      if (!hangoutExisting) {
-        const { error: hangoutInsertError } = await supabase.from('hangouts').insert({
-          id: uploadId,
-          owner_user_id: user.id,
-          restaurant_id: finalRestaurantId,
-          occurred_at: new Date().toISOString(),
-          note: null,
-        });
-        if (hangoutInsertError) throw hangoutInsertError;
-      }
-
-      const { data: participantExisting, error: participantExistingError } = await supabase
-        .from('hangout_participants')
-        .select('hangout_id')
-        .eq('hangout_id', uploadId)
-        .eq('user_id', user.id)
-        .maybeSingle();
-      if (participantExistingError) throw participantExistingError;
-      if (!participantExisting) {
-        const { error: participantError } = await supabase.from('hangout_participants').insert({
-          hangout_id: uploadId,
-          user_id: user.id,
-        });
-        if (participantError) throw participantError;
-      }
-
-      const imagePath = await uploadImage({
-        file: imageFile,
-        userId: user.id,
-        uploadId,
-        category: captureMode === 'receipt' ? 'receipt' : 'dish',
-        onProgress: setProgress,
-      });
-
-      const { error: finalizeError } = await supabase
-        .from('receipt_uploads')
-        .update({
-          image_paths: [imagePath],
-          audio_path: null,
-        })
-        .eq('id', uploadId);
-
-      if (finalizeError) throw finalizeError;
-
-      router.push(`/uploads/${uploadId}`);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not save');
     } finally {
       setLoading(false);
     }
@@ -364,6 +486,25 @@ export default function AddPage() {
             </Button>
           </div>
           <p className="text-xs text-app-muted">{imageFile ? `Selected: ${imageFile.name}` : 'No file selected.'}</p>
+          {photoPreviewUrl ? (
+            <div className="overflow-hidden rounded-xl border border-app-border">
+              <Image src={photoPreviewUrl} alt="Selected meal photo" width={960} height={720} className="h-48 w-full object-cover" unoptimized />
+            </div>
+          ) : null}
+
+          {captureMode === 'food_photo' ? (
+            <div className="space-y-2">
+              <label className={fieldLabelClass}>Dish name</label>
+              <Input value={dishName} onChange={(event) => setDishName(event.target.value)} placeholder="What is this dish?" />
+              <label className={fieldLabelClass}>Price</label>
+              <Input
+                value={dishPrice}
+                onChange={(event) => setDishPrice(event.target.value)}
+                placeholder="Optional"
+                inputMode="decimal"
+              />
+            </div>
+          ) : null}
 
           <div className="space-y-2">
             <label className={fieldLabelClass}>Restaurant</label>
@@ -423,32 +564,45 @@ export default function AddPage() {
             {locationError ? <p className="text-xs text-rose-700 dark:text-rose-300">{locationError}</p> : null}
           </div>
 
-          <div className="space-y-2">
-            <label className={fieldLabelClass}>Who is this for?</label>
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                type="button"
-                variant={!isSharedVisit ? 'primary' : 'secondary'}
-                size="sm"
-                onClick={() => setIsSharedVisit(false)}
-              >
-                Just me
-              </Button>
-              <Button
-                type="button"
-                variant={isSharedVisit ? 'primary' : 'secondary'}
-                size="sm"
-                onClick={() => setIsSharedVisit(true)}
-              >
-                With crew
-              </Button>
+          {captureMode === 'receipt' ? (
+            <div className="space-y-2">
+              <label className={fieldLabelClass}>Who is this for?</label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={!isSharedVisit ? 'primary' : 'secondary'}
+                  size="sm"
+                  onClick={() => setIsSharedVisit(false)}
+                >
+                  Just me
+                </Button>
+                <Button
+                  type="button"
+                  variant={isSharedVisit ? 'primary' : 'secondary'}
+                  size="sm"
+                  onClick={() => setIsSharedVisit(true)}
+                >
+                  With crew
+                </Button>
+              </div>
             </div>
-          </div>
+          ) : null}
 
-          {loading ? <p className="text-sm text-app-muted">Uploading... {Math.round(progress)}%</p> : null}
+          {loading ? (
+            <p className="text-sm text-app-muted">
+              {captureMode === 'receipt' ? `Uploading... ${Math.round(progress)}%` : 'Saving food...'}
+            </p>
+          ) : null}
+          {saveError ? <p className="text-xs text-rose-700 dark:text-rose-300">{saveError}</p> : null}
 
-          <Button type="button" variant="primary" size="lg" onClick={onSubmit} disabled={!imageFile || loading}>
-            {loading ? 'Saving...' : 'Continue to review'}
+          <Button
+            type="button"
+            variant="primary"
+            size="lg"
+            onClick={onSubmit}
+            disabled={!imageFile || loading || (captureMode === 'food_photo' && dishName.trim().length === 0)}
+          >
+            {loading ? 'Saving...' : captureMode === 'receipt' ? 'Continue to review' : 'Save food'}
           </Button>
         </section>
       )}
