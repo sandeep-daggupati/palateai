@@ -113,11 +113,17 @@ function OnboardingOverlay({
   onNext: () => void;
   onFinish: () => Promise<void>;
 }) {
-  const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
+  const [spotlight, setSpotlight] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    height: number;
+    radius: string;
+  } | null>(null);
 
   useEffect(() => {
-    if (!open || typeof window === 'undefined') {
-      setTargetRect(null);
+    if (!open || typeof document === 'undefined' || typeof window === 'undefined') {
+      setSpotlight(null);
       return;
     }
 
@@ -130,24 +136,54 @@ function OnboardingOverlay({
 
     const selector = selectorByStep[step];
     if (!selector) {
-      setTargetRect(null);
+      setSpotlight(null);
       return;
     }
 
-    const updateRect = () => {
-      const target = document.querySelector(selector) as HTMLElement | null;
-      setTargetRect(target?.getBoundingClientRect() ?? null);
+    const target = document.querySelector(selector) as HTMLElement | null;
+    if (!target) {
+      setSpotlight(null);
+      return;
+    }
+
+    let rafId: number | null = null;
+    const updateSpotlight = () => {
+      const rect = target.getBoundingClientRect();
+      const viewportOffsetTop = window.visualViewport?.offsetTop ?? 0;
+      const viewportOffsetLeft = window.visualViewport?.offsetLeft ?? 0;
+      const computed = window.getComputedStyle(target);
+
+      setSpotlight({
+        top: rect.top + viewportOffsetTop,
+        left: rect.left + viewportOffsetLeft,
+        width: rect.width,
+        height: rect.height,
+        radius: computed.borderRadius || '12px',
+      });
     };
 
-    updateRect();
-    const raf = window.requestAnimationFrame(updateRect);
-    window.addEventListener('resize', updateRect);
-    window.addEventListener('scroll', updateRect, true);
+    const scheduleUpdate = () => {
+      if (rafId !== null) return;
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        updateSpotlight();
+      });
+    };
+
+    updateSpotlight();
+    window.addEventListener('scroll', scheduleUpdate, true);
+    window.addEventListener('resize', scheduleUpdate);
+    window.visualViewport?.addEventListener('resize', scheduleUpdate);
+    window.visualViewport?.addEventListener('scroll', scheduleUpdate);
 
     return () => {
-      window.cancelAnimationFrame(raf);
-      window.removeEventListener('resize', updateRect);
-      window.removeEventListener('scroll', updateRect, true);
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+      }
+      window.removeEventListener('scroll', scheduleUpdate, true);
+      window.removeEventListener('resize', scheduleUpdate);
+      window.visualViewport?.removeEventListener('resize', scheduleUpdate);
+      window.visualViewport?.removeEventListener('scroll', scheduleUpdate);
     };
   }, [open, step]);
 
@@ -156,14 +192,17 @@ function OnboardingOverlay({
   return (
     <div className="fixed inset-0 z-[65]">
       <div className="absolute inset-0 bg-black/45" />
-      {targetRect ? (
+      {spotlight ? (
         <div
-          className="pointer-events-none absolute rounded-xl border-2 border-app-primary shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]"
+          aria-hidden
+          className="pointer-events-none fixed z-[66]"
           style={{
-            left: `${targetRect.left}px`,
-            top: `${targetRect.top}px`,
-            width: `${targetRect.width}px`,
-            height: `${targetRect.height}px`,
+            top: spotlight.top,
+            left: spotlight.left,
+            width: spotlight.width,
+            height: spotlight.height,
+            borderRadius: spotlight.radius,
+            boxShadow: '0 0 0 2px var(--color-primary), 0 0 0 8px rgba(31, 61, 43, 0.24)',
           }}
         />
       ) : null}
@@ -184,7 +223,7 @@ function OnboardingOverlay({
         {step === 2 ? (
           <>
             <p className="text-base font-semibold text-app-text">Start with Add</p>
-            <p className="mt-1 text-sm text-app-muted">Tap Add to log your next meal or hangout.</p>
+            <p className="mt-1 text-sm text-app-muted">Log a meal, scan a receipt, or add a food photo. This is where every memory starts.</p>
             <Button type="button" className="mt-3" onClick={onNext}>
               Next
             </Button>
@@ -194,7 +233,7 @@ function OnboardingOverlay({
         {step === 3 ? (
           <>
             <p className="text-base font-semibold text-app-text">Home tab</p>
-            <p className="mt-1 text-sm text-app-muted">Your Home tab is where highlights and insights live.</p>
+            <p className="mt-1 text-sm text-app-muted">Every dish you log lives here. See what you loved, what you want again, and your full food history.</p>
             <Button type="button" className="mt-3" onClick={onNext}>
               Next
             </Button>
@@ -204,7 +243,7 @@ function OnboardingOverlay({
         {step === 4 ? (
           <>
             <p className="text-base font-semibold text-app-text">Food tab</p>
-            <p className="mt-1 text-sm text-app-muted">Use Food to explore your logged dishes and patterns.</p>
+            <p className="mt-1 text-sm text-app-muted">Every meal you log lives here. See what you loved, what you want again, and your full food history.</p>
             <Button type="button" className="mt-3" onClick={onNext}>
               Next
             </Button>
@@ -214,7 +253,7 @@ function OnboardingOverlay({
         {step === 5 ? (
           <>
             <p className="text-base font-semibold text-app-text">Hangouts tab</p>
-            <p className="mt-1 text-sm text-app-muted">Hangouts helps you revisit each meal session with context.</p>
+            <p className="mt-1 text-sm text-app-muted">Hangouts capture shared meals. Tag friends, save the place, and remember the night.</p>
             <Button type="button" className="mt-3" onClick={() => void onFinish()}>
               Finish
             </Button>
