@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { label: 'Home', href: '/' },
   { label: 'Food', href: '/food' },
   { label: 'Hangouts', href: '/hangouts' },
+  { label: 'Profile', href: '/profile' },
 ];
 
 function isActive(pathname: string, href: string): boolean {
@@ -65,6 +66,7 @@ export function AppHeader() {
           <Link
             href="/add"
             aria-label="Add"
+            data-onboarding-target="add-button"
             className="inline-flex h-10 items-center justify-center rounded-xl border border-transparent bg-app-primary px-3 text-sm font-medium text-app-primary-text shadow-sm transition-colors duration-200 hover:bg-app-primary/90"
           >
             Add
@@ -92,6 +94,7 @@ export function AppHeader() {
             <Link
               key={item.href}
               href={item.href}
+              data-onboarding-target={item.href === '/food' ? 'food-tab' : undefined}
               className={cn(
                 'inline-flex h-9 items-center rounded-lg border px-3 text-xs font-medium transition-colors duration-200',
                 active
@@ -107,4 +110,3 @@ export function AppHeader() {
     </header>
   );
 }
-
