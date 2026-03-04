@@ -1061,8 +1061,18 @@ export default function UploadDetailPage() {
         const { error: uploadUpdateError } = await supabase.from('receipt_uploads').update({ restaurant_id: upsertedRestaurant.id }).eq('id', upload.id);
         if (uploadUpdateError) throw uploadUpdateError;
         await supabase.from('hangouts').update({ restaurant_id: upsertedRestaurant.id }).eq('id', upload.id);
+        await supabase
+          .from('dish_entries')
+          .update({ restaurant_id: upsertedRestaurant.id })
+          .eq('hangout_id', upload.id);
+        await supabase
+          .from('dish_entries')
+          .update({ restaurant_id: upsertedRestaurant.id })
+          .eq('source_upload_id', upload.id)
+          .is('restaurant_id', null);
 
         setRestaurant((upsertedRestaurant ?? null) as RestaurantDirectory | null);
+        setUpload((current) => (current ? { ...current, restaurant_id: upsertedRestaurant.id } : current));
         setRestaurantQuery(upsertedRestaurant.name);
         setRestaurantSuggestions([]);
         setRestaurantFocused(false);
@@ -1093,7 +1103,17 @@ export default function UploadDetailPage() {
       const { error: uploadUpdateError } = await supabase.from('receipt_uploads').update({ restaurant_id: createdRestaurant.id }).eq('id', upload.id);
       if (uploadUpdateError) throw uploadUpdateError;
       await supabase.from('hangouts').update({ restaurant_id: createdRestaurant.id }).eq('id', upload.id);
+      await supabase
+        .from('dish_entries')
+        .update({ restaurant_id: createdRestaurant.id })
+        .eq('hangout_id', upload.id);
+      await supabase
+        .from('dish_entries')
+        .update({ restaurant_id: createdRestaurant.id })
+        .eq('source_upload_id', upload.id)
+        .is('restaurant_id', null);
       setRestaurant((createdRestaurant ?? null) as RestaurantDirectory | null);
+      setUpload((current) => (current ? { ...current, restaurant_id: createdRestaurant.id } : current));
       setRestaurantQuery(createdRestaurant.name);
       setManualRestaurantName('');
       setManualRestaurantMode(false);
