@@ -213,6 +213,7 @@ export default function FoodPage() {
         .from('dish_entries')
         .select('id,dish_name,dish_key,restaurant_id,identity_tag,cuisine,flavor_tags,eaten_at,created_at,source_upload_id')
         .eq('user_id', user.id)
+        .not('hangout_id', 'is', null)
         .order('eaten_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false })
         .limit(LIST_LIMIT);

@@ -344,6 +344,7 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
         .select('id,dish_name,dish_key,restaurant_id,identity_tag,comment,created_at,eaten_at,price_original,currency_original,source_upload_id')
         .eq('user_id', user.id)
         .eq('dish_key', foodKey)
+        .not('hangout_id', 'is', null)
         .order('eaten_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false }),
       supabase.from('dish_catalog').select('*').eq('dish_key', foodKey).maybeSingle(),

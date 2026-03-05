@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
-import { uploadOriginalPhotoDirect } from '@/lib/photos/clientUpload';
+import { uploadDishPhoto } from '@/lib/data/photosRepo';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { uploadImage } from '@/lib/storage/uploadImage';
 import { toDishKey } from '@/lib/utils';
@@ -371,15 +371,47 @@ export default function AddPage() {
       .single();
     if (sourceUploadError) throw sourceUploadError;
 
-    const sourceUploadId = sourceUpload.id;
+    const hangoutId = sourceUpload.id;
+    const { error: hangoutInsertError } = await supabase.from('hangouts').upsert({
+      id: hangoutId,
+      owner_user_id: user.id,
+      restaurant_id: finalRestaurantId,
+      occurred_at: eatenAt,
+      note: null,
+    });
+    if (hangoutInsertError) throw hangoutInsertError;
+
+    const { error: participantError } = await supabase.from('hangout_participants').upsert(
+      { hangout_id: hangoutId, user_id: user.id },
+      { onConflict: 'hangout_id,user_id' },
+    );
+    if (participantError) throw participantError;
+
+    const { data: hangoutItem, error: hangoutItemError } = await supabase
+      .from('hangout_items')
+      .insert({
+        hangout_id: hangoutId,
+        source_id: null,
+        name_raw: name,
+        name_final: name,
+        quantity: 1,
+        unit_price: price,
+        currency: 'USD',
+        included: true,
+        confidence: null,
+      })
+      .select('id')
+      .single();
+    if (hangoutItemError || !hangoutItem?.id) throw hangoutItemError ?? new Error('Failed to create food item');
+
     const entryInsert = await supabase
       .from('dish_entries')
       .insert({
         user_id: user.id,
         restaurant_id: finalRestaurantId,
-        hangout_id: null,
-        hangout_item_id: null,
-        source_upload_id: sourceUploadId,
+        hangout_id: hangoutId,
+        hangout_item_id: hangoutItem.id,
+        source_upload_id: hangoutId,
         dish_name: name,
         price_original: price,
         currency_original: 'USD',
@@ -396,28 +428,8 @@ export default function AddPage() {
     if (entryInsert.error || !entryInsert.data?.id) throw entryInsert.error ?? new Error('Failed to save food');
     const dishEntryId = entryInsert.data.id;
 
-    const storageOriginal = await uploadOriginalPhotoDirect({ file: imageFile, kind: 'dish' });
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
-
-    const photoResponse = await fetch('/api/photos/upload', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        kind: 'dish',
-        dish_entry_id: dishEntryId,
-        storage_original: storageOriginal,
-      }),
-    });
-    if (!photoResponse.ok) {
-      const payload = (await photoResponse.json().catch(() => null)) as { error?: string } | null;
-      throw new Error(payload?.error ?? 'Photo upload failed');
-    }
-
-    await supabase.from('receipt_uploads').update({ image_paths: [storageOriginal] }).eq('id', sourceUploadId);
+    const photo = await uploadDishPhoto(hangoutId, dishEntryId, imageFile);
+    if (!photo) throw new Error('Photo upload failed');
 
     router.push('/food');
   };
