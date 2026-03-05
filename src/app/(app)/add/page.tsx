@@ -372,20 +372,37 @@ export default function AddPage() {
     if (sourceUploadError) throw sourceUploadError;
 
     const hangoutId = sourceUpload.id;
-    const { error: hangoutInsertError } = await supabase.from('hangouts').upsert({
-      id: hangoutId,
-      owner_user_id: user.id,
-      restaurant_id: finalRestaurantId,
-      occurred_at: eatenAt,
-      note: null,
-    });
-    if (hangoutInsertError) throw hangoutInsertError;
+    const { data: existingHangout, error: existingHangoutError } = await supabase
+      .from('hangouts')
+      .select('id')
+      .eq('id', hangoutId)
+      .maybeSingle();
+    if (existingHangoutError) throw existingHangoutError;
+    if (!existingHangout) {
+      const { error: hangoutInsertError } = await supabase.from('hangouts').insert({
+        id: hangoutId,
+        owner_user_id: user.id,
+        restaurant_id: finalRestaurantId,
+        occurred_at: eatenAt,
+        note: null,
+      });
+      if (hangoutInsertError) throw hangoutInsertError;
+    }
 
-    const { error: participantError } = await supabase.from('hangout_participants').upsert(
-      { hangout_id: hangoutId, user_id: user.id },
-      { onConflict: 'hangout_id,user_id' },
-    );
-    if (participantError) throw participantError;
+    const { data: existingParticipant, error: existingParticipantError } = await supabase
+      .from('hangout_participants')
+      .select('hangout_id')
+      .eq('hangout_id', hangoutId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (existingParticipantError) throw existingParticipantError;
+    if (!existingParticipant) {
+      const { error: participantError } = await supabase.from('hangout_participants').insert({
+        hangout_id: hangoutId,
+        user_id: user.id,
+      });
+      if (participantError) throw participantError;
+    }
 
     const { data: hangoutItem, error: hangoutItemError } = await supabase
       .from('hangout_items')
