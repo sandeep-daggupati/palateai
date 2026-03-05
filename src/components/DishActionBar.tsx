@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Ban, Camera, FileText, Gem, Pencil, RotateCcw, Sparkles, Star, Wine } from 'lucide-react';
+import { Ban, Camera, Ellipsis, FileText, Gem, Pencil, RotateCcw, Sparkles, Star, Wine } from 'lucide-react';
 import { DishIdentityTag } from '@/lib/supabase/types';
 
 type DishActionBarProps = {
@@ -34,10 +34,12 @@ export function DishActionBar({
   onSaveNote,
 }: DishActionBarProps) {
   const [ratingOpen, setRatingOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [draftNote, setDraftNote] = useState(noteValue ?? '');
 
   const ratingRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const noteRef = useRef<HTMLDivElement | null>(null);
   const noteInputRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -57,6 +59,9 @@ export function DishActionBar({
       if (ratingRef.current && !ratingRef.current.contains(target)) {
         setRatingOpen(false);
       }
+      if (menuRef.current && !menuRef.current.contains(target)) {
+        setMenuOpen(false);
+      }
       if (noteRef.current && !noteRef.current.contains(target)) {
         setNoteOpen(false);
       }
@@ -65,6 +70,7 @@ export function DishActionBar({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setRatingOpen(false);
+        setMenuOpen(false);
         setNoteOpen(false);
       }
     };
@@ -85,10 +91,6 @@ export function DishActionBar({
         <Camera size={16} strokeWidth={ICON_STROKE} />
       </button>
 
-      <button type="button" aria-label="Edit food details" onClick={onEdit} className="icon-button-subtle">
-        <Pencil size={16} strokeWidth={ICON_STROKE} />
-      </button>
-
       <div ref={ratingRef} className="relative">
         <button
           type="button"
@@ -96,6 +98,7 @@ export function DishActionBar({
           aria-expanded={ratingOpen}
           onClick={() => {
             setRatingOpen((prev) => !prev);
+            setMenuOpen(false);
             setNoteOpen(false);
           }}
           className="icon-button-subtle"
@@ -129,21 +132,50 @@ export function DishActionBar({
         )}
       </div>
 
-      <div ref={noteRef} className="relative">
+      <div ref={menuRef} className="relative">
         <button
           type="button"
-          aria-label="Open note editor"
-          aria-expanded={noteOpen}
+          aria-label="More actions"
+          aria-expanded={menuOpen}
           onClick={() => {
-            setNoteOpen((prev) => !prev);
+            setMenuOpen((prev) => !prev);
             setRatingOpen(false);
+            setNoteOpen(false);
           }}
           className="icon-button-subtle relative"
         >
-          <FileText size={16} strokeWidth={ICON_STROKE} />
+          <Ellipsis size={16} strokeWidth={ICON_STROKE} />
           {noteValue.trim().length > 0 ? <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-app-primary" /> : null}
         </button>
+        {menuOpen && (
+          <div className="absolute left-0 top-9 z-30 w-44 rounded-xl border border-app-border bg-app-card p-1.5">
+            <button
+              type="button"
+              className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs text-app-text hover:bg-app-bg/70"
+              onClick={() => {
+                setMenuOpen(false);
+                onEdit();
+              }}
+            >
+              <Pencil size={14} strokeWidth={ICON_STROKE} />
+              Edit details
+            </button>
+            <button
+              type="button"
+              className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs text-app-text hover:bg-app-bg/70"
+              onClick={() => {
+                setMenuOpen(false);
+                setNoteOpen(true);
+              }}
+            >
+              <FileText size={14} strokeWidth={ICON_STROKE} />
+              {noteValue.trim().length > 0 ? 'Edit note' : 'Add note'}
+            </button>
+          </div>
+        )}
+      </div>
 
+      <div ref={noteRef} className="relative">
         {noteOpen && (
           <div className="absolute left-0 top-9 z-30 w-64 max-w-[80vw] rounded-xl border border-app-border bg-app-card p-2">
             <textarea
