@@ -473,34 +473,16 @@ export default function UploadDetailPage() {
       }));
     }
 
-    let myEntries = [] as Array<Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>>;
     const myEntriesPrimary = await supabase
       .from('dish_entries')
       .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
       .eq('hangout_id', uploadId)
       .eq('user_id', user.id);
+    const myEntries = (myEntriesPrimary.data ?? []) as Array<
+      Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>
+    >;
 
-    if (myEntriesPrimary.error) {
-      const myEntriesFallback = await supabase
-        .from('dish_entries')
-        .select('id,dish_name,dish_key,identity_tag,comment')
-        .eq('source_upload_id', uploadId)
-        .eq('user_id', user.id);
-
-      myEntries = ((myEntriesFallback.data ?? []) as Array<Pick<DishEntry, 'id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>>).map(
-        (entry) => ({ ...entry, hangout_item_id: null }),
-      );
-    } else {
-      myEntries = (myEntriesPrimary.data ?? []) as Array<
-        Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>
-      >;
-    }
-
-    const allEntriesPrimary = await supabase.from('dish_entries').select('id,hangout_item_id,dish_name').eq('hangout_id', uploadId);
-    const allEntriesResult =
-      allEntriesPrimary.error
-        ? await supabase.from('dish_entries').select('id,dish_name').eq('source_upload_id', uploadId)
-        : allEntriesPrimary;
+    const allEntriesResult = await supabase.from('dish_entries').select('id,hangout_item_id,dish_name').eq('hangout_id', uploadId);
     const entryMap: Record<string, { hangout_item_id: string | null; dish_name: string }> = {};
     for (const entry of (allEntriesResult.data ?? []) as Array<Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name'>>) {
       entryMap[entry.id] = {
@@ -695,66 +677,50 @@ export default function UploadDetailPage() {
       };
 
       const supabase = getBrowserSupabaseClient();
-      // First, upgrade any legacy row keyed by (user_id, source_upload_id, dish_key).
-      const { data: legacyExisting } = await supabase
+      const { data: existing, error: existingError } = await supabase
         .from('dish_entries')
-        .select('id')
+        .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
         .eq('user_id', currentUserId)
-        .eq('source_upload_id', upload.id)
-        .eq('dish_key', dishKey)
+        .eq('hangout_id', upload.id)
+        .eq('hangout_item_id', row.hangoutItem.id)
         .maybeSingle();
 
-      if (legacyExisting?.id) {
-        const { data: updatedLegacy, error: updatedLegacyError } = await supabase
+      if (existingError) return;
+
+      if (existing?.id) {
+        const { data: updatedExisting, error: updateError } = await supabase
           .from('dish_entries')
           .update(payload)
-          .eq('id', legacyExisting.id)
+          .eq('id', existing.id)
           .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
           .single();
 
-        if (!updatedLegacyError && updatedLegacy) {
-          const savedLegacy = updatedLegacy as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
+        if (!updateError && updatedExisting) {
+          const savedExisting = updatedExisting as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
           setFood((prev) =>
             prev.map((entry) =>
               entry.hangoutItem.id === row.hangoutItem.id
                 ? {
                     ...entry,
-                    myEntry: savedLegacy,
+                    myEntry: savedExisting,
                   }
                 : entry,
             ),
           );
-          void enrichDishCatalog(savedLegacy.id);
+          void enrichDishCatalog(savedExisting.id);
           return;
         }
+        return;
       }
 
-      let saved: Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'> | null = null;
-      const primaryResult = await supabase
+      const insertResult = await supabase
         .from('dish_entries')
-        .upsert(payload, { onConflict: 'user_id,hangout_item_id' })
+        .insert(payload)
         .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
         .single();
 
-      if (!primaryResult.error && primaryResult.data) {
-        saved = primaryResult.data as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
-      } else {
-        const fallbackPayload = {
-          ...payload,
-          hangout_item_id: undefined,
-        };
-        const fallbackResult = await supabase
-          .from('dish_entries')
-          .upsert(fallbackPayload, { onConflict: 'user_id,source_upload_id,dish_key' })
-          .select('id,dish_name,dish_key,identity_tag,comment')
-          .single();
-        if (!fallbackResult.error && fallbackResult.data) {
-          const row = fallbackResult.data as Pick<DishEntry, 'id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
-          saved = { ...row, hangout_item_id: null };
-        }
-      }
-
-      if (!saved) return;
+      if (insertResult.error || !insertResult.data) return;
+      const saved = insertResult.data as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
       void enrichDishCatalog(saved.id);
       setFood((prev) =>
         prev.map((entry) =>
@@ -786,23 +752,9 @@ export default function UploadDetailPage() {
       if (!primary.error && primary.data) {
         return primary.data as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
       }
-
-      const dishName = row.hangoutItem.name_final || row.hangoutItem.name_raw;
-      const dishKey = toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`);
-      const legacy = await supabase
-        .from('dish_entries')
-        .select('id,dish_name,dish_key,identity_tag,comment')
-        .eq('user_id', currentUserId)
-        .eq('source_upload_id', upload.id)
-        .eq('dish_key', dishKey)
-        .maybeSingle();
-      if (!legacy.error && legacy.data) {
-        const entry = legacy.data as Pick<DishEntry, 'id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
-        return { ...entry, hangout_item_id: null };
-      }
       return null;
     },
-    [currentUserId, restaurant?.name, upload?.id, upsertMyDishEntry],
+    [currentUserId, upload?.id, upsertMyDishEntry],
   );
 
   const handleUploadHangoutPhoto = useCallback(
@@ -1113,11 +1065,6 @@ export default function UploadDetailPage() {
           .from('dish_entries')
           .update({ restaurant_id: upsertedRestaurant.id })
           .eq('hangout_id', upload.id);
-        await supabase
-          .from('dish_entries')
-          .update({ restaurant_id: upsertedRestaurant.id })
-          .eq('source_upload_id', upload.id)
-          .is('restaurant_id', null);
 
         setRestaurant((upsertedRestaurant ?? null) as RestaurantDirectory | null);
         setUpload((current) => (current ? { ...current, restaurant_id: upsertedRestaurant.id } : current));
@@ -1155,11 +1102,6 @@ export default function UploadDetailPage() {
         .from('dish_entries')
         .update({ restaurant_id: createdRestaurant.id })
         .eq('hangout_id', upload.id);
-      await supabase
-        .from('dish_entries')
-        .update({ restaurant_id: createdRestaurant.id })
-        .eq('source_upload_id', upload.id)
-        .is('restaurant_id', null);
       setRestaurant((createdRestaurant ?? null) as RestaurantDirectory | null);
       setUpload((current) => (current ? { ...current, restaurant_id: createdRestaurant.id } : current));
       setRestaurantQuery(createdRestaurant.name);
@@ -1332,9 +1274,6 @@ export default function UploadDetailPage() {
     setSaveHangoutLoading(true);
     try {
       const promotedImagePaths = await promoteTempReceiptImages();
-      for (const row of activeFood) {
-        await upsertMyDishEntry(row, {});
-      }
       const supabase = getBrowserSupabaseClient();
       await supabase
         .from('receipt_uploads')
@@ -1384,7 +1323,7 @@ export default function UploadDetailPage() {
     } finally {
       setSaveHangoutLoading(false);
     }
-  }, [currentUserId, dishes, getAuthHeader, isReceiptCapture, promoteTempReceiptImages, router, upload, upsertMyDishEntry, visitNote]);
+  }, [currentUserId, dishes, getAuthHeader, isReceiptCapture, promoteTempReceiptImages, router, upload, visitNote]);
 
   const removeParticipant = async (participantId: string) => {
     if (!upload) return;
