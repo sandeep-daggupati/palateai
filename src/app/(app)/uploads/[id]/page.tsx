@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { CheckCircle2, ChevronDown, Clock3, Globe, MapPin, Navigation, Pencil, Phone, Sparkles, X } from 'lucide-react';
+import { Check, CheckCircle2, ChevronDown, Clock3, Globe, MapPin, Navigation, Pencil, Phone, Sparkles, X } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { DishActionBar } from '@/components/DishActionBar';
@@ -257,6 +257,9 @@ export default function UploadDetailPage() {
   const [restaurantFocused, setRestaurantFocused] = useState(false);
   const [manualRestaurantMode, setManualRestaurantMode] = useState(false);
   const [manualRestaurantName, setManualRestaurantName] = useState('');
+  const [restaurantNameEditing, setRestaurantNameEditing] = useState(false);
+  const [restaurantNameDraft, setRestaurantNameDraft] = useState('');
+  const [restaurantNameSaving, setRestaurantNameSaving] = useState(false);
   const [cancelingDraft, setCancelingDraft] = useState(false);
   const [receiptReplaceSheetOpen, setReceiptReplaceSheetOpen] = useState(false);
   const receiptReplaceCameraInputRef = useRef<HTMLInputElement | null>(null);
@@ -346,6 +349,11 @@ export default function UploadDetailPage() {
     }
     setRestaurantQuery(restaurant.name ?? '');
   }, [restaurant]);
+
+  useEffect(() => {
+    if (restaurantNameEditing) return;
+    setRestaurantNameDraft(restaurant?.name ?? '');
+  }, [restaurant?.name, restaurantNameEditing]);
 
   useEffect(() => {
     if (restaurantQuery.trim().length < 2) {
@@ -1041,6 +1049,36 @@ export default function UploadDetailPage() {
     }
   };
 
+  const saveRestaurantName = useCallback(async () => {
+    if (!isHost || !restaurant?.id) return;
+    const nextName = restaurantNameDraft.trim();
+    if (!nextName || nextName === (restaurant.name ?? '').trim()) {
+      setRestaurantNameEditing(false);
+      setRestaurantNameDraft(restaurant.name ?? '');
+      return;
+    }
+
+    setRestaurantNameSaving(true);
+    setRestaurantLookupError(null);
+    try {
+      const supabase = getBrowserSupabaseClient();
+      const { data: updatedRestaurant, error } = await supabase
+        .from('restaurants')
+        .update({ name: nextName })
+        .eq('id', restaurant.id)
+        .select('id,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
+        .single();
+      if (error) throw error;
+
+      setRestaurant((updatedRestaurant ?? null) as RestaurantDirectory | null);
+      setRestaurantNameEditing(false);
+    } catch (error) {
+      setRestaurantLookupError(error instanceof Error ? error.message : 'Could not update restaurant name');
+    } finally {
+      setRestaurantNameSaving(false);
+    }
+  }, [isHost, restaurant, restaurantNameDraft]);
+
   const onSelectRestaurantSuggestion = useCallback(
     async (suggestion: PlaceSuggestion) => {
       if (!upload || !currentUserId) return;
@@ -1405,7 +1443,54 @@ export default function UploadDetailPage() {
       <div className="card-surface space-y-3 p-3">
         <div className="min-w-0 space-y-0.5">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="truncate text-2xl font-semibold leading-7 text-app-text">{restaurant?.name ?? 'Restaurant not detected'}</h1>
+            {restaurantNameEditing ? (
+              <div className="flex min-w-0 items-center gap-2">
+                <input
+                  value={restaurantNameDraft}
+                  onChange={(event) => setRestaurantNameDraft(event.target.value)}
+                  className="h-9 min-w-0 rounded-lg border border-app-border bg-app-bg px-2.5 text-base text-app-text focus:outline-none focus:ring-2 focus:ring-app-primary/35"
+                  aria-label="Restaurant name"
+                />
+                <button
+                  type="button"
+                  className="icon-button-subtle"
+                  aria-label="Save restaurant name"
+                  onClick={() => void saveRestaurantName()}
+                  disabled={restaurantNameSaving}
+                >
+                  <Check size={15} strokeWidth={1.8} />
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-8 items-center text-xs font-medium text-app-link underline underline-offset-2"
+                  onClick={() => {
+                    setRestaurantNameEditing(false);
+                    setRestaurantNameDraft(restaurant?.name ?? '');
+                  }}
+                  disabled={restaurantNameSaving}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <>
+                <h1 className="truncate text-2xl font-semibold leading-7 text-app-text">{restaurant?.name ?? 'Restaurant not detected'}</h1>
+                {isHost && restaurant?.id ? (
+                  <button
+                    type="button"
+                    className="icon-button-subtle"
+                    aria-label="Edit restaurant name"
+                    title="Edit restaurant name"
+                    onClick={() => {
+                      setRestaurantNameDraft(restaurant.name ?? '');
+                      setRestaurantNameEditing(true);
+                    }}
+                  >
+                    <Pencil size={14} strokeWidth={1.6} />
+                  </button>
+                ) : null}
+              </>
+            )}
             {isSavedHangout ? (
               <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300/60 bg-emerald-100/30 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
                 <CheckCircle2 size={12} strokeWidth={1.7} />
@@ -1462,7 +1547,7 @@ export default function UploadDetailPage() {
             </p>
           ) : null}
         </div>
-        {isHost ? (
+        {isHost && !restaurant ? (
           <div className="relative space-y-1">
             {!restaurant ? (
               <div className="flex flex-wrap gap-2 pb-1">
@@ -1524,9 +1609,9 @@ export default function UploadDetailPage() {
                 </Button>
               </div>
             )}
-            {restaurantLookupError ? <p className="text-xs text-rose-700 dark:text-rose-300">{restaurantLookupError}</p> : null}
           </div>
         ) : null}
+        {restaurantLookupError ? <p className="text-xs text-rose-700 dark:text-rose-300">{restaurantLookupError}</p> : null}
         {hangoutSummary?.caption_text ? (
           <div className="rounded-lg border border-app-border border-l-2 border-l-app-primary bg-app-primary/5 px-2.5 py-2">
             <div className="mb-1 flex items-center justify-between gap-2">
