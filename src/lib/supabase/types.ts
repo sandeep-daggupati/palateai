@@ -446,18 +446,30 @@ export type Database = {
         Row: {
           hangout_id: string;
           summary_text: string;
+          caption_text: string | null;
+          caption_source: string | null;
+          caption_generated_at: string | null;
+          caption_options: Json | null;
           metadata: Json | null;
           generated_at: string;
         };
         Insert: {
           hangout_id: string;
           summary_text: string;
+          caption_text?: string | null;
+          caption_source?: string | null;
+          caption_generated_at?: string | null;
+          caption_options?: Json | null;
           metadata?: Json | null;
           generated_at?: string;
         };
         Update: {
           hangout_id?: string;
           summary_text?: string;
+          caption_text?: string | null;
+          caption_source?: string | null;
+          caption_generated_at?: string | null;
+          caption_options?: Json | null;
           metadata?: Json | null;
           generated_at?: string;
         };
@@ -697,6 +709,5 @@ export type Photo = Database['public']['Tables']['photos']['Row'];
 export type TableRow<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
 export type TableInsert<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Insert'];
 export type TableUpdate<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Update'];
-
 
 

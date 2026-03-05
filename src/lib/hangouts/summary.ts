@@ -276,11 +276,16 @@ export async function getOrCreateHangoutSummary(hangoutId: string, viewerUserId:
     .single();
 
   if (error || !data) {
+    const generatedAt = new Date().toISOString();
     return {
       hangout_id: hangoutId,
       summary_text: generated.summary_text,
+      caption_text: generated.summary_text,
+      caption_source: ai ? 'openai' : 'fallback',
+      caption_generated_at: generatedAt,
+      caption_options: null,
       metadata: metadata as Json,
-      generated_at: new Date().toISOString(),
+      generated_at: generatedAt,
     };
   }
 

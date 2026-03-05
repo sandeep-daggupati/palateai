@@ -1,47 +1,9 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { Database } from '@/lib/supabase/types';
-import { getOrCreateHangoutSummary } from '@/lib/hangouts/summary';
-
-function getAnonSupabaseClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-
-  if (!url || !anonKey) {
-    throw new Error('Missing Supabase public environment variables.');
-  }
-
-  return createClient<Database>(url, anonKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-}
-
-async function authorize(request: Request) {
-  const authHeader = request.headers.get('authorization');
-  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : null;
-
-  if (!token) {
-    return { error: NextResponse.json({ ok: false, error: 'Missing auth token' }, { status: 401 }) };
-  }
-
-  const anon = getAnonSupabaseClient();
-  const {
-    data: { user },
-    error,
-  } = await anon.auth.getUser(token);
-
-  if (error || !user) {
-    return { error: NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 }) };
-  }
-
-  return { user };
-}
+import { authorizeRequest } from '@/lib/api/auth';
+import { canUserAccessHangout, getExistingHangoutCaption } from '@/lib/hangouts/caption';
 
 export async function GET(request: Request) {
-  const auth = await authorize(request);
+  const auth = await authorizeRequest(request);
   if ('error' in auth) return auth.error;
 
   const { searchParams } = new URL(request.url);
@@ -52,11 +14,12 @@ export async function GET(request: Request) {
   }
 
   try {
-    const summary = await getOrCreateHangoutSummary(hangoutId, auth.user.id);
-    if (!summary) {
-      return NextResponse.json({ ok: true, summary: null });
+    const canAccess = await canUserAccessHangout(hangoutId, auth.userId);
+    if (!canAccess) {
+      return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 });
     }
 
+    const summary = await getExistingHangoutCaption(hangoutId);
     return NextResponse.json({ ok: true, summary });
   } catch (error) {
     console.error('Failed to load hangout summary:', error);
