@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Clock3, Globe, MapPin, Navigation, Pencil, Phone, Sparkles, X } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Clock3, Globe, MapPin, Navigation, Pencil, Phone, Sparkles, X } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { DishActionBar } from '@/components/DishActionBar';
@@ -205,6 +205,7 @@ export default function UploadDetailPage() {
   const [captionSaving, setCaptionSaving] = useState(false);
   const [captionRegenerating, setCaptionRegenerating] = useState(false);
   const [captionError, setCaptionError] = useState<string | null>(null);
+  const [hoursExpanded, setHoursExpanded] = useState(false);
   const [hiddenItemsOpen, setHiddenItemsOpen] = useState(false);
 
   const [participants, setParticipants] = useState<CrewMember[]>([]);
@@ -1394,17 +1395,73 @@ export default function UploadDetailPage() {
     .filter((participant) => participant.status === 'active')
     .map((participant) => participant.display_name ?? 'Buddy');
   const withLabel = withNames.length > 0 ? withNames.join(', ') : 'Solo';
+  const isSavedHangout = upload.status === 'approved';
   const directionsHref = getGoogleMapsLink(restaurant?.place_id, restaurant?.address, restaurant?.name);
   const todayHours = getTodayHours(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
   const openNow = getOpenNowStatus(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-2 pb-4">
-      <div className="card-surface p-3 space-y-2">
-        <h1 className="text-2xl font-semibold leading-7 text-app-text">{restaurant?.name ?? 'Restaurant not detected'}</h1>
-        <p className="text-xs leading-4 text-app-muted">
-          {visitDate} · With {withLabel}
-        </p>
+    <div className="mx-auto w-full max-w-3xl space-y-3 pb-4">
+      <div className="card-surface space-y-3 p-3">
+        <div className="min-w-0 space-y-0.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="truncate text-2xl font-semibold leading-7 text-app-text">{restaurant?.name ?? 'Restaurant not detected'}</h1>
+            {isSavedHangout ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300/60 bg-emerald-100/30 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+                <CheckCircle2 size={12} strokeWidth={1.7} />
+                Saved
+              </span>
+            ) : null}
+          </div>
+          <p className="text-xs leading-4 text-app-muted">
+            {visitDate} · With {withLabel}
+          </p>
+        </div>
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-4 text-app-muted">
+            {restaurant?.address ? (
+              <p className="flex items-center gap-1">
+                <MapPin size={13} strokeWidth={1.5} />
+                {restaurant.address}
+              </p>
+            ) : null}
+            {openNow === true ? <p className="text-emerald-700 dark:text-emerald-300">Open now</p> : null}
+            {openNow === false ? <p>Closed now</p> : null}
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {directionsHref ? (
+                <a href={directionsHref} target="_blank" rel="noreferrer" aria-label="Open directions" className="icon-button-subtle">
+                  <Navigation size={16} strokeWidth={1.5} />
+                </a>
+              ) : null}
+              {restaurant?.phone_number ? (
+                <a href={`tel:${restaurant.phone_number}`} aria-label="Call restaurant" className="icon-button-subtle">
+                  <Phone size={16} strokeWidth={1.5} />
+                </a>
+              ) : null}
+              {restaurant?.website ? (
+                <a href={restaurant.website} target="_blank" rel="noreferrer" aria-label="Open website" className="icon-button-subtle">
+                  <Globe size={16} strokeWidth={1.5} />
+                </a>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              className="inline-flex h-8 items-center gap-1 text-xs font-medium text-app-link underline underline-offset-2"
+              onClick={() => setHoursExpanded((prev) => !prev)}
+            >
+              Hours
+              <ChevronDown size={14} strokeWidth={1.6} className={hoursExpanded ? 'rotate-180 transition-transform' : 'transition-transform'} />
+            </button>
+          </div>
+          {hoursExpanded ? (
+            <p className="flex items-center gap-1 text-xs leading-4 text-app-muted">
+              <Clock3 size={13} strokeWidth={1.5} />
+              {todayHours ?? (placeSyncLoading ? 'Syncing hours...' : 'Hours not available yet.')}
+            </p>
+          ) : null}
+        </div>
         {isHost ? (
           <div className="relative space-y-1">
             {!restaurant ? (
@@ -1471,11 +1528,11 @@ export default function UploadDetailPage() {
           </div>
         ) : null}
         {hangoutSummary?.caption_text ? (
-          <div className="rounded-lg border border-app-border bg-app-card/70 px-2.5 py-2">
+          <div className="rounded-lg border border-app-border border-l-2 border-l-app-primary bg-app-primary/5 px-2.5 py-2">
             <div className="mb-1 flex items-center justify-between gap-2">
               <div className="inline-flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.08em] text-app-muted" title="Generated by PalateAI. Edit anytime.">
-                <Sparkles size={12} strokeWidth={1.5} />
-                AI caption
+                {hangoutSummary.caption_source === 'user' ? null : <Sparkles size={12} strokeWidth={1.5} />}
+                {hangoutSummary.caption_source === 'user' ? 'Edited' : 'AI caption'}
               </div>
               {isHost ? (
                 <div className="flex items-center gap-1">
@@ -1498,7 +1555,7 @@ export default function UploadDetailPage() {
                     onClick={() => void regenerateCaption()}
                     disabled={captionRegenerating}
                   >
-                    {captionRegenerating ? 'Regenerating...' : 'Regenerate'}
+                    {captionRegenerating ? 'Trying...' : 'Try another caption'}
                   </button>
                 </div>
               ) : null}
@@ -1527,7 +1584,7 @@ export default function UploadDetailPage() {
               </div>
             ) : (
               <>
-                <p className="text-sm leading-5 text-app-muted">
+                <p className="text-sm leading-5 text-app-muted/90">
                   {captionExpanded ? hangoutSummary.caption_text : truncateText(hangoutSummary.caption_text, 120)}
                 </p>
                 {hangoutSummary.caption_text.length > 120 ? (
@@ -1543,49 +1600,6 @@ export default function UploadDetailPage() {
             )}
           </div>
         ) : null}
-        {visitNote && <p className="text-sm italic leading-5 text-app-text">“{visitNote}”</p>}
-
-        <div className="flex flex-wrap items-center gap-2">
-          {directionsHref && (
-            <a href={directionsHref} target="_blank" rel="noreferrer" aria-label="Open directions" className="icon-button-subtle">
-              <Navigation size={16} strokeWidth={1.5} />
-            </a>
-          )}
-          {restaurant?.phone_number && (
-            <a href={`tel:${restaurant.phone_number}`} aria-label="Call restaurant" className="icon-button-subtle">
-              <Phone size={16} strokeWidth={1.5} />
-            </a>
-          )}
-          {restaurant?.website && (
-            <a href={restaurant.website} target="_blank" rel="noreferrer" aria-label="Open website" className="icon-button-subtle">
-              <Globe size={16} strokeWidth={1.5} />
-            </a>
-          )}
-          {restaurant?.address && (
-            <p className="flex items-center gap-1 text-xs leading-4 text-app-muted">
-              <MapPin size={13} strokeWidth={1.5} />
-              {restaurant.address}
-            </p>
-          )}
-          {openNow === true && <p className="flex items-center text-xs leading-4 text-emerald-700 dark:text-emerald-300">Open now</p>}
-          {openNow === false && <p className="flex items-center text-xs leading-4 text-app-muted">Closed now</p>}
-          {todayHours ? (
-            <p className="flex items-center gap-1 text-xs leading-4 text-app-muted">
-              <Clock3 size={13} strokeWidth={1.5} />
-              {todayHours}
-            </p>
-          ) : placeSyncLoading ? (
-            <p className="flex items-center gap-1 text-xs leading-4 text-app-muted">
-              <Clock3 size={13} strokeWidth={1.5} />
-              Syncing hours...
-            </p>
-          ) : (
-            <p className="flex items-center gap-1 text-xs leading-4 text-app-muted">
-              <Clock3 size={13} strokeWidth={1.5} />
-              Hours not available yet.
-            </p>
-          )}
-        </div>
       </div>
       <input
         ref={receiptReplaceUploadInputRef}
@@ -1665,7 +1679,7 @@ export default function UploadDetailPage() {
         }}
       />
       {hangoutPhotos.length > 0 ? (
-        <div className="card-surface p-3 space-y-2">
+        <div className="card-surface p-3 space-y-2.5">
           <div className="flex items-center justify-between gap-2">
             <h2 className="section-label">Hangout photos</h2>
             <Button
@@ -1677,7 +1691,7 @@ export default function UploadDetailPage() {
               onClick={() => setHangoutSheetOpen(true)}
               disabled={uploadingHangoutPhoto}
             >
-              {uploadingHangoutPhoto ? 'Uploading photo...' : 'Add hangout photo'}
+              {uploadingHangoutPhoto ? 'Uploading photo...' : 'Add photos'}
             </Button>
           </div>
           <div className="grid grid-cols-3 gap-2">
@@ -1711,7 +1725,7 @@ export default function UploadDetailPage() {
             onClick={() => setHangoutSheetOpen(true)}
             disabled={uploadingHangoutPhoto}
           >
-            {uploadingHangoutPhoto ? 'Uploading photo...' : 'Add hangout photo'}
+            {uploadingHangoutPhoto ? 'Uploading photo...' : 'Add photos'}
           </Button>
         </div>
       )}
@@ -1842,7 +1856,20 @@ export default function UploadDetailPage() {
         </div>
       )}
 
-      <div className="card-surface p-3 space-y-2">
+      {isHost && (
+        <div className="card-surface p-3 space-y-2">
+          <h2 className="section-label">Overall vibe</h2>
+          <Input
+            value={visitNote}
+            maxLength={VISIT_NOTE_MAX}
+            onChange={(e) => setVisitNote(e.target.value.slice(0, VISIT_NOTE_MAX))}
+            placeholder="Share the vibe in one line"
+          />
+          <p className="text-xs text-app-muted">{visitNote.length}/{VISIT_NOTE_MAX}</p>
+        </div>
+      )}
+
+      <div className="card-surface p-3 space-y-2.5">
         <div className="flex items-center justify-between gap-2">
           <h2 className="section-label">Food</h2>
           {isHost &&
@@ -2066,21 +2093,8 @@ export default function UploadDetailPage() {
         )}
       </div>
 
-      {isHost && (
-        <div className="card-surface p-3 space-y-2">
-          <h2 className="section-label">Overall vibe</h2>
-          <Input
-            value={visitNote}
-            maxLength={VISIT_NOTE_MAX}
-            onChange={(e) => setVisitNote(e.target.value.slice(0, VISIT_NOTE_MAX))}
-            placeholder="Share the vibe in one line"
-          />
-          <p className="text-xs text-app-muted">{visitNote.length}/{VISIT_NOTE_MAX}</p>
-        </div>
-      )}
-
       {isHost ? (
-        <div className="card-surface p-3 space-y-2">
+        <div className="card-surface p-3 space-y-2.5">
           {saveHangoutError ? <p className="text-sm text-rose-700 dark:text-rose-300">{saveHangoutError}</p> : null}
           <div className="grid grid-cols-2 gap-2">
             <Button type="button" variant="secondary" size="lg" onClick={() => void cancelHangoutDraft()} disabled={saveHangoutLoading || cancelingDraft}>
