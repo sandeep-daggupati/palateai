@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Clock3, Globe, MapPin, Navigation, Phone, X } from 'lucide-react';
+import { Clock3, Globe, MapPin, Navigation, Pencil, Phone, Sparkles, X } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { DishActionBar } from '@/components/DishActionBar';
@@ -199,7 +199,12 @@ export default function UploadDetailPage() {
 
   const [visitNote, setVisitNote] = useState('');
   const [hangoutSummary, setHangoutSummary] = useState<HangoutSummary | null>(null);
-  const [summaryExpanded, setSummaryExpanded] = useState(false);
+  const [captionExpanded, setCaptionExpanded] = useState(false);
+  const [captionEditing, setCaptionEditing] = useState(false);
+  const [captionDraft, setCaptionDraft] = useState('');
+  const [captionSaving, setCaptionSaving] = useState(false);
+  const [captionRegenerating, setCaptionRegenerating] = useState(false);
+  const [captionError, setCaptionError] = useState<string | null>(null);
   const [hiddenItemsOpen, setHiddenItemsOpen] = useState(false);
 
   const [participants, setParticipants] = useState<CrewMember[]>([]);
@@ -310,7 +315,7 @@ export default function UploadDetailPage() {
     setParticipants(payload.participants ?? []);
   }, [getAuthHeader, uploadId]);
 
-  const loadHangoutSummary = useCallback(async () => {
+  const loadHangoutCaption = useCallback(async () => {
     if (!isReceiptCapture) {
       setHangoutSummary(null);
       return;
@@ -319,14 +324,18 @@ export default function UploadDetailPage() {
     const headers = await getAuthHeader();
     if (!headers.Authorization) return;
 
-    const response = await fetch(`/api/hangouts/summary?hangoutId=${encodeURIComponent(uploadId)}`, { headers });
+    const response = await fetch(`/api/caption?hangout_id=${encodeURIComponent(uploadId)}`, { headers });
     if (!response.ok) {
       setHangoutSummary(null);
       return;
     }
 
-    const payload = (await response.json()) as { summary?: HangoutSummary };
-    setHangoutSummary(payload.summary ?? null);
+    const payload = (await response.json()) as { caption?: HangoutSummary };
+    const caption = payload.caption ?? null;
+    setHangoutSummary(caption);
+    if (caption?.caption_text) {
+      setCaptionDraft(caption.caption_text);
+    }
   }, [getAuthHeader, isReceiptCapture, uploadId]);
 
   useEffect(() => {
@@ -540,11 +549,11 @@ export default function UploadDetailPage() {
 
     await loadParticipants();
     if (inferCaptureMode(typedUpload) === 'receipt') {
-      await loadHangoutSummary();
+      await loadHangoutCaption();
     } else {
       setHangoutSummary(null);
     }
-  }, [loadHangoutSummary, loadParticipants, uploadId]);
+  }, [loadHangoutCaption, loadParticipants, uploadId]);
 
   useEffect(() => {
     void load();
@@ -1201,6 +1210,77 @@ export default function UploadDetailPage() {
     [currentUserId, runExtraction, upload],
   );
 
+  const saveCaptionOverride = useCallback(async () => {
+    if (!upload?.id || !isHost) return;
+    const nextText = captionDraft.trim();
+    if (!nextText) {
+      setCaptionError('Caption cannot be empty.');
+      return;
+    }
+
+    setCaptionSaving(true);
+    setCaptionError(null);
+    try {
+      const headers = await getAuthHeader();
+      const response = await fetch('/api/caption', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...headers,
+        },
+        body: JSON.stringify({
+          hangout_id: upload.id,
+          caption_text: nextText,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as { caption?: HangoutSummary; error?: string } | null;
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Could not save caption');
+      }
+      if (payload?.caption) {
+        setHangoutSummary(payload.caption);
+        setCaptionDraft(payload.caption.caption_text ?? nextText);
+      }
+      setCaptionEditing(false);
+    } catch (error) {
+      setCaptionError(error instanceof Error ? error.message : 'Could not save caption');
+    } finally {
+      setCaptionSaving(false);
+    }
+  }, [captionDraft, getAuthHeader, isHost, upload?.id]);
+
+  const regenerateCaption = useCallback(async () => {
+    if (!upload?.id || !isHost) return;
+    setCaptionRegenerating(true);
+    setCaptionError(null);
+    try {
+      const headers = await getAuthHeader();
+      const response = await fetch('/api/caption', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...headers,
+        },
+        body: JSON.stringify({
+          hangout_id: upload.id,
+          force: true,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as { caption?: HangoutSummary; error?: string } | null;
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Could not regenerate caption');
+      }
+      if (payload?.caption) {
+        setHangoutSummary(payload.caption);
+        setCaptionDraft(payload.caption.caption_text ?? '');
+      }
+    } catch (error) {
+      setCaptionError(error instanceof Error ? error.message : 'Could not regenerate caption');
+    } finally {
+      setCaptionRegenerating(false);
+    }
+  }, [getAuthHeader, isHost, upload?.id]);
+
   const saveHangout = useCallback(async () => {
     if (!upload || !currentUserId) return;
     setSaveHangoutError(null);
@@ -1235,6 +1315,29 @@ export default function UploadDetailPage() {
         .eq('id', upload.id)
         .eq('owner_user_id', currentUserId);
 
+      if (isReceiptCapture) {
+        try {
+          const headers = await getAuthHeader();
+          const response = await fetch('/api/caption', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...headers,
+            },
+            body: JSON.stringify({ hangout_id: upload.id }),
+          });
+          if (response.ok) {
+            const payload = (await response.json()) as { caption?: HangoutSummary };
+            if (payload.caption) {
+              setHangoutSummary(payload.caption);
+              setCaptionDraft(payload.caption.caption_text ?? '');
+            }
+          }
+        } catch {
+          // Caption generation is best-effort and should never block save.
+        }
+      }
+
       setSaveHangoutToast('Hangout saved');
       window.setTimeout(() => setSaveHangoutToast(null), 1800);
       await new Promise((resolve) => window.setTimeout(resolve, 500));
@@ -1242,7 +1345,7 @@ export default function UploadDetailPage() {
     } finally {
       setSaveHangoutLoading(false);
     }
-  }, [currentUserId, dishes, promoteTempReceiptImages, router, upload, upsertMyDishEntry, visitNote]);
+  }, [currentUserId, dishes, getAuthHeader, isReceiptCapture, promoteTempReceiptImages, router, upload, upsertMyDishEntry, visitNote]);
 
   const removeParticipant = async (participantId: string) => {
     if (!upload) return;
@@ -1367,20 +1470,77 @@ export default function UploadDetailPage() {
             {restaurantLookupError ? <p className="text-xs text-rose-700 dark:text-rose-300">{restaurantLookupError}</p> : null}
           </div>
         ) : null}
-        {hangoutSummary?.summary_text ? (
+        {hangoutSummary?.caption_text ? (
           <div className="rounded-lg border border-app-border bg-app-card/70 px-2.5 py-2">
-            <p className="text-sm leading-5 text-app-text">
-              {summaryExpanded ? hangoutSummary.summary_text : truncateText(hangoutSummary.summary_text, 120)}
-            </p>
-            {hangoutSummary.summary_text.length > 120 ? (
-              <button
-                type="button"
-                className="mt-1 inline-flex h-8 items-center text-xs font-medium text-app-link underline underline-offset-2"
-                onClick={() => setSummaryExpanded((prev) => !prev)}
-              >
-                {summaryExpanded ? 'Show less' : 'Show more'}
-              </button>
-            ) : null}
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <div className="inline-flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.08em] text-app-muted" title="Generated by PalateAI. Edit anytime.">
+                <Sparkles size={12} strokeWidth={1.5} />
+                AI caption
+              </div>
+              {isHost ? (
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    className="icon-button-subtle"
+                    aria-label="Edit caption"
+                    title="Edit caption"
+                    onClick={() => {
+                      setCaptionEditing((prev) => !prev);
+                      setCaptionDraft(hangoutSummary.caption_text ?? '');
+                      setCaptionError(null);
+                    }}
+                  >
+                    <Pencil size={14} strokeWidth={1.5} />
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex h-8 items-center text-xs font-medium text-app-link underline underline-offset-2"
+                    onClick={() => void regenerateCaption()}
+                    disabled={captionRegenerating}
+                  >
+                    {captionRegenerating ? 'Regenerating...' : 'Regenerate'}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            {captionEditing ? (
+              <div className="space-y-2">
+                <textarea
+                  value={captionDraft}
+                  onChange={(event) => setCaptionDraft(event.target.value)}
+                  maxLength={160}
+                  rows={2}
+                  className="w-full rounded-xl border border-app-border bg-app-bg px-3 py-2 text-sm text-app-text focus:outline-none focus:ring-2 focus:ring-app-primary/35"
+                />
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs text-app-muted">{captionDraft.length}/160</p>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="secondary" size="sm" fullWidth={false} onClick={() => setCaptionEditing(false)}>
+                      Cancel
+                    </Button>
+                    <Button type="button" size="sm" fullWidth={false} onClick={() => void saveCaptionOverride()} disabled={captionSaving}>
+                      {captionSaving ? 'Saving...' : 'Save'}
+                    </Button>
+                  </div>
+                </div>
+                {captionError ? <p className="text-xs text-rose-700 dark:text-rose-300">{captionError}</p> : null}
+              </div>
+            ) : (
+              <>
+                <p className="text-sm leading-5 text-app-muted">
+                  {captionExpanded ? hangoutSummary.caption_text : truncateText(hangoutSummary.caption_text, 120)}
+                </p>
+                {hangoutSummary.caption_text.length > 120 ? (
+                  <button
+                    type="button"
+                    className="mt-1 inline-flex h-8 items-center text-xs font-medium text-app-link underline underline-offset-2"
+                    onClick={() => setCaptionExpanded((prev) => !prev)}
+                  >
+                    {captionExpanded ? 'Show less' : 'Show more'}
+                  </button>
+                ) : null}
+              </>
+            )}
           </div>
         ) : null}
         {visitNote && <p className="text-sm italic leading-5 text-app-text">“{visitNote}”</p>}
