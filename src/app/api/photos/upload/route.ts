@@ -137,6 +137,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'dish kind requires dish_entry_id' }, { status: 400 });
   }
 
+  if (kind === 'dish') {
+    return NextResponse.json({ error: 'Use /api/photos/dish for dish photo uploads' }, { status: 400 });
+  }
+
   if (!storageOriginal.startsWith(`${auth.userId}/photos/${kind}/`)) {
     return NextResponse.json({ error: 'Invalid storage path' }, { status: 400 });
   }
@@ -200,8 +204,8 @@ export async function POST(request: Request) {
       user_id: auth.userId,
       created_by: auth.userId,
       kind,
-      hangout_id: kind === 'hangout' ? hangoutId : null,
-      dish_entry_id: kind === 'dish' ? dishEntryId : null,
+      hangout_id: hangoutId,
+      dish_entry_id: null,
       storage_path: storageOriginal,
       storage_original: storageOriginal,
       storage_medium: mediumPath,
