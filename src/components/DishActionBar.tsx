@@ -152,7 +152,7 @@ export function DishActionBar({
           {noteValue.trim().length > 0 ? <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-app-primary" /> : null}
         </button>
         {menuOpen && (
-          <div className="absolute left-0 top-9 z-30 w-44 rounded-xl border border-app-border bg-app-card p-1.5">
+          <div className="absolute right-0 top-9 z-30 w-44 max-w-[calc(100vw-1rem)] rounded-xl border border-app-border bg-app-card p-1.5">
             <button
               type="button"
               className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs text-app-text hover:bg-app-bg/70"

@@ -19,7 +19,7 @@ export async function DELETE(request: Request) {
   const supabase = getServiceSupabaseClient();
   const { data: photo } = await supabase
     .from('photos')
-    .select('id,user_id,hangout_id')
+    .select('id,user_id,hangout_id,dish_entry_id')
     .eq('id', photoId)
     .maybeSingle();
 
@@ -29,13 +29,37 @@ export async function DELETE(request: Request) {
 
   let canDelete = photo.user_id === auth.userId;
   if (!canDelete && photo.hangout_id) {
-    const { data: hangout } = await supabase
-      .from('hangouts')
-      .select('id')
-      .eq('id', photo.hangout_id)
-      .eq('owner_user_id', auth.userId)
+    const [{ data: owner }, { data: participant }] = await Promise.all([
+      supabase.from('receipt_uploads').select('id').eq('id', photo.hangout_id).eq('user_id', auth.userId).maybeSingle(),
+      supabase
+        .from('visit_participants')
+        .select('visit_id')
+        .eq('visit_id', photo.hangout_id)
+        .eq('user_id', auth.userId)
+        .eq('status', 'active')
+        .maybeSingle(),
+    ]);
+    canDelete = Boolean(owner?.id || participant?.visit_id);
+  }
+  if (!canDelete && photo.dish_entry_id) {
+    const { data: entry } = await supabase
+      .from('dish_entries')
+      .select('source_upload_id')
+      .eq('id', photo.dish_entry_id)
       .maybeSingle();
-    canDelete = Boolean(hangout?.id);
+    if (entry?.source_upload_id) {
+      const [{ data: owner }, { data: participant }] = await Promise.all([
+        supabase.from('receipt_uploads').select('id').eq('id', entry.source_upload_id).eq('user_id', auth.userId).maybeSingle(),
+        supabase
+          .from('visit_participants')
+          .select('visit_id')
+          .eq('visit_id', entry.source_upload_id)
+          .eq('user_id', auth.userId)
+          .eq('status', 'active')
+          .maybeSingle(),
+      ]);
+      canDelete = Boolean(owner?.id || participant?.visit_id);
+    }
   }
 
   if (!canDelete) {
