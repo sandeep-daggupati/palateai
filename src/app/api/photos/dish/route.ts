@@ -56,13 +56,34 @@ export async function POST(request: Request) {
 
   const { data: dishEntry } = await supabase
     .from('dish_entries')
-    .select('id,user_id,hangout_id')
+    .select('id,user_id,hangout_id,source_upload_id')
     .eq('id', dishEntryId)
-    .eq('user_id', auth.userId)
     .maybeSingle();
 
   if (!dishEntry) {
     return NextResponse.json({ error: 'Dish entry not found' }, { status: 404 });
+  }
+
+  const visitId = dishEntry.source_upload_id ?? dishEntry.hangout_id;
+  if (!visitId) {
+    return NextResponse.json({ error: 'Not allowed' }, { status: 403 });
+  }
+
+  const { data: participant } = await supabase
+    .from('visit_participants')
+    .select('visit_id')
+    .eq('visit_id', visitId)
+    .eq('user_id', auth.userId)
+    .eq('status', 'active')
+    .maybeSingle();
+  const { data: owner } = await supabase
+    .from('receipt_uploads')
+    .select('id')
+    .eq('id', visitId)
+    .eq('user_id', auth.userId)
+    .maybeSingle();
+  if (!participant?.visit_id && !owner?.id) {
+    return NextResponse.json({ error: 'Not allowed' }, { status: 403 });
   }
 
   const ext = extensionFromName(file.name, file.type || 'application/octet-stream');

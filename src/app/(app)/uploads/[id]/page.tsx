@@ -284,10 +284,11 @@ export default function UploadDetailPage() {
   );
 
   const canViewVisit = isHost || isActiveParticipant;
+  const canEditVisit = canViewVisit;
   const hasAnyExtractedItems = dishes.length > 0;
   const captureMode = useMemo(() => inferCaptureMode(upload), [upload]);
   const isReceiptCapture = captureMode === 'receipt';
-  const showExtractionPrompt = Boolean(isHost && upload && !hasAnyExtractedItems && isReceiptCapture);
+  const showExtractionPrompt = Boolean(canEditVisit && upload && !hasAnyExtractedItems && isReceiptCapture);
 
   const getAuthHeader = useCallback(async (): Promise<Record<string, string>> => {
     const supabase = getBrowserSupabaseClient();
@@ -436,8 +437,7 @@ export default function UploadDetailPage() {
     const myEntriesPrimary = await supabase
       .from('dish_entries')
       .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment,price_original,currency_original,quantity,created_at,eaten_at')
-      .eq('hangout_id', uploadId)
-      .eq('user_id', user.id);
+      .eq('hangout_id', uploadId);
     const myEntries = (myEntriesPrimary.data ?? []) as Array<
       Pick<
         DishEntry,
@@ -685,7 +685,7 @@ export default function UploadDetailPage() {
 
   useEffect(() => {
     if (didAutoExtractRef.current) return;
-    if (!isHost || !upload) return;
+    if (!canEditVisit || !upload) return;
     if (!isReceiptCapture) return;
     if (!upload.image_paths || upload.image_paths.length === 0) return;
     if (upload.processed_at) return;
@@ -693,7 +693,7 @@ export default function UploadDetailPage() {
 
     didAutoExtractRef.current = true;
     void runExtraction();
-  }, [hasAnyExtractedItems, isHost, isReceiptCapture, runExtraction, upload]);
+  }, [canEditVisit, hasAnyExtractedItems, isReceiptCapture, runExtraction, upload]);
 
   useEffect(() => {
     const currentFingerprint = JSON.stringify(
@@ -763,7 +763,7 @@ export default function UploadDetailPage() {
 
   const addManualDishItem = useCallback(async () => {
     const name = manualDishName.trim();
-    if (!name || !upload?.id || !isHost || !currentUserId) return;
+    if (!name || !upload?.id || !canEditVisit || !currentUserId) return;
 
     setManualDishSaving(true);
     setManualDishError(null);
@@ -798,7 +798,7 @@ export default function UploadDetailPage() {
     } finally {
       setManualDishSaving(false);
     }
-  }, [currentUserId, isHost, manualDishName, manualDishPrice, upload]);
+  }, [canEditVisit, currentUserId, manualDishName, manualDishPrice, upload]);
 
   const openDishCatalogEditor = useCallback(
     (row: UnifiedDishRow) => {
@@ -919,7 +919,7 @@ export default function UploadDetailPage() {
   };
 
   const saveRestaurantName = useCallback(async () => {
-    if (!isHost || !restaurant?.id) return;
+    if (!canEditVisit || !restaurant?.id) return;
     const nextName = restaurantNameDraft.trim();
     if (!nextName || nextName === (restaurant.name ?? '').trim()) {
       setRestaurantNameEditing(false);
@@ -946,7 +946,7 @@ export default function UploadDetailPage() {
     } finally {
       setRestaurantNameSaving(false);
     }
-  }, [isHost, restaurant, restaurantNameDraft]);
+  }, [canEditVisit, restaurant, restaurantNameDraft]);
 
   const onSelectRestaurantSuggestion = useCallback(
     async (suggestion: PlaceSuggestion) => {
@@ -1121,7 +1121,7 @@ export default function UploadDetailPage() {
   );
 
   const saveCaptionOverride = useCallback(async () => {
-    if (!upload?.id || !isHost) return;
+    if (!upload?.id || !canEditVisit) return;
     const nextText = captionDraft.trim();
     if (!nextText) {
       setCaptionError('Caption cannot be empty.');
@@ -1157,10 +1157,10 @@ export default function UploadDetailPage() {
     } finally {
       setCaptionSaving(false);
     }
-  }, [captionDraft, getAuthHeader, isHost, upload?.id]);
+  }, [canEditVisit, captionDraft, getAuthHeader, upload?.id]);
 
   const regenerateCaption = useCallback(async () => {
-    if (!upload?.id || !isHost) return;
+    if (!upload?.id || !canEditVisit) return;
     setCaptionRegenerating(true);
     setCaptionError(null);
     try {
@@ -1189,7 +1189,7 @@ export default function UploadDetailPage() {
     } finally {
       setCaptionRegenerating(false);
     }
-  }, [getAuthHeader, isHost, upload?.id]);
+  }, [canEditVisit, getAuthHeader, upload?.id]);
 
   const saveHangout = useCallback(async () => {
     if (!upload || !currentUserId) return;
@@ -1247,7 +1247,6 @@ export default function UploadDetailPage() {
               .from('dish_entries')
               .update(payload)
               .eq('id', existingId)
-              .eq('user_id', currentUserId)
               .eq('hangout_id', upload.id)
               .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
               .single()
@@ -1278,7 +1277,6 @@ export default function UploadDetailPage() {
       const { data: existingEntries } = await supabase
         .from('dish_entries')
         .select('id')
-        .eq('user_id', currentUserId)
         .eq('hangout_id', upload.id);
       const removeIds = (existingEntries ?? []).map((row) => row.id).filter((id) => !preservedEntryIds.has(id));
       if (removeIds.length > 0) {
@@ -1301,8 +1299,7 @@ export default function UploadDetailPage() {
           note: visitNote?.trim() ? visitNote.trim() : null,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', upload.id)
-        .eq('owner_user_id', currentUserId);
+        .eq('id', upload.id);
 
       if (isReceiptCapture) {
         try {
@@ -1442,7 +1439,7 @@ export default function UploadDetailPage() {
             ) : (
               <>
                 <h1 className="truncate text-2xl font-semibold leading-7 text-app-text">{restaurant?.name ?? 'Restaurant not detected'}</h1>
-                {isHost && restaurant?.id ? (
+                {canEditVisit && restaurant?.id ? (
                   <button
                     type="button"
                     className="icon-button-subtle"
@@ -1517,7 +1514,7 @@ export default function UploadDetailPage() {
             </p>
           ) : null}
         </div>
-        {isHost && !restaurant ? (
+        {canEditVisit && !restaurant ? (
           <div className="relative space-y-1">
             {!restaurant ? (
               <div className="flex flex-wrap gap-2 pb-1">
@@ -1589,7 +1586,7 @@ export default function UploadDetailPage() {
                 {hangoutSummary.caption_source === 'user' ? null : <Sparkles size={12} strokeWidth={1.5} />}
                 {hangoutSummary.caption_source === 'user' ? 'Edited' : 'AI caption'}
               </div>
-              {isHost ? (
+              {canEditVisit ? (
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
@@ -1954,7 +1951,7 @@ export default function UploadDetailPage() {
         </div>
       )}
 
-      {isHost && (
+      {canEditVisit && (
         <div className="card-surface p-3 space-y-2">
           <h2 className="section-label">Overall vibe</h2>
           <Input
@@ -1973,7 +1970,7 @@ export default function UploadDetailPage() {
       <div className="card-surface p-3 space-y-2.5">
         <div className="flex items-center justify-between gap-2">
           <h2 className="section-label">Food</h2>
-          {isHost &&
+          {canEditVisit &&
             (showExtractionPrompt ? (
               <Button type="button" onClick={() => void runExtraction('overwrite')} disabled={isExtracting}>
                 {isExtracting ? 'Analyzing...' : 'Scan receipt'}
@@ -1996,7 +1993,7 @@ export default function UploadDetailPage() {
             ))}
         </div>
 
-        {isHost && (!isReceiptCapture || manualEntryForReceipt) ? (
+        {canEditVisit && (!isReceiptCapture || manualEntryForReceipt) ? (
           <div className="rounded-xl border border-app-border bg-app-card/60 p-2.5 space-y-2">
             <p className="text-xs text-app-muted">Add dishes manually</p>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_120px_auto]">
@@ -2201,7 +2198,7 @@ export default function UploadDetailPage() {
         )}
       </div>
 
-      {isHost ? (
+      {canEditVisit ? (
         <div className="card-surface p-3 space-y-2.5">
           {saveHangoutError ? <p className="text-sm text-rose-700 dark:text-rose-300">{saveHangoutError}</p> : null}
           <div className="grid grid-cols-2 gap-2">

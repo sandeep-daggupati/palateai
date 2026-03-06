@@ -52,13 +52,28 @@ async function validateOwnership(params: {
       if (owner?.id) return true;
     }
 
+    const { data: sharedParticipant } = await supabase
+      .from('visit_participants')
+      .select('visit_id')
+      .eq('visit_id', params.hangoutId)
+      .eq('user_id', params.userId)
+      .eq('status', 'active')
+      .maybeSingle();
+    if (sharedParticipant?.visit_id) return true;
+
     const { data: legacy } = await supabase
+      .from('receipt_uploads')
+      .select('id')
+      .eq('id', params.hangoutId)
+      .maybeSingle();
+    if (!legacy?.id) return false;
+    const { data: legacyOwner } = await supabase
       .from('receipt_uploads')
       .select('id')
       .eq('id', params.hangoutId)
       .eq('user_id', params.userId)
       .maybeSingle();
-    return Boolean(legacy?.id);
+    return Boolean(legacyOwner?.id || sharedParticipant?.visit_id);
   }
 
   if (!params.dishEntryId) return false;
