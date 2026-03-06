@@ -54,10 +54,12 @@ export async function POST(req: Request) {
   const supabase = getServiceSupabaseClient();
   let uploadId: string | undefined;
   const traceId = Math.random().toString(36).slice(2, 10);
+  let dryRun = false;
 
   try {
-    const body = (await req.json()) as { uploadId?: string };
+    const body = (await req.json()) as { uploadId?: string; dryRun?: boolean };
     uploadId = body.uploadId;
+    dryRun = body.dryRun === true;
 
     console.info(`[extract:${traceId}] start`, { uploadId: uploadId ?? null });
 
@@ -68,7 +70,7 @@ export async function POST(req: Request) {
 
     const uploadIdValue = uploadId;
 
-    {
+    if (!dryRun) {
       const { error } = await supabase.from("receipt_uploads").update({ status: "processing" }).eq("id", uploadIdValue);
 
       if (error) {
@@ -177,13 +179,6 @@ export async function POST(req: Request) {
 
     const cleaned = cleanupExtractedItems(processed, { restaurantContext });
 
-    const { error: deleteErr } = await supabase.from("extracted_line_items").delete().eq("upload_id", uploadIdValue);
-
-    if (deleteErr) {
-      console.error(`[extract:${traceId}] clearExisting.failed`, { error: deleteErr.message });
-      throw deleteErr;
-    }
-
     const rows = cleaned.map((it) => ({
       upload_id: uploadIdValue,
       name_raw: it.name_raw,
@@ -198,140 +193,73 @@ export async function POST(req: Request) {
       grouped: it.grouped,
       duplicate_of: it.duplicate_of,
     }));
+    if (!dryRun) {
+      const { error: deleteErr } = await supabase.from("extracted_line_items").delete().eq("upload_id", uploadIdValue);
 
-    if (rows.length > 0) {
-      const { error: insErr } = await supabase.from("extracted_line_items").insert(rows);
-      if (insErr) {
-        console.error(`[extract:${traceId}] insertRows.failed`, {
-          error: insErr.message,
-          rowCount: rows.length,
-        });
-        throw insErr;
+      if (deleteErr) {
+        console.error(`[extract:${traceId}] clearExisting.failed`, { error: deleteErr.message });
+        throw deleteErr;
       }
-      console.info(`[extract:${traceId}] insertRows.ok`, { rowCount: rows.length });
-    } else {
-      console.warn(`[extract:${traceId}] insertRows.skipped`, { reason: "no_items_after_cleaning" });
-    }
 
-    // Canonical write path: ensure hangout + receipt source + shared hangout items.
-    const { error: hangoutUpsertError } = await supabase.from("hangouts").upsert({
-      id: uploadIdValue,
-      owner_user_id: upload.user_id,
-      restaurant_id: upload.restaurant_id,
-      occurred_at: upload.visited_at ?? upload.created_at,
-      note: upload.visit_note ?? null,
-    });
-    if (hangoutUpsertError) {
-      console.warn(`[extract:${traceId}] hangoutUpsert.failed`, { error: hangoutUpsertError.message });
-    } else {
-      await supabase.from("hangout_participants").upsert(
-        { hangout_id: uploadIdValue, user_id: upload.user_id },
-        { onConflict: "hangout_id,user_id" },
-      );
-    }
-
-    const { data: existingSource } = await supabase
-      .from("hangout_sources")
-      .select("id")
-      .eq("hangout_id", uploadIdValue)
-      .eq("type", "receipt")
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    let sourceId = existingSource?.id ?? null;
-    if (!sourceId) {
-      const { data: insertedSource, error: sourceInsertError } = await supabase
-        .from("hangout_sources")
-        .insert({
-          hangout_id: uploadIdValue,
-          type: "receipt",
-          storage_path: imagePath,
-          extractor: "openai",
-          extracted_at: new Date().toISOString(),
-          extraction_version: "v1",
-          raw_extraction: null,
-        })
-        .select("id")
-        .single();
-      if (sourceInsertError) {
-        console.warn(`[extract:${traceId}] sourceInsert.failed`, { error: sourceInsertError.message });
-      } else {
-        sourceId = insertedSource.id;
-      }
-    }
-
-    if (sourceId) {
-      const { data: receiptSources } = await supabase
-        .from("hangout_sources")
-        .select("id")
-        .eq("hangout_id", uploadIdValue)
-        .eq("type", "receipt");
-      const receiptSourceIds = (receiptSources ?? []).map((row) => row.id).filter(Boolean);
-      if (receiptSourceIds.length > 0) {
-        await supabase.from("hangout_items").delete().eq("hangout_id", uploadIdValue).in("source_id", receiptSourceIds);
-      } else {
-        await supabase.from("hangout_items").delete().eq("hangout_id", uploadIdValue).eq("source_id", sourceId);
-      }
-      if (cleaned.length > 0) {
-        const canonicalRows = cleaned.map((it) => ({
-          hangout_id: uploadIdValue,
-          source_id: sourceId,
-          name_raw: it.name_raw,
-          name_final: it.name_final,
-          quantity: Math.max(1, it.quantity ?? 1),
-          unit_price: it.unit_price ?? it.price_final ?? null,
-          currency: extracted.currency ?? upload.currency_detected ?? "USD",
-          confidence: it.confidence,
-          included: it.included,
-        }));
-        const { error: canonicalInsertErr } = await supabase.from("hangout_items").insert(canonicalRows);
-        if (canonicalInsertErr) {
-          console.warn(`[extract:${traceId}] canonicalInsert.failed`, { error: canonicalInsertErr.message });
+      if (rows.length > 0) {
+        const { error: insErr } = await supabase.from("extracted_line_items").insert(rows);
+        if (insErr) {
+          console.error(`[extract:${traceId}] insertRows.failed`, {
+            error: insErr.message,
+            rowCount: rows.length,
+          });
+          throw insErr;
         }
+        console.info(`[extract:${traceId}] insertRows.ok`, { rowCount: rows.length });
+      } else {
+        console.warn(`[extract:${traceId}] insertRows.skipped`, { reason: "no_items_after_cleaning" });
       }
     }
 
-    const restaurantNameForKey = restaurantName ?? "unknown-restaurant";
-    const catalogDishNames = dedupeDishNames(
-      cleaned
-        .filter((item) => item.included)
-        .map((item) => item.name_final || item.name_raw),
-    );
-
-    if (catalogDishNames.length > 0) {
-      await Promise.all(
-        catalogDishNames.map(async (dishName) => {
-          try {
-            await ensureDishCatalogEntry({
-              dishKey: toDishKey(`${restaurantNameForKey} ${dishName}`),
-              dishName,
-              restaurantName,
-            });
-          } catch (error) {
-            console.warn(`[extract:${traceId}] dishCatalog.failed`, {
-              dishName,
-              error: error instanceof Error ? error.message : "Unknown dish catalog error",
-            });
-          }
-        }),
+    if (!dryRun) {
+      const restaurantNameForKey = restaurantName ?? "unknown-restaurant";
+      const catalogDishNames = dedupeDishNames(
+        cleaned
+          .filter((item) => item.included)
+          .map((item) => item.name_final || item.name_raw),
       );
+
+      if (catalogDishNames.length > 0) {
+        await Promise.all(
+          catalogDishNames.map(async (dishName) => {
+            try {
+              await ensureDishCatalogEntry({
+                dishKey: toDishKey(`${restaurantNameForKey} ${dishName}`),
+                dishName,
+                restaurantName,
+              });
+            } catch (error) {
+              console.warn(`[extract:${traceId}] dishCatalog.failed`, {
+                dishName,
+                error: error instanceof Error ? error.message : "Unknown dish catalog error",
+              });
+            }
+          }),
+        );
+      }
     }
 
-    const { error: doneErr } = await supabase
-      .from("receipt_uploads")
-      .update({ status: "needs_review", processed_at: new Date().toISOString() })
-      .eq("id", uploadIdValue);
+    if (!dryRun) {
+      const { error: doneErr } = await supabase
+        .from("receipt_uploads")
+        .update({ status: "needs_review", processed_at: new Date().toISOString() })
+        .eq("id", uploadIdValue);
 
-    if (doneErr) {
-      console.error(`[extract:${traceId}] finalize.failed`, { error: doneErr.message });
-      throw doneErr;
+      if (doneErr) {
+        console.error(`[extract:${traceId}] finalize.failed`, { error: doneErr.message });
+        throw doneErr;
+      }
     }
 
     console.info(`[extract:${traceId}] done`, { uploadId: uploadIdValue, inserted: rows.length });
-    return NextResponse.json({ ok: true, count: rows.length, traceId });
+    return NextResponse.json({ ok: true, count: rows.length, traceId, items: rows });
   } catch (err: unknown) {
-    if (uploadId) {
+    if (uploadId && !dryRun) {
       const { error: failErr } = await supabase.from("receipt_uploads").update({ status: "failed" }).eq("id", uploadId);
 
       if (failErr) {

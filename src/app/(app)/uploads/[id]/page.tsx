@@ -58,6 +58,15 @@ type PlaceDetails = {
   lng: number | null;
   googleMapsUrl?: string | null;
 };
+
+type ExtractedDraftRow = {
+  name_raw: string;
+  name_final: string | null;
+  quantity: number | null;
+  unit_price: number | null;
+  confidence: number | null;
+  included: boolean;
+};
 type RestaurantDirectory = Pick<
   Restaurant,
   | 'id'
@@ -185,6 +194,12 @@ function normalizeDish(value: string): string {
   return normalizeName(value) || value.trim().toLowerCase();
 }
 
+function normalizedDraftKey(name: string, unitPrice: number | null): string {
+  const normalizedName = normalizeDish(name).replace(/\s+/g, ' ').trim();
+  const normalizedPrice = unitPrice == null ? 'noprice' : unitPrice.toFixed(2);
+  return `${normalizedName}::${normalizedPrice}`;
+}
+
 export default function UploadDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -262,6 +277,10 @@ export default function UploadDetailPage() {
   const [restaurantNameSaving, setRestaurantNameSaving] = useState(false);
   const [cancelingDraft, setCancelingDraft] = useState(false);
   const [receiptReplaceSheetOpen, setReceiptReplaceSheetOpen] = useState(false);
+  const [receiptUpdateModeOpen, setReceiptUpdateModeOpen] = useState(false);
+  const [pendingReceiptFile, setPendingReceiptFile] = useState<File | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [savedFoodFingerprint, setSavedFoodFingerprint] = useState('');
   const receiptReplaceCameraInputRef = useRef<HTMLInputElement | null>(null);
   const receiptReplaceUploadInputRef = useRef<HTMLInputElement | null>(null);
   const didAutoExtractRef = useRef(false);
@@ -537,6 +556,23 @@ export default function UploadDetailPage() {
     }
 
     setFood(unifiedRows);
+    setSavedFoodFingerprint(
+      JSON.stringify(
+        unifiedRows
+          .map((row) => {
+            const name = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+            return {
+              key: normalizedDraftKey(name, row.hangoutItem.unit_price),
+              quantity: row.hangoutItem.quantity ?? 1,
+              included: row.hangoutItem.included,
+              note: row.myEntry?.comment ?? null,
+              tag: row.myEntry?.identity_tag ?? null,
+            };
+          })
+          .sort((a, b) => (a.key < b.key ? -1 : 1)),
+      ),
+    );
+    setHasUnsavedChanges(false);
     setCatalogByDishKey(nextCatalogByDishKey);
     setEntryMetaById(entryMap);
     setRestaurant((restaurantData.data ?? null) as RestaurantDirectory | null);
@@ -593,20 +629,75 @@ export default function UploadDetailPage() {
     return () => window.clearTimeout(timeout);
   }, [getAuthHeader, isHost, shareEmail]);
 
-  const runExtraction = useCallback(async () => {
-    setIsExtracting(true);
-    setHasTriedExtraction(true);
-    try {
-      await fetch('/api/extract', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uploadId }),
-      });
-      await load();
-    } finally {
-      setIsExtracting(false);
-    }
-  }, [load, uploadId]);
+  const mergeExtractedIntoDraft = useCallback((mode: 'add' | 'overwrite', extractedRows: ExtractedDraftRow[]) => {
+    const mappedRows: UnifiedDishRow[] = extractedRows.map((item, index) => {
+      const dishName = (item.name_final || item.name_raw || '').trim() || `Untitled item ${index + 1}`;
+      const quantity = Math.max(1, item.quantity ?? 1);
+      return {
+        hangoutItem: {
+          id: `draft-${crypto.randomUUID()}`,
+          hangout_id: uploadId,
+          source_id: null,
+          name_raw: item.name_raw || dishName,
+          name_final: item.name_final || dishName,
+          quantity,
+          unit_price: item.unit_price ?? null,
+          currency: upload?.currency_detected || 'USD',
+          line_total: null,
+          confidence: item.confidence ?? null,
+          included: item.included,
+          created_at: new Date().toISOString(),
+        },
+        myEntry: null,
+      };
+    });
+
+    setFood((current) => {
+      const base = mode === 'overwrite' ? [] : current.map((row) => ({ ...row, hangoutItem: { ...row.hangoutItem } }));
+      const byKey = new Map<string, UnifiedDishRow>();
+
+      for (const row of base) {
+        const name = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+        const key = normalizedDraftKey(name, row.hangoutItem.unit_price);
+        byKey.set(key, row);
+      }
+
+      for (const row of mappedRows) {
+        const name = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+        const key = normalizedDraftKey(name, row.hangoutItem.unit_price);
+        const existing = byKey.get(key);
+        if (!existing) {
+          byKey.set(key, row);
+          continue;
+        }
+        existing.hangoutItem.quantity = Math.max(1, (existing.hangoutItem.quantity ?? 1) + (row.hangoutItem.quantity ?? 1));
+        existing.hangoutItem.included = existing.hangoutItem.included || row.hangoutItem.included;
+      }
+
+      return Array.from(byKey.values());
+    });
+  }, [upload?.currency_detected, uploadId]);
+
+  const runExtraction = useCallback(
+    async (mode: 'add' | 'overwrite' = 'overwrite') => {
+      setIsExtracting(true);
+      setHasTriedExtraction(true);
+      try {
+        const response = await fetch('/api/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uploadId, dryRun: true }),
+        });
+        const payload = (await response.json().catch(() => null)) as { items?: ExtractedDraftRow[] } | null;
+        if (!response.ok) return;
+        mergeExtractedIntoDraft(mode, payload?.items ?? []);
+        setHasUnsavedChanges(true);
+      } finally {
+        setIsExtracting(false);
+      }
+    },
+    [mergeExtractedIntoDraft, uploadId],
+  );
 
 
   const syncPlaceDirectory = useCallback(async () => {
@@ -654,6 +745,31 @@ export default function UploadDetailPage() {
     didAutoExtractRef.current = true;
     void runExtraction();
   }, [hasAnyExtractedItems, isHost, isReceiptCapture, runExtraction, upload]);
+
+  useEffect(() => {
+    const currentFingerprint = JSON.stringify(
+      dishes
+        .map((row) => {
+          const name = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+          return {
+            key: normalizedDraftKey(name, row.hangoutItem.unit_price),
+            quantity: row.hangoutItem.quantity ?? 1,
+            included: row.hangoutItem.included,
+            note: row.myEntry?.comment ?? null,
+            tag: row.myEntry?.identity_tag ?? null,
+          };
+        })
+        .sort((a, b) => (a.key < b.key ? -1 : 1)),
+    );
+    const dirty = hasUnsavedChanges || (savedFoodFingerprint.length > 0 && savedFoodFingerprint !== currentFingerprint);
+    if (!dirty) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [dishes, hasUnsavedChanges, savedFoodFingerprint]);
 
   const upsertMyDishEntry = useCallback(
     async (row: UnifiedDishRow, patch: { identity_tag?: DishIdentityTag | null; comment?: string }) => {
@@ -805,86 +921,35 @@ export default function UploadDetailPage() {
     try {
       const parsedPrice = Number(manualDishPrice.trim());
       const unitPrice = Number.isFinite(parsedPrice) && parsedPrice > 0 ? parsedPrice : null;
-      const supabase = getBrowserSupabaseClient();
-      const { data: hangoutExisting, error: hangoutExistingError } = await supabase
-        .from('hangouts')
-        .select('id')
-        .eq('id', upload.id)
-        .maybeSingle();
-      if (hangoutExistingError) throw hangoutExistingError;
-      if (!hangoutExisting) {
-        const { error: hangoutInsertError } = await supabase.from('hangouts').insert({
-          id: upload.id,
-          owner_user_id: upload.user_id,
-          restaurant_id: upload.restaurant_id,
-          occurred_at: upload.visited_at ?? upload.created_at,
-          note: upload.visit_note ?? null,
-        });
-        if (hangoutInsertError) throw hangoutInsertError;
-      }
-
-      const { data: participantExisting, error: participantExistingError } = await supabase
-        .from('hangout_participants')
-        .select('hangout_id')
-        .eq('hangout_id', upload.id)
-        .eq('user_id', upload.user_id)
-        .maybeSingle();
-      if (participantExistingError) throw participantExistingError;
-      if (!participantExisting) {
-        const { error: participantError } = await supabase.from('hangout_participants').insert({
-          hangout_id: upload.id,
-          user_id: upload.user_id,
-        });
-        if (participantError) throw participantError;
-      }
-
-      const { data: insertedItem, error } = await supabase
-        .from('hangout_items')
-        .insert({
-          hangout_id: upload.id,
-          source_id: null,
-          name_raw: name,
-          name_final: name,
-          quantity: 1,
-          unit_price: unitPrice,
-          currency: upload.currency_detected || 'USD',
-          included: true,
-          confidence: null,
-        })
-        .select('id,quantity,unit_price')
-        .single();
-
-      if (error) throw error;
-
-      const dishKey = toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${name}`);
-      await supabase.from('dish_entries').upsert(
+      setFood((prev) => [
+        ...prev,
         {
-          user_id: currentUserId,
-          restaurant_id: upload.restaurant_id,
-          hangout_id: upload.id,
-          hangout_item_id: insertedItem.id,
-          dish_name: name,
-          price_original: insertedItem.unit_price,
-          currency_original: upload.currency_detected || 'USD',
-          price_usd: insertedItem.unit_price,
-          quantity: insertedItem.quantity,
-          eaten_at: upload.visited_at ?? upload.created_at,
-          source_upload_id: upload.id,
-          dish_key: dishKey,
-          identity_tag: null,
-          comment: null,
+          hangoutItem: {
+            id: `draft-${crypto.randomUUID()}`,
+            hangout_id: upload.id,
+            source_id: null,
+            name_raw: name,
+            name_final: name,
+            quantity: 1,
+            unit_price: unitPrice,
+            currency: upload.currency_detected || 'USD',
+            line_total: null,
+            confidence: null,
+            included: true,
+            created_at: new Date().toISOString(),
+          },
+          myEntry: null,
         },
-        { onConflict: 'user_id,hangout_item_id' },
-      );
+      ]);
+      setHasUnsavedChanges(true);
       setManualDishName('');
       setManualDishPrice('');
-      await load();
     } catch (error) {
       setManualDishError(error instanceof Error ? error.message : 'Could not add dish');
     } finally {
       setManualDishSaving(false);
     }
-  }, [currentUserId, isHost, load, manualDishName, manualDishPrice, restaurant?.name, upload]);
+  }, [currentUserId, isHost, manualDishName, manualDishPrice, upload]);
 
   const openDishCatalogEditor = useCallback(
     (row: UnifiedDishRow) => {
@@ -1146,6 +1211,14 @@ export default function UploadDetailPage() {
     setCancelingDraft(true);
     setSaveHangoutError(null);
     try {
+      if (upload.status === 'approved') {
+        await load();
+        setHasUnsavedChanges(false);
+        setPendingReceiptFile(null);
+        setReceiptUpdateModeOpen(false);
+        setReceiptReplaceSheetOpen(false);
+        return;
+      }
       const supabase = getBrowserSupabaseClient();
       const tempOrUploaded = (upload.image_paths ?? []).filter(Boolean);
       if (tempOrUploaded.length > 0) {
@@ -1163,12 +1236,14 @@ export default function UploadDetailPage() {
     } finally {
       setCancelingDraft(false);
     }
-  }, [isHost, router, upload]);
+  }, [isHost, load, router, upload]);
 
   const replaceReceiptAndRescan = useCallback(
-    async (file: File) => {
+    async (file: File, mode: 'add' | 'overwrite') => {
       if (!upload || !currentUserId) return;
       setReceiptReplaceSheetOpen(false);
+      setReceiptUpdateModeOpen(false);
+      setPendingReceiptFile(null);
       setIsExtracting(true);
       setHasTriedExtraction(true);
       try {
@@ -1179,14 +1254,16 @@ export default function UploadDetailPage() {
           category: 'temp_receipt',
         });
         const supabase = getBrowserSupabaseClient();
+        const nextPaths = mode === 'add' ? [...(upload.image_paths ?? []), imagePath] : [imagePath];
         const { error: updateError } = await supabase
           .from('receipt_uploads')
-          .update({ image_paths: [imagePath], status: 'uploaded' })
+          .update({ image_paths: nextPaths, status: 'uploaded' })
           .eq('id', upload.id);
         if (updateError) throw updateError;
-        setUpload((current) => (current ? { ...current, image_paths: [imagePath], status: 'uploaded' } : current));
+        setUpload((current) => (current ? { ...current, image_paths: nextPaths, status: 'uploaded', processed_at: null } : current));
         await new Promise((resolve) => window.setTimeout(resolve, 200));
-        await runExtraction();
+        await runExtraction(mode);
+        setHasUnsavedChanges(true);
       } catch (error) {
         setSaveHangoutError(error instanceof Error ? error.message : 'Could not upload new receipt');
       } finally {
@@ -1278,13 +1355,109 @@ export default function UploadDetailPage() {
 
     setSaveHangoutLoading(true);
     try {
+      const nextFingerprint = JSON.stringify(
+        dishes
+          .map((row) => {
+            const name = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+            return {
+              key: normalizedDraftKey(name, row.hangoutItem.unit_price),
+              quantity: row.hangoutItem.quantity ?? 1,
+              included: row.hangoutItem.included,
+              note: row.myEntry?.comment ?? null,
+              tag: row.myEntry?.identity_tag ?? null,
+            };
+          })
+          .sort((a, b) => (a.key < b.key ? -1 : 1)),
+      );
       const promotedImagePaths = await promoteTempReceiptImages();
       const supabase = getBrowserSupabaseClient();
+
+      const { data: hangoutSource } = await supabase
+        .from('hangout_sources')
+        .select('id')
+        .eq('hangout_id', upload.id)
+        .eq('type', 'receipt')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      await supabase.from('hangout_items').delete().eq('hangout_id', upload.id);
+      await supabase.from('dish_entries').delete().eq('user_id', currentUserId).eq('hangout_id', upload.id);
+
+      const draftRows = activeFood.map((row) => ({
+        hangout_id: upload.id,
+        source_id: hangoutSource?.id ?? null,
+        name_raw: row.hangoutItem.name_raw,
+        name_final: row.hangoutItem.name_final,
+        quantity: Math.max(1, row.hangoutItem.quantity ?? 1),
+        unit_price: row.hangoutItem.unit_price ?? null,
+        currency: row.hangoutItem.currency ?? upload.currency_detected ?? 'USD',
+        confidence: row.hangoutItem.confidence ?? null,
+        included: row.hangoutItem.included,
+      }));
+
+      const insertedItems: Array<{ id: string }> = [];
+      if (draftRows.length > 0) {
+        const { data: createdItems, error: createdItemsError } = await supabase
+          .from('hangout_items')
+          .insert(draftRows)
+          .select('id');
+        if (createdItemsError) throw createdItemsError;
+        insertedItems.push(...((createdItems ?? []) as Array<{ id: string }>));
+      }
+
+      for (let index = 0; index < draftRows.length; index += 1) {
+        const row = activeFood[index];
+        const inserted = insertedItems[index];
+        if (!inserted?.id) continue;
+        const dishName = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+        const dishKey = toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`);
+        const draftIdentity = row.myEntry?.identity_tag ?? null;
+        const draftComment = row.myEntry?.comment?.trim() ? row.myEntry.comment.trim() : null;
+        const { data: insertedEntry, error: entryError } = await supabase
+          .from('dish_entries')
+          .insert({
+            user_id: currentUserId,
+            restaurant_id: upload.restaurant_id,
+            hangout_id: upload.id,
+            hangout_item_id: inserted.id,
+            dish_name: dishName,
+            price_original: row.hangoutItem.unit_price,
+            currency_original: row.hangoutItem.currency ?? upload.currency_detected ?? 'USD',
+            price_usd: row.hangoutItem.unit_price,
+            quantity: row.hangoutItem.quantity,
+            eaten_at: upload.visited_at ?? upload.created_at,
+            source_upload_id: upload.id,
+            dish_key: dishKey,
+            identity_tag: draftIdentity,
+            comment: draftComment,
+          })
+          .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
+          .single();
+        if (entryError) throw entryError;
+        const typedInsertedEntry = insertedEntry as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
+        setFood((prev) =>
+          prev.map((entry) =>
+            entry.hangoutItem.id === row.hangoutItem.id
+              ? {
+                  ...entry,
+                  hangoutItem: {
+                    ...entry.hangoutItem,
+                    id: inserted.id,
+                  },
+                  myEntry: typedInsertedEntry,
+                }
+              : entry,
+          ),
+        );
+      }
+
       await supabase
         .from('receipt_uploads')
         .update({
           visit_note: visitNote?.trim() ? visitNote.trim() : null,
           status: 'approved',
+          processed_at: new Date().toISOString(),
           ...(promotedImagePaths ? { image_paths: promotedImagePaths } : {}),
         })
         .eq('id', upload.id);
@@ -1322,13 +1495,15 @@ export default function UploadDetailPage() {
       }
 
       setSaveHangoutToast('Hangout saved');
+      setSavedFoodFingerprint(nextFingerprint);
+      setHasUnsavedChanges(false);
       window.setTimeout(() => setSaveHangoutToast(null), 1800);
       await new Promise((resolve) => window.setTimeout(resolve, 500));
       router.push(`/hangouts/${upload.id}`);
     } finally {
       setSaveHangoutLoading(false);
     }
-  }, [currentUserId, dishes, getAuthHeader, isReceiptCapture, promoteTempReceiptImages, router, upload, visitNote]);
+  }, [currentUserId, dishes, getAuthHeader, isReceiptCapture, promoteTempReceiptImages, restaurant?.name, router, upload, visitNote]);
 
   const removeParticipant = async (participantId: string) => {
     if (!upload) return;
@@ -1373,6 +1548,20 @@ export default function UploadDetailPage() {
   const showHostShareSection = isHost && isSharedVisit;
   const visibleFood = dishes.filter((row) => row.hangoutItem.included);
   const hiddenFood = dishes.filter((row) => !row.hangoutItem.included);
+  const draftFoodFingerprint = JSON.stringify(
+    dishes
+      .map((row) => {
+        const name = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+        return {
+          key: normalizedDraftKey(name, row.hangoutItem.unit_price),
+          quantity: row.hangoutItem.quantity ?? 1,
+          included: row.hangoutItem.included,
+          note: row.myEntry?.comment ?? null,
+          tag: row.myEntry?.identity_tag ?? null,
+        };
+      })
+      .sort((a, b) => (a.key < b.key ? -1 : 1)),
+  );
   const withNames = participants
     .filter((participant) => participant.status === 'active')
     .map((participant) => participant.display_name ?? 'Buddy');
@@ -1381,6 +1570,7 @@ export default function UploadDetailPage() {
   const directionsHref = getGoogleMapsLink(restaurant?.place_id, restaurant?.address, restaurant?.name);
   const todayHours = getTodayHours(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
   const openNow = getOpenNowStatus(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
+  const showUnsavedIndicator = hasUnsavedChanges || (savedFoodFingerprint.length > 0 && savedFoodFingerprint !== draftFoodFingerprint);
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-3 pb-4">
@@ -1445,6 +1635,9 @@ export default function UploadDetailPage() {
           <p className="text-xs leading-4 text-app-muted">
             {visitDate} · With {withLabel}
           </p>
+          {showUnsavedIndicator ? (
+            <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">Unsaved changes</p>
+          ) : null}
         </div>
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-4 text-app-muted">
@@ -1637,7 +1830,10 @@ export default function UploadDetailPage() {
         className="hidden"
         onChange={(event) => {
           const file = event.target.files?.[0];
-          if (file) void replaceReceiptAndRescan(file);
+          if (file) {
+            setPendingReceiptFile(file);
+            setReceiptUpdateModeOpen(true);
+          }
           event.currentTarget.value = '';
         }}
       />
@@ -1649,7 +1845,10 @@ export default function UploadDetailPage() {
         className="hidden"
         onChange={(event) => {
           const file = event.target.files?.[0];
-          if (file) void replaceReceiptAndRescan(file);
+          if (file) {
+            setPendingReceiptFile(file);
+            setReceiptUpdateModeOpen(true);
+          }
           event.currentTarget.value = '';
         }}
       />
@@ -1804,6 +2003,43 @@ export default function UploadDetailPage() {
         </div>
       )}
 
+      {receiptUpdateModeOpen && pendingReceiptFile && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/35">
+          <button type="button" className="absolute inset-0" aria-label="Close" onClick={() => { setReceiptUpdateModeOpen(false); setPendingReceiptFile(null); }} />
+          <div className="relative w-full max-w-md rounded-t-2xl border border-app-border bg-app-card p-3">
+            <p className="text-sm font-semibold text-app-text">Update receipt items</p>
+            <div className="mt-2 space-y-2">
+              <Button
+                type="button"
+                onClick={() => void replaceReceiptAndRescan(pendingReceiptFile, 'add')}
+                disabled={isExtracting}
+              >
+                Add new items
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => void replaceReceiptAndRescan(pendingReceiptFile, 'overwrite')}
+                disabled={isExtracting}
+              >
+                Overwrite existing items
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setReceiptUpdateModeOpen(false);
+                  setPendingReceiptFile(null);
+                }}
+                disabled={isExtracting}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showHostShareSection && (
         <div className="card-surface p-3 space-y-2">
           <h2 className="section-label">Who was in your crew?</h2>
@@ -1891,7 +2127,10 @@ export default function UploadDetailPage() {
           <Input
             value={visitNote}
             maxLength={VISIT_NOTE_MAX}
-            onChange={(e) => setVisitNote(e.target.value.slice(0, VISIT_NOTE_MAX))}
+            onChange={(e) => {
+              setVisitNote(e.target.value.slice(0, VISIT_NOTE_MAX));
+              setHasUnsavedChanges(true);
+            }}
             placeholder="Share the vibe in one line"
           />
           <p className="text-xs text-app-muted">{visitNote.length}/{VISIT_NOTE_MAX}</p>
@@ -1903,7 +2142,7 @@ export default function UploadDetailPage() {
           <h2 className="section-label">Food</h2>
           {isHost &&
             (showExtractionPrompt ? (
-              <Button type="button" onClick={runExtraction} disabled={isExtracting}>
+              <Button type="button" onClick={() => void runExtraction('overwrite')} disabled={isExtracting}>
                 {isExtracting ? 'Analyzing...' : 'Scan receipt'}
               </Button>
             ) : (
@@ -1914,7 +2153,7 @@ export default function UploadDetailPage() {
                     setReceiptReplaceSheetOpen(true);
                     return;
                   }
-                  void runExtraction();
+                  void runExtraction('overwrite');
                 }}
                 disabled={isExtracting}
                 className="inline-flex h-11 items-center text-xs font-medium text-app-link underline underline-offset-2"
@@ -1992,6 +2231,10 @@ export default function UploadDetailPage() {
                   <div className="flex items-center gap-2">
                     <DishActionBar
                       onAddPhoto={() => {
+                        if (upload.status !== 'approved') {
+                          setSaveHangoutError('Save hangout first, then add dish photos.');
+                          return;
+                        }
                         setDishUploadTarget({ hangoutItemId: row.hangoutItem.id });
                         dishUploadInputRef.current?.click();
                       }}
@@ -2015,7 +2258,7 @@ export default function UploadDetailPage() {
                               : entry,
                           ),
                         );
-                        void upsertMyDishEntry(row, { identity_tag: value });
+                        setHasUnsavedChanges(true);
                       }}
                       noteValue={row.myEntry?.comment ?? ''}
                       onSaveNote={(value) => {
@@ -2036,7 +2279,7 @@ export default function UploadDetailPage() {
                               : entry,
                           ),
                         );
-                        void upsertMyDishEntry(row, { comment: value });
+                        setHasUnsavedChanges(true);
                       }}
                     />
                     {rowPhotos.slice(0, 2).map((photo, index) => (
