@@ -5,7 +5,8 @@ import { Ban, Camera, Ellipsis, FileText, Gem, Pencil, RotateCcw, Sparkles, Star
 import { DishIdentityTag } from '@/lib/supabase/types';
 
 type DishActionBarProps = {
-  onAddPhoto: () => void;
+  onAddPhoto?: () => void;
+  showPhotoAction?: boolean;
   onEdit: () => void;
   onSetRating: (value: DishIdentityTag | null) => void;
   ratingValue: DishIdentityTag | null;
@@ -27,6 +28,7 @@ const IDENTITY_ORDER: DishIdentityTag[] = ['go_to', 'hidden_gem', 'special_occas
 
 export function DishActionBar({
   onAddPhoto,
+  showPhotoAction = true,
   onEdit,
   onSetRating,
   ratingValue,
@@ -87,9 +89,11 @@ export function DishActionBar({
 
   return (
     <div className="relative flex min-h-11 items-center gap-1.5">
-      <button type="button" aria-label="Add food photo" onClick={onAddPhoto} className="icon-button-subtle">
-        <Camera size={16} strokeWidth={ICON_STROKE} />
-      </button>
+      {showPhotoAction ? (
+        <button type="button" aria-label="Add food photo" onClick={onAddPhoto} className="icon-button-subtle">
+          <Camera size={16} strokeWidth={ICON_STROKE} />
+        </button>
+      ) : null}
 
       <div ref={ratingRef} className="relative">
         <button

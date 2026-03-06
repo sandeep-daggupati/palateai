@@ -2035,35 +2035,22 @@ export default function UploadDetailPage() {
               const unitPrice = row.hangoutItem.unit_price;
               const identityValue = row.myEntry?.identity_tag ?? null;
               const isNeverAgain = identityValue === 'never_again';
-              const rowPhotos = dishPhotosByItemId[row.hangoutItem.id] ?? dishPhotosByItemId[normalizeDish(dishName)] ?? [];
+              const dishPhoto = row.myEntry?.id ? (dishPhotosByItemId[row.myEntry.id]?.[0] ?? null) : null;
               const dishKey = row.myEntry?.dish_key ?? toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`);
               const catalog = catalogByDishKey[dishKey] ?? null;
 
               return (
                 <div key={row.hangoutItem.id} className={`space-y-1 p-2 ${isNeverAgain ? 'opacity-60' : ''}`}>
-                  <div className="flex min-h-10 items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className={`truncate text-sm font-semibold leading-5 text-app-text ${isNeverAgain ? 'line-through' : ''}`}>
-                        {dishName}
-                        {quantity > 1 ? ` ×${quantity}` : ''}
-                      </p>
-                      {catalog?.description ? (
-                        <p className="line-clamp-2 text-xs leading-4 text-app-muted">{catalog.description}</p>
-                      ) : null}
-                      {catalog?.cuisine || (catalog?.flavor_tags && catalog.flavor_tags.length > 0) ? (
-                        <p className="text-[11px] leading-4 text-app-muted">
-                          {catalog.cuisine ? `${catalog.cuisine}` : ''}
-                          {catalog.cuisine && catalog.flavor_tags && catalog.flavor_tags.length > 0 ? ' · ' : ''}
-                          {catalog.flavor_tags?.join(' · ')}
-                        </p>
-                      ) : null}
-                    </div>
-                    <p className="text-sm font-medium leading-5 text-app-text">{formatPrice(unitPrice)}</p>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <DishActionBar
-                      onAddPhoto={() => {
+                  <div className="flex items-start gap-2">
+                    <button
+                      type="button"
+                      className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-app-border"
+                      onClick={() => {
+                        if (dishPhoto) {
+                          setLightboxPhotos([dishPhoto]);
+                          setLightboxIndex(0);
+                          return;
+                        }
                         if (upload.status !== 'approved') {
                           setSaveHangoutError('Save hangout first, then add dish photos.');
                           return;
@@ -2071,6 +2058,39 @@ export default function UploadDetailPage() {
                         setDishUploadTarget({ hangoutItemId: row.hangoutItem.id });
                         dishUploadInputRef.current?.click();
                       }}
+                      aria-label={dishPhoto ? 'Open dish photo' : 'Add dish photo'}
+                    >
+                      {dishPhoto?.signedUrls.thumb ? (
+                        <Image src={dishPhoto.signedUrls.thumb} alt="Dish photo" width={64} height={64} className="h-full w-full object-cover" unoptimized />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-app-bg text-[10px] text-app-muted">No photo</div>
+                      )}
+                    </button>
+
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex min-h-10 items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className={`truncate text-sm font-semibold leading-5 text-app-text ${isNeverAgain ? 'line-through' : ''}`}>
+                            {dishName}
+                            {quantity > 1 ? ` ×${quantity}` : ''}
+                          </p>
+                          {catalog?.description ? (
+                            <p className="line-clamp-2 text-xs leading-4 text-app-muted">{catalog.description}</p>
+                          ) : null}
+                          {catalog?.cuisine || (catalog?.flavor_tags && catalog.flavor_tags.length > 0) ? (
+                            <p className="text-[11px] leading-4 text-app-muted">
+                              {catalog.cuisine ? `${catalog.cuisine}` : ''}
+                              {catalog.cuisine && catalog.flavor_tags && catalog.flavor_tags.length > 0 ? ' · ' : ''}
+                              {catalog.flavor_tags?.join(' · ')}
+                            </p>
+                          ) : null}
+                        </div>
+                        <p className="text-sm font-medium leading-5 text-app-text">{formatPrice(unitPrice)}</p>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2">
+                    <DishActionBar
+                      showPhotoAction={false}
                       onEdit={() => openDishCatalogEditor(row)}
                       ratingValue={identityValue}
                       onSetRating={(value) => {
@@ -2115,25 +2135,8 @@ export default function UploadDetailPage() {
                         setHasUnsavedChanges(true);
                       }}
                     />
-                    {rowPhotos.slice(0, 2).map((photo, index) => (
-                      <button
-                        key={photo.id}
-                        type="button"
-                        className="h-9 w-9 overflow-hidden rounded-md border border-app-border"
-                        onClick={() => {
-                          setLightboxPhotos(rowPhotos);
-                          setLightboxIndex(index);
-                        }}
-                        aria-label="Open food photo"
-                      >
-                        {photo.signedUrls.thumb ? (
-                          <Image src={photo.signedUrls.thumb} alt="Dish photo" width={40} height={40} className="h-full w-full object-cover" unoptimized />
-                        ) : (
-                          <span className="text-[10px] text-app-muted">img</span>
-                        )}
-                      </button>
-                    ))}
-                    {rowPhotos.length > 2 && <span className="text-xs text-app-muted">+{rowPhotos.length - 2}</span>}
+                      </div>
+                    </div>
                   </div>
                 </div>
               );
