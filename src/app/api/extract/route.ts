@@ -262,7 +262,17 @@ export async function POST(req: Request) {
     }
 
     if (sourceId) {
-      await supabase.from("hangout_items").delete().eq("hangout_id", uploadIdValue).eq("source_id", sourceId);
+      const { data: receiptSources } = await supabase
+        .from("hangout_sources")
+        .select("id")
+        .eq("hangout_id", uploadIdValue)
+        .eq("type", "receipt");
+      const receiptSourceIds = (receiptSources ?? []).map((row) => row.id).filter(Boolean);
+      if (receiptSourceIds.length > 0) {
+        await supabase.from("hangout_items").delete().eq("hangout_id", uploadIdValue).in("source_id", receiptSourceIds);
+      } else {
+        await supabase.from("hangout_items").delete().eq("hangout_id", uploadIdValue).eq("source_id", sourceId);
+      }
       if (cleaned.length > 0) {
         const canonicalRows = cleaned.map((it) => ({
           hangout_id: uploadIdValue,
