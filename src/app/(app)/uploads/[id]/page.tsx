@@ -8,7 +8,7 @@ import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { DishActionBar } from '@/components/DishActionBar';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { DishCatalog, DishEntry, DishIdentityTag, HangoutItem, HangoutSummary, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
+import { DishCatalog, DishEntry, HangoutItem, HangoutSummary, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
 import { toDishKey } from '@/lib/utils';
 import { normalizeName } from '@/lib/extraction/normalize';
 import { getGoogleMapsLink } from '@/lib/google/mapsLinks';
@@ -21,19 +21,6 @@ const VISIT_NOTE_MAX = 140;
 type UnifiedDishRow = {
   hangoutItem: HangoutItem;
   myEntry: Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'> | null;
-};
-
-type LegacyLineItem = {
-  id: string;
-  upload_id: string;
-  name_raw: string;
-  name_final: string | null;
-  quantity: number | null;
-  unit_price: number | null;
-  price_final: number | null;
-  confidence: number | null;
-  included: boolean;
-  created_at: string;
 };
 
 type CrewMember = VisitParticipant & {
@@ -312,23 +299,6 @@ export default function UploadDetailPage() {
     return { Authorization: `Bearer ${session.access_token}` };
   }, []);
 
-  const enrichDishCatalog = useCallback(
-    async (dishEntryId: string) => {
-      const headers = await getAuthHeader();
-      if (!headers.Authorization) return;
-
-      await fetch('/api/dish-catalog/enrich', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...headers,
-        },
-        body: JSON.stringify({ dishEntryId }),
-      });
-    },
-    [getAuthHeader],
-  );
-
   const loadParticipants = useCallback(async () => {
     const headers = await getAuthHeader();
     const response = await fetch(`/api/visits/share?visitId=${encodeURIComponent(uploadId)}`, { headers });
@@ -426,7 +396,7 @@ export default function UploadDetailPage() {
         if (!photo.dish_entry_id) continue;
         const meta = entryMap[photo.dish_entry_id];
         if (!meta) continue;
-        const key = meta.hangout_item_id ?? normalizeDish(meta.dish_name);
+        const key = meta.hangout_item_id ?? photo.dish_entry_id;
         if (!grouped[key]) grouped[key] = [];
         grouped[key].push(photo);
       }
@@ -463,46 +433,16 @@ export default function UploadDetailPage() {
       ? supabase.from('restaurants').select('id,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync').eq('id', typedUpload.restaurant_id).single()
       : Promise.resolve({ data: null });
 
-    const hangoutItemsResult = await supabase
-      .from('hangout_items')
-      .select('*')
-      .eq('hangout_id', uploadId)
-      .eq('included', true)
-      .order('created_at', { ascending: true });
-
-    let hangoutItems = (hangoutItemsResult.data ?? []) as HangoutItem[];
-    if (hangoutItemsResult.error) {
-      const legacyItemsResult = await supabase
-        .from('extracted_line_items')
-        .select('id,upload_id,name_raw,name_final,quantity,unit_price,price_final,confidence,included,created_at')
-        .eq('upload_id', uploadId)
-        .eq('included', true)
-        .order('created_at', { ascending: true });
-
-      const legacyRows = (legacyItemsResult.data ?? []) as LegacyLineItem[];
-      hangoutItems = legacyRows.map((row) => ({
-        id: row.id,
-        hangout_id: row.upload_id,
-        source_id: null,
-        name_raw: row.name_raw,
-        name_final: row.name_final,
-        quantity: Math.max(1, row.quantity ?? 1),
-        unit_price: row.unit_price ?? row.price_final,
-        currency: typedUpload.currency_detected ?? 'USD',
-        line_total: null,
-        confidence: row.confidence,
-        included: row.included,
-        created_at: row.created_at,
-      }));
-    }
-
     const myEntriesPrimary = await supabase
       .from('dish_entries')
-      .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
+      .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment,price_original,currency_original,quantity,created_at,eaten_at')
       .eq('hangout_id', uploadId)
       .eq('user_id', user.id);
     const myEntries = (myEntriesPrimary.data ?? []) as Array<
-      Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>
+      Pick<
+        DishEntry,
+        'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment' | 'price_original' | 'currency_original' | 'quantity' | 'created_at' | 'eaten_at'
+      >
     >;
 
     const allEntriesResult = await supabase.from('dish_entries').select('id,hangout_item_id,dish_name').eq('hangout_id', uploadId);
@@ -516,23 +456,32 @@ export default function UploadDetailPage() {
 
     const restaurantData = await restaurantPromise;
 
-    const byItemId = new Map<string, Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>>();
-    const byName = new Map<string, Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>>();
-
-    for (const entry of myEntries) {
-      if (entry.hangout_item_id) {
-        byItemId.set(entry.hangout_item_id, entry);
-      } else {
-        const key = normalizeDish(entry.dish_name);
-        if (!byName.has(key)) byName.set(key, entry);
-      }
-    }
-
-    const unifiedRows: UnifiedDishRow[] = hangoutItems.map((hangoutItem) => {
-      const direct = byItemId.get(hangoutItem.id) ?? null;
-      if (direct) return { hangoutItem, myEntry: direct };
-      const key = normalizeDish(hangoutItem.name_final || hangoutItem.name_raw);
-      return { hangoutItem, myEntry: byName.get(key) ?? null };
+    const unifiedRows: UnifiedDishRow[] = myEntries.map((entry) => {
+      const dishName = entry.dish_name;
+      return {
+        hangoutItem: {
+          id: entry.id,
+          hangout_id: uploadId,
+          source_id: null,
+          name_raw: dishName,
+          name_final: dishName,
+          quantity: Math.max(1, entry.quantity ?? 1),
+          unit_price: entry.price_original,
+          currency: entry.currency_original ?? typedUpload.currency_detected ?? 'USD',
+          line_total: null,
+          confidence: null,
+          included: true,
+          created_at: entry.created_at,
+        },
+        myEntry: {
+          id: entry.id,
+          hangout_item_id: entry.hangout_item_id,
+          dish_name: entry.dish_name,
+          dish_key: entry.dish_key,
+          identity_tag: entry.identity_tag,
+          comment: entry.comment,
+        },
+      };
     });
 
     const restaurantNameForKey = ((restaurantData.data ?? null) as RestaurantDirectory | null)?.name ?? 'unknown-restaurant';
@@ -771,111 +720,11 @@ export default function UploadDetailPage() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [dishes, hasUnsavedChanges, savedFoodFingerprint]);
 
-  const upsertMyDishEntry = useCallback(
-    async (row: UnifiedDishRow, patch: { identity_tag?: DishIdentityTag | null; comment?: string }) => {
-      if (!upload || !currentUserId) return;
-
-      const dishName = row.hangoutItem.name_final || row.hangoutItem.name_raw;
-      const dishKey = toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`);
-      const nextIdentity = patch.identity_tag !== undefined ? patch.identity_tag : row.myEntry?.identity_tag ?? null;
-      const nextComment = patch.comment !== undefined ? patch.comment : row.myEntry?.comment ?? null;
-
-      const payload = {
-        user_id: currentUserId,
-        restaurant_id: upload.restaurant_id,
-        hangout_id: upload.id,
-        hangout_item_id: row.hangoutItem.id,
-        dish_name: dishName,
-        price_original: row.hangoutItem.unit_price,
-        currency_original: upload.currency_detected || 'USD',
-        price_usd: row.hangoutItem.unit_price,
-        quantity: row.hangoutItem.quantity,
-        eaten_at: upload.visited_at ?? upload.created_at,
-        source_upload_id: upload.id,
-        dish_key: dishKey,
-        identity_tag: nextIdentity,
-        comment: nextComment?.trim() ? nextComment.trim() : null,
-      };
-
-      const supabase = getBrowserSupabaseClient();
-      const { data: existing, error: existingError } = await supabase
-        .from('dish_entries')
-        .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
-        .eq('user_id', currentUserId)
-        .eq('hangout_id', upload.id)
-        .eq('hangout_item_id', row.hangoutItem.id)
-        .maybeSingle();
-
-      if (existingError) return;
-
-      if (existing?.id) {
-        const { data: updatedExisting, error: updateError } = await supabase
-          .from('dish_entries')
-          .update(payload)
-          .eq('id', existing.id)
-          .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
-          .single();
-
-        if (!updateError && updatedExisting) {
-          const savedExisting = updatedExisting as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
-          setFood((prev) =>
-            prev.map((entry) =>
-              entry.hangoutItem.id === row.hangoutItem.id
-                ? {
-                    ...entry,
-                    myEntry: savedExisting,
-                  }
-                : entry,
-            ),
-          );
-          void enrichDishCatalog(savedExisting.id);
-          return;
-        }
-        return;
-      }
-
-      const insertResult = await supabase
-        .from('dish_entries')
-        .insert(payload)
-        .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
-        .single();
-
-      if (insertResult.error || !insertResult.data) return;
-      const saved = insertResult.data as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
-      void enrichDishCatalog(saved.id);
-      setFood((prev) =>
-        prev.map((entry) =>
-          entry.hangoutItem.id === row.hangoutItem.id
-            ? {
-                ...entry,
-                myEntry: saved,
-              }
-            : entry,
-        ),
-      );
-    },
-    [currentUserId, enrichDishCatalog, restaurant?.name, upload],
-  );
-
   const ensureDishEntryForRow = useCallback(
     async (row: UnifiedDishRow): Promise<Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'> | null> => {
-      if (row.myEntry?.id) return row.myEntry;
-      await upsertMyDishEntry(row, {});
-      if (!currentUserId || !upload?.id) return null;
-      const supabase = getBrowserSupabaseClient();
-      const primary = await supabase
-        .from('dish_entries')
-        .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
-        .eq('user_id', currentUserId)
-        .eq('hangout_id', upload.id)
-        .eq('hangout_item_id', row.hangoutItem.id)
-        .maybeSingle();
-      if (!primary.error && primary.data) {
-        return primary.data as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
-      }
-      return null;
+      return row.myEntry?.id ? row.myEntry : null;
     },
-    [currentUserId, upload?.id, upsertMyDishEntry],
+    [],
   );
 
   const handleUploadHangoutPhoto = useCallback(
@@ -1002,15 +851,13 @@ export default function UploadDetailPage() {
       const payload = (await response.json().catch(() => null)) as { ok?: boolean; catalog?: DishCatalog } | null;
       const catalog = payload?.catalog;
       const supabase = getBrowserSupabaseClient();
-      await supabase.from('hangout_items').update({ unit_price: nextPrice }).eq('id', editingDishRow.hangoutItemId);
       await supabase
         .from('dish_entries')
         .update({
           price_original: nextPrice,
           price_usd: nextPrice,
         })
-        .eq('hangout_id', uploadId)
-        .eq('hangout_item_id', editingDishRow.hangoutItemId);
+        .eq('id', editingDishRow.hangoutItemId);
 
       setFood((prev) =>
         prev.map((entry) =>
@@ -1371,71 +1218,47 @@ export default function UploadDetailPage() {
       );
       const promotedImagePaths = await promoteTempReceiptImages();
       const supabase = getBrowserSupabaseClient();
+      const preservedEntryIds = new Set<string>();
 
-      const { data: hangoutSource } = await supabase
-        .from('hangout_sources')
-        .select('id')
-        .eq('hangout_id', upload.id)
-        .eq('type', 'receipt')
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .maybeSingle();
-
-      await supabase.from('hangout_items').delete().eq('hangout_id', upload.id);
-      await supabase.from('dish_entries').delete().eq('user_id', currentUserId).eq('hangout_id', upload.id);
-
-      const draftRows = activeFood.map((row) => ({
-        hangout_id: upload.id,
-        source_id: hangoutSource?.id ?? null,
-        name_raw: row.hangoutItem.name_raw,
-        name_final: row.hangoutItem.name_final,
-        quantity: Math.max(1, row.hangoutItem.quantity ?? 1),
-        unit_price: row.hangoutItem.unit_price ?? null,
-        currency: row.hangoutItem.currency ?? upload.currency_detected ?? 'USD',
-        confidence: row.hangoutItem.confidence ?? null,
-        included: row.hangoutItem.included,
-      }));
-
-      const insertedItems: Array<{ id: string }> = [];
-      if (draftRows.length > 0) {
-        const { data: createdItems, error: createdItemsError } = await supabase
-          .from('hangout_items')
-          .insert(draftRows)
-          .select('id');
-        if (createdItemsError) throw createdItemsError;
-        insertedItems.push(...((createdItems ?? []) as Array<{ id: string }>));
-      }
-
-      for (let index = 0; index < draftRows.length; index += 1) {
-        const row = activeFood[index];
-        const inserted = insertedItems[index];
-        if (!inserted?.id) continue;
+      for (const row of activeFood) {
         const dishName = row.hangoutItem.name_final || row.hangoutItem.name_raw;
         const dishKey = toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`);
         const draftIdentity = row.myEntry?.identity_tag ?? null;
         const draftComment = row.myEntry?.comment?.trim() ? row.myEntry.comment.trim() : null;
-        const { data: insertedEntry, error: entryError } = await supabase
-          .from('dish_entries')
-          .insert({
-            user_id: currentUserId,
-            restaurant_id: upload.restaurant_id,
-            hangout_id: upload.id,
-            hangout_item_id: inserted.id,
-            dish_name: dishName,
-            price_original: row.hangoutItem.unit_price,
-            currency_original: row.hangoutItem.currency ?? upload.currency_detected ?? 'USD',
-            price_usd: row.hangoutItem.unit_price,
-            quantity: row.hangoutItem.quantity,
-            eaten_at: upload.visited_at ?? upload.created_at,
-            source_upload_id: upload.id,
-            dish_key: dishKey,
-            identity_tag: draftIdentity,
-            comment: draftComment,
-          })
-          .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
-          .single();
-        if (entryError) throw entryError;
-        const typedInsertedEntry = insertedEntry as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
+        const payload = {
+          user_id: currentUserId,
+          restaurant_id: upload.restaurant_id,
+          hangout_id: upload.id,
+          hangout_item_id: null,
+          dish_name: dishName,
+          price_original: row.hangoutItem.unit_price,
+          currency_original: row.hangoutItem.currency ?? upload.currency_detected ?? 'USD',
+          price_usd: row.hangoutItem.unit_price,
+          quantity: row.hangoutItem.quantity,
+          eaten_at: upload.visited_at ?? upload.created_at,
+          source_upload_id: upload.id,
+          dish_key: dishKey,
+          identity_tag: draftIdentity,
+          comment: draftComment,
+        };
+        const existingId = row.myEntry?.id && !row.myEntry.id.startsWith('tmp-') ? row.myEntry.id : null;
+        const saveResult = existingId
+          ? await supabase
+              .from('dish_entries')
+              .update(payload)
+              .eq('id', existingId)
+              .eq('user_id', currentUserId)
+              .eq('hangout_id', upload.id)
+              .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
+              .single()
+          : await supabase
+              .from('dish_entries')
+              .insert(payload)
+              .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment')
+              .single();
+        if (saveResult.error || !saveResult.data) throw saveResult.error ?? new Error('Failed to save food entry');
+        const typedSavedEntry = saveResult.data as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
+        preservedEntryIds.add(typedSavedEntry.id);
         setFood((prev) =>
           prev.map((entry) =>
             entry.hangoutItem.id === row.hangoutItem.id
@@ -1443,13 +1266,23 @@ export default function UploadDetailPage() {
                   ...entry,
                   hangoutItem: {
                     ...entry.hangoutItem,
-                    id: inserted.id,
+                    id: typedSavedEntry.id,
                   },
-                  myEntry: typedInsertedEntry,
+                  myEntry: typedSavedEntry,
                 }
               : entry,
           ),
         );
+      }
+
+      const { data: existingEntries } = await supabase
+        .from('dish_entries')
+        .select('id')
+        .eq('user_id', currentUserId)
+        .eq('hangout_id', upload.id);
+      const removeIds = (existingEntries ?? []).map((row) => row.id).filter((id) => !preservedEntryIds.has(id));
+      if (removeIds.length > 0) {
+        await supabase.from('dish_entries').delete().in('id', removeIds);
       }
 
       await supabase
