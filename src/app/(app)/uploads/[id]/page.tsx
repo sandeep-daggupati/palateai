@@ -266,6 +266,10 @@ export default function UploadDetailPage() {
   const receiptReplaceUploadInputRef = useRef<HTMLInputElement | null>(null);
   const didAutoExtractRef = useRef(false);
 
+  useEffect(() => {
+    didAutoExtractRef.current = false;
+  }, [uploadId]);
+
   const isHost = Boolean(upload && currentUserId && upload.user_id === currentUserId);
 
   const isActiveParticipant = useMemo(
@@ -644,6 +648,7 @@ export default function UploadDetailPage() {
     if (!isHost || !upload) return;
     if (!isReceiptCapture) return;
     if (!upload.image_paths || upload.image_paths.length === 0) return;
+    if (upload.processed_at) return;
     if (hasAnyExtractedItems) return;
 
     didAutoExtractRef.current = true;
