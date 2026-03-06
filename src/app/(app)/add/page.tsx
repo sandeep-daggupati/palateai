@@ -360,12 +360,13 @@ export default function AddPage() {
       .insert({
         user_id: user.id,
         restaurant_id: finalRestaurantId,
-        status: 'uploaded',
+        status: 'approved',
         type: 'receipt',
         image_paths: [],
         visited_at: eatenAt,
         is_shared: false,
         share_visibility: 'private',
+        processed_at: eatenAt,
       })
       .select('id')
       .single();
@@ -404,30 +405,13 @@ export default function AddPage() {
       if (participantError) throw participantError;
     }
 
-    const { data: hangoutItem, error: hangoutItemError } = await supabase
-      .from('hangout_items')
-      .insert({
-        hangout_id: hangoutId,
-        source_id: null,
-        name_raw: name,
-        name_final: name,
-        quantity: 1,
-        unit_price: price,
-        currency: 'USD',
-        included: true,
-        confidence: null,
-      })
-      .select('id')
-      .single();
-    if (hangoutItemError || !hangoutItem?.id) throw hangoutItemError ?? new Error('Failed to create food item');
-
     const entryInsert = await supabase
       .from('dish_entries')
       .insert({
         user_id: user.id,
         restaurant_id: finalRestaurantId,
         hangout_id: hangoutId,
-        hangout_item_id: hangoutItem.id,
+        hangout_item_id: null,
         source_upload_id: hangoutId,
         dish_name: name,
         price_original: price,
