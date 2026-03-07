@@ -257,7 +257,14 @@ export async function POST(req: Request) {
     }
 
     console.info(`[extract:${traceId}] done`, { uploadId: uploadIdValue, inserted: rows.length });
-    return NextResponse.json({ ok: true, count: rows.length, traceId, items: rows });
+    return NextResponse.json({
+      ok: true,
+      count: rows.length,
+      traceId,
+      items: rows,
+      merchant: extracted.merchant,
+      datetime: extracted.datetime,
+    });
   } catch (err: unknown) {
     if (uploadId && !dryRun) {
       const { error: failErr } = await supabase.from("receipt_uploads").update({ status: "failed" }).eq("id", uploadId);
