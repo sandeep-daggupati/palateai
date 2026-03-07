@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { MouseEvent as ReactMouseEvent } from 'react';
 import { Ban, Camera, Check, Ellipsis, FileText, Gem, Pencil, RotateCcw, Sparkles, Star, Wine, X } from 'lucide-react';
 import { DishIdentityTag } from '@/lib/supabase/types';
 
@@ -59,26 +58,20 @@ export function DishActionBar({
   }, []);
 
   useEffect(() => {
-    if (!isMobile || (!ratingOpen && !noteOpen)) return;
+    if (!isMobile || (!ratingOpen && !noteOpen && !menuOpen)) return;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = prevOverflow;
     };
-  }, [isMobile, noteOpen, ratingOpen]);
+  }, [isMobile, menuOpen, noteOpen, ratingOpen]);
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent) => {
       const target = event.target as Node;
-      if (ratingRef.current && !ratingRef.current.contains(target)) {
-        setRatingOpen(false);
-      }
-      if (menuRef.current && !menuRef.current.contains(target)) {
-        setMenuOpen(false);
-      }
-      if (noteRef.current && !noteRef.current.contains(target)) {
-        setNoteOpen(false);
-      }
+      if (ratingRef.current && !ratingRef.current.contains(target)) setRatingOpen(false);
+      if (menuRef.current && !menuRef.current.contains(target)) setMenuOpen(false);
+      if (noteRef.current && !noteRef.current.contains(target)) setNoteOpen(false);
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
@@ -97,11 +90,15 @@ export function DishActionBar({
     };
   }, []);
 
-  const SelectedRatingIcon = ratingValue ? IDENTITY_ICON[ratingValue] : null;
-  const stopTap = (event: ReactMouseEvent<HTMLElement>) => {
+  const selectedIcon = ratingValue ? IDENTITY_ICON[ratingValue] : null;
+  const SelectedIcon = selectedIcon;
+
+  const stopTap = (event: { preventDefault: () => void; stopPropagation: () => void }) => {
     event.preventDefault();
     event.stopPropagation();
   };
+
+  const selectedClass = 'border-app-primary bg-app-primary/15 shadow-[0_0_0_2px_rgba(31,61,43,0.15)]';
 
   return (
     <div className="relative max-w-full">
@@ -131,10 +128,14 @@ export function DishActionBar({
               setMenuOpen(false);
               setNoteOpen(false);
             }}
-            className={`icon-button-subtle relative ${SelectedRatingIcon ? 'border-app-primary bg-app-primary/15 shadow-[0_0_0_2px_rgba(31,61,43,0.15)]' : ''}`}
+            className={`icon-button-subtle relative ${selectedIcon ? selectedClass : ''}`}
           >
-            {SelectedRatingIcon ? <SelectedRatingIcon size={16} strokeWidth={ICON_STROKE} /> : <Sparkles size={16} strokeWidth={ICON_STROKE} />}
-            {SelectedRatingIcon ? <span className="absolute -right-1 -top-1 rounded-full bg-app-primary p-0.5 text-app-primary-text"><Check size={9} strokeWidth={2.5} /></span> : null}
+            {SelectedIcon ? <SelectedIcon size={16} strokeWidth={ICON_STROKE} /> : <Sparkles size={16} strokeWidth={ICON_STROKE} />}
+            {selectedIcon ? (
+              <span className="absolute -right-1 -top-1 rounded-full bg-app-primary p-0.5 text-app-primary-text">
+                <Check size={9} strokeWidth={2.5} />
+              </span>
+            ) : null}
           </button>
 
           {ratingOpen && !isMobile ? (
@@ -153,10 +154,14 @@ export function DishActionBar({
                         onSetRating(active ? null : tag);
                         setRatingOpen(false);
                       }}
-                      className={`icon-button-subtle relative ${active ? 'border-app-primary bg-app-primary/15 shadow-[0_0_0_2px_rgba(31,61,43,0.15)]' : ''}`}
+                      className={`icon-button-subtle relative ${active ? selectedClass : ''}`}
                     >
                       <TagIcon size={16} strokeWidth={ICON_STROKE} />
-                      {active ? <span className="absolute -right-1 -top-1 rounded-full bg-app-primary p-0.5 text-app-primary-text"><Check size={9} strokeWidth={2.5} /></span> : null}
+                      {active ? (
+                        <span className="absolute -right-1 -top-1 rounded-full bg-app-primary p-0.5 text-app-primary-text">
+                          <Check size={9} strokeWidth={2.5} />
+                        </span>
+                      ) : null}
                     </button>
                   );
                 })}
@@ -181,7 +186,8 @@ export function DishActionBar({
             <Ellipsis size={16} strokeWidth={ICON_STROKE} />
             {noteValue.trim().length > 0 ? <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-app-primary" /> : null}
           </button>
-          {menuOpen && (
+
+          {menuOpen && !isMobile ? (
             <div className="absolute right-0 top-9 z-30 w-44 max-w-[calc(100vw-1.5rem)] rounded-xl border border-app-border bg-app-card p-1.5 shadow-lg">
               <button
                 type="button"
@@ -208,7 +214,7 @@ export function DishActionBar({
                 {noteValue.trim().length > 0 ? 'Edit note' : 'Add note'}
               </button>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -284,10 +290,14 @@ export function DishActionBar({
                       onSetRating(active ? null : tag);
                       setRatingOpen(false);
                     }}
-                    className={`icon-button-subtle relative h-10 w-10 ${active ? 'border-app-primary bg-app-primary/15 shadow-[0_0_0_2px_rgba(31,61,43,0.15)]' : ''}`}
+                    className={`icon-button-subtle relative h-10 w-10 ${active ? selectedClass : ''}`}
                   >
                     <TagIcon size={17} strokeWidth={ICON_STROKE} />
-                    {active ? <span className="absolute -right-1 -top-1 rounded-full bg-app-primary p-0.5 text-app-primary-text"><Check size={9} strokeWidth={2.5} /></span> : null}
+                    {active ? (
+                      <span className="absolute -right-1 -top-1 rounded-full bg-app-primary p-0.5 text-app-primary-text">
+                        <Check size={9} strokeWidth={2.5} />
+                      </span>
+                    ) : null}
                   </button>
                 );
               })}
@@ -345,6 +355,61 @@ export function DishActionBar({
                 className="h-9 rounded-lg bg-app-primary px-3 text-xs font-medium text-app-primary-text"
               >
                 Save
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {menuOpen && isMobile ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/35">
+          <button
+            type="button"
+            className="absolute inset-0"
+            aria-label="Close actions"
+            onClick={(event) => {
+              stopTap(event);
+              setMenuOpen(false);
+            }}
+          />
+          <div className="relative w-full max-w-md rounded-t-2xl border border-app-border bg-app-card p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-sm font-semibold text-app-text">Actions</p>
+              <button
+                type="button"
+                className="icon-button-subtle"
+                onClick={(event) => {
+                  stopTap(event);
+                  setMenuOpen(false);
+                }}
+              >
+                <X size={14} strokeWidth={1.7} />
+              </button>
+            </div>
+            <div className="space-y-1">
+              <button
+                type="button"
+                className="flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left text-sm text-app-text hover:bg-app-bg/70"
+                onClick={(event) => {
+                  stopTap(event);
+                  setMenuOpen(false);
+                  onEdit();
+                }}
+              >
+                <Pencil size={15} strokeWidth={ICON_STROKE} />
+                Edit details
+              </button>
+              <button
+                type="button"
+                className="flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left text-sm text-app-text hover:bg-app-bg/70"
+                onClick={(event) => {
+                  stopTap(event);
+                  setMenuOpen(false);
+                  setNoteOpen(true);
+                }}
+              >
+                <FileText size={15} strokeWidth={ICON_STROKE} />
+                {noteValue.trim().length > 0 ? 'Edit note' : 'Add note'}
               </button>
             </div>
           </div>
