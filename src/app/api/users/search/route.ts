@@ -19,10 +19,17 @@ function getAnonSupabaseClient() {
   });
 }
 
+type UserSearchResult = {
+  id: string;
+  email: string;
+  display_name: string | null;
+  avatar_url: string | null;
+};
+
 async function searchUsersByEmail(service: ReturnType<typeof getServiceSupabaseClient>, query: string, currentUserId: string) {
   let page = 1;
   const perPage = 200;
-  const matches: Array<{ id: string; email: string }> = [];
+  const matches: UserSearchResult[] = [];
 
   while (page <= 25 && matches.length < 8) {
     const response = await service.auth.admin.listUsers({ page, perPage });
@@ -34,7 +41,17 @@ async function searchUsersByEmail(service: ReturnType<typeof getServiceSupabaseC
       if (entry.id === currentUserId) continue;
       if (!email.includes(query)) continue;
 
-      matches.push({ id: entry.id, email: entry.email as string });
+      const metadata = (entry.user_metadata ?? {}) as Record<string, unknown>;
+      const displayName =
+        (typeof metadata.full_name === 'string' ? metadata.full_name.trim() : '') ||
+        (typeof metadata.name === 'string' ? metadata.name.trim() : '') ||
+        (typeof metadata.user_name === 'string' ? metadata.user_name.trim() : '') ||
+        null;
+      const avatarUrl =
+        (typeof metadata.avatar_url === 'string' ? metadata.avatar_url.trim() : '') ||
+        (typeof metadata.picture === 'string' ? metadata.picture.trim() : '') ||
+        null;
+      matches.push({ id: entry.id, email: entry.email as string, display_name: displayName, avatar_url: avatarUrl });
       if (matches.length >= 8) break;
     }
 
@@ -42,7 +59,20 @@ async function searchUsersByEmail(service: ReturnType<typeof getServiceSupabaseC
     page += 1;
   }
 
-  return matches;
+  if (matches.length === 0) return matches;
+
+  const profileIds = matches.map((row) => row.id);
+  const { data: profileRows } = await service.from('profiles').select('id,display_name,avatar_url').in('id', profileIds);
+  const profileLookup = new Map((profileRows ?? []).map((row) => [row.id, row]));
+
+  return matches.map((row) => {
+    const profile = profileLookup.get(row.id);
+    return {
+      ...row,
+      display_name: profile?.display_name ?? row.display_name,
+      avatar_url: profile?.avatar_url ?? row.avatar_url,
+    };
+  });
 }
 
 export async function GET(request: Request) {

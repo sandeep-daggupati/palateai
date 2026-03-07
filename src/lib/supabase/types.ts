@@ -114,6 +114,7 @@ export type Database = {
           visit_lng: number | null;
           visit_rating: number | null;
           visit_note: string | null;
+          vibe_tags: string[] | null;
           is_shared: boolean;
           share_visibility: ShareVisibility;
           created_at: string;
@@ -133,6 +134,7 @@ export type Database = {
           visit_lng?: number | null;
           visit_rating?: number | null;
           visit_note?: string | null;
+          vibe_tags?: string[] | null;
           is_shared?: boolean;
           share_visibility?: ShareVisibility;
           created_at?: string;
@@ -152,6 +154,7 @@ export type Database = {
           visit_lng?: number | null;
           visit_rating?: number | null;
           visit_note?: string | null;
+          vibe_tags?: string[] | null;
           is_shared?: boolean;
           share_visibility?: ShareVisibility;
           created_at?: string;
@@ -709,5 +712,4 @@ export type Photo = Database['public']['Tables']['photos']['Row'];
 export type TableRow<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
 export type TableInsert<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Insert'];
 export type TableUpdate<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Update'];
-
 
