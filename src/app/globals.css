@@ -108,5 +108,13 @@ textarea::placeholder {
     @apply inline-flex h-8 w-8 items-center justify-center rounded-full border border-app-border text-app-text transition-colors duration-150 hover:bg-neutral-100 dark:hover:bg-neutral-800;
   }
 
-}
+  .action-row-scroll {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
 
+  .action-row-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+}
