@@ -3,6 +3,12 @@ type Extracted = {
   items: Array<{ name: string; price: number }>;
   currency: string | null;
   notes: string | null;
+  merchant: {
+    name: string | null;
+    address: string | null;
+    phone: string | null;
+  };
+  datetime: string | null;
 };
 
 type ParsedItem = {
@@ -14,6 +20,12 @@ type ParsedResponse = {
   items?: ParsedItem[];
   currency?: unknown;
   notes?: unknown;
+  merchant?: {
+    name?: unknown;
+    address?: unknown;
+    phone?: unknown;
+  };
+  datetime?: unknown;
 };
 
 type NameRepair = {
@@ -150,6 +162,8 @@ You extract restaurant menu/receipt LINE ITEMS and PRICES.
 
 Return ONLY valid JSON in this exact shape:
 {
+  "merchant": {"name": string|null, "address": string|null, "phone": string|null},
+  "datetime": string|null,
   "items": [{"name": string, "price": number}],
   "currency": string|null,
   "notes": string|null
@@ -158,6 +172,8 @@ Return ONLY valid JSON in this exact shape:
 Rules:
 - Include only purchased menu items (dish/drink names) with their item prices.
 - Ignore totals, subtotal, tax, tip, service fee, discounts, coupons, payment lines, change, tender, order IDs.
+- merchant fields are optional; return null when missing.
+- datetime should be receipt date/time if visible, in ISO string when possible; otherwise null.
 - If quantity appears (e.g. 2x), still return a single item name; price should be the line price shown.
 - "price" must be a number like 15.95 (no currency symbols).
 - Keep names as printed but trim whitespace.`;
@@ -210,6 +226,12 @@ Rules:
     items: cleaned,
     currency: typeof parsed.currency === "string" ? parsed.currency : null,
     notes: typeof parsed.notes === "string" ? parsed.notes : null,
+    merchant: {
+      name: typeof parsed.merchant?.name === "string" ? parsed.merchant.name.trim() || null : null,
+      address: typeof parsed.merchant?.address === "string" ? parsed.merchant.address.trim() || null : null,
+      phone: typeof parsed.merchant?.phone === "string" ? parsed.merchant.phone.trim() || null : null,
+    },
+    datetime: typeof parsed.datetime === "string" ? parsed.datetime.trim() || null : null,
   };
 }
 

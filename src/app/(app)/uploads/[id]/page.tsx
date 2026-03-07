@@ -63,6 +63,11 @@ type ExtractedDraftRow = {
   confidence: number | null;
   included: boolean;
 };
+type DetectedMerchant = {
+  name: string | null;
+  address: string | null;
+  phone: string | null;
+};
 type RestaurantDirectory = Pick<
   Restaurant,
   | 'id'
@@ -190,6 +195,13 @@ function normalizeDish(value: string): string {
   return normalizeName(value) || value.trim().toLowerCase();
 }
 
+function normalizeDetectedDatetime(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const stamp = Date.parse(value);
+  if (Number.isNaN(stamp)) return null;
+  return new Date(stamp).toISOString();
+}
+
 function normalizedDraftKey(name: string, unitPrice: number | null): string {
   const normalizedName = normalizeDish(name).replace(/\s+/g, ' ').trim();
   const normalizedPrice = unitPrice == null ? 'noprice' : unitPrice.toFixed(2);
@@ -277,6 +289,12 @@ export default function UploadDetailPage() {
   const [restaurantFocused, setRestaurantFocused] = useState(false);
   const [manualRestaurantMode, setManualRestaurantMode] = useState(false);
   const [manualRestaurantName, setManualRestaurantName] = useState('');
+  const [manualRestaurantAddress, setManualRestaurantAddress] = useState('');
+  const [detectedMerchant, setDetectedMerchant] = useState<DetectedMerchant | null>(null);
+  const [draftRestaurantName, setDraftRestaurantName] = useState('');
+  const [draftRestaurantAddress, setDraftRestaurantAddress] = useState('');
+  const [draftOccurredAt, setDraftOccurredAt] = useState<string | null>(null);
+  const [useDetectedRestaurant, setUseDetectedRestaurant] = useState(false);
   const [restaurantNameEditing, setRestaurantNameEditing] = useState(false);
   const [restaurantNameDraft, setRestaurantNameDraft] = useState('');
   const [restaurantNameSaving, setRestaurantNameSaving] = useState(false);
@@ -442,6 +460,11 @@ export default function UploadDetailPage() {
       setRestaurant(null);
       setFood([]);
       setVibeTags([]);
+      setDetectedMerchant(null);
+      setDraftRestaurantName('');
+      setDraftRestaurantAddress('');
+      setDraftOccurredAt(null);
+      setUseDetectedRestaurant(false);
       setParticipants([]);
       return;
     }
@@ -542,6 +565,12 @@ export default function UploadDetailPage() {
     setEntryMetaById(entryMap);
     setRestaurant((restaurantData.data ?? null) as RestaurantDirectory | null);
     setVibeTags(Array.isArray(typedUpload.vibe_tags) ? typedUpload.vibe_tags.filter((value): value is string => typeof value === 'string') : []);
+    setDraftOccurredAt(typedUpload.visited_at ?? null);
+    if (typedUpload.restaurant_id) {
+      setUseDetectedRestaurant(false);
+      setDraftRestaurantName('');
+      setDraftRestaurantAddress('');
+    }
 
     await loadParticipants();
     if (inferCaptureMode(typedUpload) === 'receipt') {
@@ -653,15 +682,31 @@ export default function UploadDetailPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ uploadId, dryRun: true }),
         });
-        const payload = (await response.json().catch(() => null)) as { items?: ExtractedDraftRow[] } | null;
+        const payload = (await response.json().catch(() => null)) as {
+          items?: ExtractedDraftRow[];
+          merchant?: DetectedMerchant | null;
+          datetime?: string | null;
+        } | null;
         if (!response.ok) return;
         mergeExtractedIntoDraft(mode, payload?.items ?? []);
+        const merchant = payload?.merchant ?? null;
+        if (merchant?.name || merchant?.address || merchant?.phone) {
+          setDetectedMerchant(merchant);
+          if (!restaurant) {
+            setDraftRestaurantName(merchant.name ?? '');
+            setDraftRestaurantAddress(merchant.address ?? '');
+          }
+        }
+        const detectedAt = normalizeDetectedDatetime(payload?.datetime);
+        if (detectedAt && !upload?.visited_at) {
+          setDraftOccurredAt(detectedAt);
+        }
         setHasUnsavedChanges(true);
       } finally {
         setIsExtracting(false);
       }
     },
-    [mergeExtractedIntoDraft, uploadId],
+    [mergeExtractedIntoDraft, restaurant, upload?.visited_at, uploadId],
   );
 
 
@@ -1002,6 +1047,9 @@ export default function UploadDetailPage() {
         setRestaurant((upsertedRestaurant ?? null) as RestaurantDirectory | null);
         setUpload((current) => (current ? { ...current, restaurant_id: upsertedRestaurant.id } : current));
         setRestaurantQuery(upsertedRestaurant.name);
+        setDraftRestaurantName('');
+        setDraftRestaurantAddress('');
+        setUseDetectedRestaurant(false);
         setRestaurantSuggestions([]);
         setRestaurantFocused(false);
       } catch (error) {
@@ -1023,6 +1071,7 @@ export default function UploadDetailPage() {
         .insert({
           user_id: currentUserId,
           name,
+          address: manualRestaurantAddress.trim() || null,
         })
         .select('id,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
         .single();
@@ -1039,11 +1088,15 @@ export default function UploadDetailPage() {
       setUpload((current) => (current ? { ...current, restaurant_id: createdRestaurant.id } : current));
       setRestaurantQuery(createdRestaurant.name);
       setManualRestaurantName('');
+      setManualRestaurantAddress('');
+      setDraftRestaurantName('');
+      setDraftRestaurantAddress('');
+      setUseDetectedRestaurant(false);
       setManualRestaurantMode(false);
     } catch (error) {
       setRestaurantLookupError(error instanceof Error ? error.message : 'Could not update restaurant');
     }
-  }, [currentUserId, manualRestaurantName, upload]);
+  }, [currentUserId, manualRestaurantAddress, manualRestaurantName, upload]);
 
   const promoteTempReceiptImages = useCallback(async (): Promise<string[] | null> => {
     if (!upload?.image_paths?.length || !currentUserId) return null;
@@ -1237,15 +1290,37 @@ export default function UploadDetailPage() {
       const promotedImagePaths = await promoteTempReceiptImages();
       const supabase = getBrowserSupabaseClient();
       const preservedEntryIds = new Set<string>();
+      let effectiveRestaurantId = upload.restaurant_id;
+
+      if (!effectiveRestaurantId && useDetectedRestaurant && draftRestaurantName.trim()) {
+        const { data: createdRestaurant, error: createRestaurantError } = await supabase
+          .from('restaurants')
+          .insert({
+            user_id: currentUserId,
+            name: draftRestaurantName.trim(),
+            address: draftRestaurantAddress.trim() || null,
+          })
+          .select('id,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
+          .single();
+        if (createRestaurantError || !createdRestaurant) {
+          throw createRestaurantError ?? new Error('Could not create restaurant from receipt detection');
+        }
+        effectiveRestaurantId = createdRestaurant.id;
+        setRestaurant(createdRestaurant as RestaurantDirectory);
+        setUpload((current) => (current ? { ...current, restaurant_id: createdRestaurant.id } : current));
+      }
+
+      const effectiveOccurredAt = draftOccurredAt ?? upload.visited_at ?? upload.created_at;
+      const effectiveRestaurantName = restaurant?.name ?? (draftRestaurantName.trim() || 'unknown-restaurant');
 
       for (const row of activeFood) {
         const dishName = row.hangoutItem.name_final || row.hangoutItem.name_raw;
-        const dishKey = toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`);
+        const dishKey = toDishKey(`${effectiveRestaurantName} ${dishName}`);
         const draftIdentity = row.myEntry?.identity_tag ?? null;
         const draftComment = row.myEntry?.comment?.trim() ? row.myEntry.comment.trim() : null;
         const payload = {
           user_id: currentUserId,
-          restaurant_id: upload.restaurant_id,
+          restaurant_id: effectiveRestaurantId,
           hangout_id: upload.id,
           hangout_item_id: null,
           dish_name: dishName,
@@ -1253,7 +1328,7 @@ export default function UploadDetailPage() {
           currency_original: row.hangoutItem.currency ?? upload.currency_detected ?? 'USD',
           price_usd: row.hangoutItem.unit_price,
           quantity: row.hangoutItem.quantity,
-          eaten_at: upload.visited_at ?? upload.created_at,
+          eaten_at: effectiveOccurredAt,
           source_upload_id: upload.id,
           dish_key: dishKey,
           identity_tag: draftIdentity,
@@ -1304,6 +1379,8 @@ export default function UploadDetailPage() {
       await supabase
         .from('receipt_uploads')
         .update({
+          restaurant_id: effectiveRestaurantId,
+          visited_at: effectiveOccurredAt,
           vibe_tags: vibeTags.length > 0 ? vibeTags : [],
           status: 'approved',
           processed_at: new Date().toISOString(),
@@ -1314,6 +1391,7 @@ export default function UploadDetailPage() {
       await supabase
         .from('hangouts')
         .update({
+          restaurant_id: effectiveRestaurantId,
           note: null,
           updated_at: new Date().toISOString(),
         })
@@ -1355,7 +1433,23 @@ export default function UploadDetailPage() {
     } finally {
       setSaveHangoutLoading(false);
     }
-  }, [captionDraft, currentUserId, dishes, getAuthHeader, hangoutSummary?.caption_source, isReceiptCapture, promoteTempReceiptImages, restaurant?.name, router, upload, vibeTags]);
+  }, [
+    captionDraft,
+    currentUserId,
+    dishes,
+    draftOccurredAt,
+    draftRestaurantAddress,
+    draftRestaurantName,
+    getAuthHeader,
+    hangoutSummary?.caption_source,
+    isReceiptCapture,
+    promoteTempReceiptImages,
+    restaurant?.name,
+    router,
+    upload,
+    useDetectedRestaurant,
+    vibeTags,
+  ]);
 
   const removeParticipant = async (participantId: string) => {
     if (!upload) return;
@@ -1618,12 +1712,9 @@ export default function UploadDetailPage() {
                 ) : null}
               </>
             ) : (
-              <div className="flex gap-2">
-                <Input
-                  value={manualRestaurantName}
-                  onChange={(event) => setManualRestaurantName(event.target.value)}
-                  placeholder="Enter restaurant name"
-                />
+              <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                <Input value={manualRestaurantName} onChange={(event) => setManualRestaurantName(event.target.value)} placeholder="Restaurant name" />
+                <Input value={manualRestaurantAddress} onChange={(event) => setManualRestaurantAddress(event.target.value)} placeholder="Address (optional)" />
                 <Button
                   type="button"
                   variant="secondary"
@@ -1639,6 +1730,45 @@ export default function UploadDetailPage() {
           </div>
         ) : null}
         {restaurantLookupError ? <p className="text-xs text-rose-700 dark:text-rose-300">{restaurantLookupError}</p> : null}
+        {!restaurant && detectedMerchant?.name ? (
+          <div className="rounded-xl border border-app-border bg-app-card/70 p-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-app-text">Restaurant (detected)</p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="text-xs font-medium text-app-link underline underline-offset-2"
+                  onClick={() => {
+                    setDraftRestaurantName(detectedMerchant.name ?? '');
+                    setDraftRestaurantAddress(detectedMerchant.address ?? '');
+                    setUseDetectedRestaurant(true);
+                    setHasUnsavedChanges(true);
+                  }}
+                >
+                  {useDetectedRestaurant ? 'Using' : 'Use'}
+                </button>
+                <button
+                  type="button"
+                  className="text-xs font-medium text-app-link underline underline-offset-2"
+                  onClick={() => {
+                    setManualRestaurantMode(true);
+                    setManualRestaurantName(draftRestaurantName || detectedMerchant.name || '');
+                    setManualRestaurantAddress(draftRestaurantAddress || detectedMerchant.address || '');
+                  }}
+                >
+                  Edit
+                </button>
+              </div>
+            </div>
+            <p className="text-sm text-app-text">{draftRestaurantName || detectedMerchant.name}</p>
+            {(draftRestaurantAddress || detectedMerchant.address) ? (
+              <p className="text-xs text-app-muted">{draftRestaurantAddress || detectedMerchant.address}</p>
+            ) : null}
+          </div>
+        ) : null}
+        {restaurant && detectedMerchant?.name ? (
+          <p className="text-xs text-app-muted">Receipt detected: {detectedMerchant.name}</p>
+        ) : null}
         <div className="rounded-lg border border-app-border border-l-2 border-l-app-primary bg-app-primary/5 px-2.5 py-2">
             <div className="mb-1 flex items-center justify-between gap-2">
               <div className="inline-flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.08em] text-app-muted" title="Generated by PalateAI. Edit anytime.">
