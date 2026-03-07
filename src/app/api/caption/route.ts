@@ -13,6 +13,8 @@ type CaptionRequest = {
   entry_id?: string;
   caption_text?: string;
   force?: boolean;
+  vibe_tags?: string[];
+  overall_vibe?: string;
 };
 
 async function resolveHangoutId(input: CaptionRequest): Promise<string | null> {
@@ -70,7 +72,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, caption });
     }
 
-    const caption = await generateAndSaveHangoutCaption(hangoutId, { force: body.force === true });
+    const caption = await generateAndSaveHangoutCaption(hangoutId, {
+      force: body.force === true,
+      vibeTags: Array.isArray(body.vibe_tags) ? body.vibe_tags : undefined,
+      overallVibe: typeof body.overall_vibe === 'string' ? body.overall_vibe : undefined,
+    });
     return NextResponse.json({ ok: true, caption });
   } catch (error) {
     console.error('Failed to generate caption:', error);

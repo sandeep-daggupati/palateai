@@ -25,6 +25,7 @@ type CaptionContext = {
   foods: string[];
   cuisine: string | null;
   flavors: string[];
+  vibeTags: string[];
   crewSize: number;
   overallVibe: string | null;
 };
@@ -188,6 +189,7 @@ async function generateCaptionOptions(context: CaptionContext): Promise<string[]
     foods: context.foods,
     cuisine: context.cuisine,
     flavors: context.flavors,
+    vibe_tags: context.vibeTags,
     crew_size: context.crewSize,
     overall_vibe: context.overallVibe,
   };
@@ -261,7 +263,10 @@ export async function getExistingHangoutCaption(hangoutId: string): Promise<Capt
   return (data as CaptionRecord | null) ?? null;
 }
 
-async function buildCaptionContext(hangoutId: string): Promise<CaptionContext | null> {
+async function buildCaptionContext(
+  hangoutId: string,
+  overrides?: { vibeTags?: string[]; overallVibe?: string | null },
+): Promise<CaptionContext | null> {
   const service = getServiceSupabaseClient();
 
   const { data: hangout } = await service
@@ -272,11 +277,12 @@ async function buildCaptionContext(hangoutId: string): Promise<CaptionContext | 
 
   if (!hangout) return null;
 
-  const [{ data: restaurant }, { data: items }, { data: entries }, { data: participants }] = await Promise.all([
+  const [{ data: restaurant }, { data: items }, { data: entries }, { data: participants }, { data: upload }] = await Promise.all([
     hangout.restaurant_id ? service.from('restaurants').select('name').eq('id', hangout.restaurant_id).maybeSingle() : Promise.resolve({ data: null }),
     service.from('hangout_items').select('name_raw,name_final,included').eq('hangout_id', hangoutId).eq('included', true).order('created_at', { ascending: true }),
     service.from('dish_entries').select('cuisine,flavor_tags').eq('hangout_id', hangoutId).limit(50),
     service.from('hangout_participants').select('user_id').eq('hangout_id', hangoutId).limit(30),
+    service.from('receipt_uploads').select('vibe_tags,visit_note').eq('id', hangoutId).maybeSingle(),
   ]);
 
   const foods = normalizeArray(
@@ -293,14 +299,24 @@ async function buildCaptionContext(hangoutId: string): Promise<CaptionContext | 
   );
   activeParticipantIds.add(hangout.owner_user_id);
 
+  const derivedVibeTags = normalizeArray(
+    (Array.isArray(upload?.vibe_tags) ? upload.vibe_tags : []).map((value) => (typeof value === 'string' ? value : null)),
+  );
+  const overrideVibeTags = normalizeArray((overrides?.vibeTags ?? []).map((value) => value));
+  const vibeTags = overrideVibeTags.length > 0 ? overrideVibeTags : derivedVibeTags;
+
+  const overrideVibe = trimText(overrides?.overallVibe ?? null, 120);
+  const uploadVibe = trimText(upload?.visit_note ?? null, 120);
+
   return {
     hangoutId,
     restaurantName: restaurant?.name?.trim() || null,
     foods,
     cuisine: cuisines[0] ?? null,
     flavors,
+    vibeTags,
     crewSize: Math.max(activeParticipantIds.size, 1),
-    overallVibe: trimText(hangout.note, 120),
+    overallVibe: overrideVibe ?? uploadVibe ?? trimText(hangout.note, 120),
   };
 }
 
@@ -328,7 +344,10 @@ export async function saveUserCaption(hangoutId: string, captionText: string): P
   return data as CaptionRecord;
 }
 
-export async function generateAndSaveHangoutCaption(hangoutId: string, options?: { force?: boolean }): Promise<CaptionRecord | null> {
+export async function generateAndSaveHangoutCaption(
+  hangoutId: string,
+  options?: { force?: boolean; vibeTags?: string[]; overallVibe?: string | null },
+): Promise<CaptionRecord | null> {
   const force = options?.force === true;
   const service = getServiceSupabaseClient();
 
@@ -337,7 +356,10 @@ export async function generateAndSaveHangoutCaption(hangoutId: string, options?:
     return existing;
   }
 
-  const context = await buildCaptionContext(hangoutId);
+  const context = await buildCaptionContext(hangoutId, {
+    vibeTags: options?.vibeTags,
+    overallVibe: options?.overallVibe,
+  });
   if (!context) return null;
 
   const optionCandidates = await generateCaptionOptions(context);
@@ -361,6 +383,7 @@ export async function generateAndSaveHangoutCaption(hangoutId: string, options?:
       restaurant_name: context.restaurantName,
       crew_size: context.crewSize,
       foods_used: context.foods,
+      vibe_tags: context.vibeTags,
     } as Json,
   };
 

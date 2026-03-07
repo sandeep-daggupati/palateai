@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Check, CheckCircle2, ChevronDown, Clock3, Globe, MapPin, Navigation, Pencil, Phone, Sparkles, X } from 'lucide-react';
+import { Check, CheckCircle2, ChevronDown, Clock3, Globe, MapPin, Navigation, Pencil, Phone, Plus, Sparkles, X } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { DishActionBar } from '@/components/DishActionBar';
@@ -16,7 +16,14 @@ import { SignedPhoto } from '@/lib/photos/types';
 import { listDishPhotosForHangout, listHangoutPhotos, uploadDishPhoto, uploadHangoutPhoto } from '@/lib/data/photosRepo';
 import { uploadImage } from '@/lib/storage/uploadImage';
 
-const VISIT_NOTE_MAX = 140;
+const VIBE_OPTIONS = [
+  'Great vibes',
+  'Go-to spot',
+  'Quick bite',
+  'Celebrating',
+  'Work hangout',
+  'Late-night',
+] as const;
 
 type UnifiedDishRow = {
   hangoutItem: HangoutItem;
@@ -31,6 +38,8 @@ type CrewMember = VisitParticipant & {
 type ShareUserSuggestion = {
   id: string;
   email: string;
+  display_name?: string | null;
+  avatar_url?: string | null;
 };
 type PlaceSuggestion = {
   placeId: string;
@@ -187,6 +196,14 @@ function normalizedDraftKey(name: string, unitPrice: number | null): string {
   return `${normalizedName}::${normalizedPrice}`;
 }
 
+function initialsFromName(value: string | null): string {
+  const cleaned = (value ?? '').trim();
+  if (!cleaned) return '?';
+  const parts = cleaned.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
+  return `${parts[0]?.slice(0, 1) ?? ''}${parts[1]?.slice(0, 1) ?? ''}`.toUpperCase();
+}
+
 export default function UploadDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -199,8 +216,8 @@ export default function UploadDetailPage() {
   const [dishes, setFood] = useState<UnifiedDishRow[]>([]);
   const [catalogByDishKey, setCatalogByDishKey] = useState<Record<string, DishCatalog>>({});
 
-  const [visitNote, setVisitNote] = useState('');
   const [hangoutSummary, setHangoutSummary] = useState<HangoutSummary | null>(null);
+  const [vibeTags, setVibeTags] = useState<string[]>([]);
   const [captionExpanded, setCaptionExpanded] = useState(false);
   const [captionEditing, setCaptionEditing] = useState(false);
   const [captionDraft, setCaptionDraft] = useState('');
@@ -217,6 +234,7 @@ export default function UploadDetailPage() {
   const [shareSuggestions, setShareSuggestions] = useState<ShareUserSuggestion[]>([]);
   const [shareSuggestLoading, setShareSuggestLoading] = useState(false);
   const [shareFocused, setShareFocused] = useState(false);
+  const [crewSheetOpen, setCrewSheetOpen] = useState(false);
 
   const [placeSyncLoading, setPlaceSyncLoading] = useState(false);
   const [hangoutPhotos, setHangoutPhotos] = useState<SignedPhoto[]>([]);
@@ -331,9 +349,7 @@ export default function UploadDetailPage() {
     const payload = (await response.json()) as { caption?: HangoutSummary };
     const caption = payload.caption ?? null;
     setHangoutSummary(caption);
-    if (caption?.caption_text) {
-      setCaptionDraft(caption.caption_text);
-    }
+    setCaptionDraft(caption?.caption_text ?? '');
   }, [getAuthHeader, isReceiptCapture, uploadId]);
 
   useEffect(() => {
@@ -425,7 +441,7 @@ export default function UploadDetailPage() {
     if (!typedUpload || !user) {
       setRestaurant(null);
       setFood([]);
-      setVisitNote('');
+      setVibeTags([]);
       setParticipants([]);
       return;
     }
@@ -525,7 +541,7 @@ export default function UploadDetailPage() {
     setCatalogByDishKey(nextCatalogByDishKey);
     setEntryMetaById(entryMap);
     setRestaurant((restaurantData.data ?? null) as RestaurantDirectory | null);
-    setVisitNote(typedUpload.visit_note ?? '');
+    setVibeTags(Array.isArray(typedUpload.vibe_tags) ? typedUpload.vibe_tags.filter((value): value is string => typeof value === 'string') : []);
 
     await loadParticipants();
     if (inferCaptureMode(typedUpload) === 'receipt') {
@@ -885,8 +901,8 @@ export default function UploadDetailPage() {
     }
   }, [editDescription, editFlavorTags, editNameCanonical, editPrice, editingDishRow, getAuthHeader, uploadId]);
 
-  const addParticipant = async () => {
-    const email = shareEmail.trim().toLowerCase();
+  const addParticipant = async (emailOverride?: string) => {
+    const email = (emailOverride ?? shareEmail).trim().toLowerCase();
     if (!email || !upload) return;
 
     setShareLoading(true);
@@ -1174,6 +1190,8 @@ export default function UploadDetailPage() {
         body: JSON.stringify({
           hangout_id: upload.id,
           force: true,
+          vibe_tags: vibeTags,
+          overall_vibe: hangoutSummary?.caption_source === 'user' ? captionDraft : undefined,
         }),
       });
       const payload = (await response.json().catch(() => null)) as { caption?: HangoutSummary; error?: string } | null;
@@ -1189,7 +1207,7 @@ export default function UploadDetailPage() {
     } finally {
       setCaptionRegenerating(false);
     }
-  }, [canEditVisit, getAuthHeader, upload?.id]);
+  }, [canEditVisit, captionDraft, getAuthHeader, hangoutSummary?.caption_source, upload?.id, vibeTags]);
 
   const saveHangout = useCallback(async () => {
     if (!upload || !currentUserId) return;
@@ -1286,7 +1304,7 @@ export default function UploadDetailPage() {
       await supabase
         .from('receipt_uploads')
         .update({
-          visit_note: visitNote?.trim() ? visitNote.trim() : null,
+          vibe_tags: vibeTags.length > 0 ? vibeTags : [],
           status: 'approved',
           processed_at: new Date().toISOString(),
           ...(promotedImagePaths ? { image_paths: promotedImagePaths } : {}),
@@ -1296,7 +1314,7 @@ export default function UploadDetailPage() {
       await supabase
         .from('hangouts')
         .update({
-          note: visitNote?.trim() ? visitNote.trim() : null,
+          note: null,
           updated_at: new Date().toISOString(),
         })
         .eq('id', upload.id);
@@ -1310,7 +1328,11 @@ export default function UploadDetailPage() {
               'Content-Type': 'application/json',
               ...headers,
             },
-            body: JSON.stringify({ hangout_id: upload.id }),
+            body: JSON.stringify({
+              hangout_id: upload.id,
+              vibe_tags: vibeTags,
+              overall_vibe: hangoutSummary?.caption_source === 'user' ? captionDraft : undefined,
+            }),
           });
           if (response.ok) {
             const payload = (await response.json()) as { caption?: HangoutSummary };
@@ -1333,7 +1355,7 @@ export default function UploadDetailPage() {
     } finally {
       setSaveHangoutLoading(false);
     }
-  }, [currentUserId, dishes, getAuthHeader, isReceiptCapture, promoteTempReceiptImages, restaurant?.name, router, upload, visitNote]);
+  }, [captionDraft, currentUserId, dishes, getAuthHeader, hangoutSummary?.caption_source, isReceiptCapture, promoteTempReceiptImages, restaurant?.name, router, upload, vibeTags]);
 
   const removeParticipant = async (participantId: string) => {
     if (!upload) return;
@@ -1374,8 +1396,6 @@ export default function UploadDetailPage() {
   }
 
   const visitDate = formatDate(upload.visited_at ?? upload.created_at);
-  const isSharedVisit = Boolean(upload.is_shared);
-  const showHostShareSection = isHost && isSharedVisit;
   const visibleFood = dishes.filter((row) => row.hangoutItem.included);
   const hiddenFood = dishes.filter((row) => !row.hangoutItem.included);
   const draftFoodFingerprint = JSON.stringify(
@@ -1392,15 +1412,17 @@ export default function UploadDetailPage() {
       })
       .sort((a, b) => (a.key < b.key ? -1 : 1)),
   );
-  const withNames = participants
+  const activeCrew = participants
     .filter((participant) => participant.status === 'active')
-    .map((participant) => participant.display_name ?? 'Buddy');
+    .map((participant) => participant);
+  const withNames = activeCrew.map((participant) => participant.display_name ?? 'Buddy');
   const withLabel = withNames.length > 0 ? withNames.join(', ') : 'Solo';
   const isSavedHangout = upload.status === 'approved';
   const directionsHref = getGoogleMapsLink(restaurant?.place_id, restaurant?.address, restaurant?.name);
   const todayHours = getTodayHours(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
   const openNow = getOpenNowStatus(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
   const showUnsavedIndicator = hasUnsavedChanges || (savedFoodFingerprint.length > 0 && savedFoodFingerprint !== draftFoodFingerprint);
+  const captionText = hangoutSummary?.caption_text?.trim() ?? '';
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-3 pb-4">
@@ -1465,6 +1487,44 @@ export default function UploadDetailPage() {
           <p className="text-xs leading-4 text-app-muted">
             {visitDate} · With {withLabel}
           </p>
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            {activeCrew.map((participant) => {
+              const name = participant.display_name?.trim() || participant.invited_email || 'Crew member';
+              const canRemove = isHost && participant.user_id !== upload.user_id;
+              return (
+                <span key={participant.id} className="inline-flex items-center gap-1.5 rounded-full border border-app-border bg-app-card px-2 py-1">
+                  {participant.avatar_url ? (
+                    <Image src={participant.avatar_url} alt={name} width={18} height={18} className="h-5 w-5 rounded-full object-cover" unoptimized />
+                  ) : (
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-app-bg text-[10px] font-semibold text-app-muted">
+                      {initialsFromName(name)}
+                    </span>
+                  )}
+                  <span className="text-xs font-medium text-app-text">{name}</span>
+                  {canRemove ? (
+                    <button
+                      type="button"
+                      aria-label={`Remove ${name}`}
+                      onClick={() => void removeParticipant(participant.id)}
+                      className="icon-button-subtle h-5 w-5"
+                    >
+                      <X size={12} strokeWidth={1.6} />
+                    </button>
+                  ) : null}
+                </span>
+              );
+            })}
+            {isHost ? (
+              <button
+                type="button"
+                onClick={() => setCrewSheetOpen(true)}
+                className="inline-flex items-center gap-1 rounded-full border border-app-border bg-app-card px-2 py-1 text-xs font-medium text-app-link"
+              >
+                <Plus size={12} strokeWidth={1.8} />
+                Add
+              </button>
+            ) : null}
+          </div>
           {showUnsavedIndicator ? (
             <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">Unsaved changes</p>
           ) : null}
@@ -1579,12 +1639,11 @@ export default function UploadDetailPage() {
           </div>
         ) : null}
         {restaurantLookupError ? <p className="text-xs text-rose-700 dark:text-rose-300">{restaurantLookupError}</p> : null}
-        {hangoutSummary?.caption_text ? (
-          <div className="rounded-lg border border-app-border border-l-2 border-l-app-primary bg-app-primary/5 px-2.5 py-2">
+        <div className="rounded-lg border border-app-border border-l-2 border-l-app-primary bg-app-primary/5 px-2.5 py-2">
             <div className="mb-1 flex items-center justify-between gap-2">
               <div className="inline-flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.08em] text-app-muted" title="Generated by PalateAI. Edit anytime.">
-                {hangoutSummary.caption_source === 'user' ? null : <Sparkles size={12} strokeWidth={1.5} />}
-                {hangoutSummary.caption_source === 'user' ? 'Edited' : 'AI caption'}
+                {hangoutSummary?.caption_source === 'user' ? null : <Sparkles size={12} strokeWidth={1.5} />}
+                {hangoutSummary?.caption_source === 'user' ? 'Edited' : 'AI caption'}
               </div>
               {canEditVisit ? (
                 <div className="flex items-center gap-1">
@@ -1595,7 +1654,7 @@ export default function UploadDetailPage() {
                     title="Edit caption"
                     onClick={() => {
                       setCaptionEditing((prev) => !prev);
-                      setCaptionDraft(hangoutSummary.caption_text ?? '');
+                      setCaptionDraft(hangoutSummary?.caption_text ?? '');
                       setCaptionError(null);
                     }}
                   >
@@ -1636,10 +1695,8 @@ export default function UploadDetailPage() {
               </div>
             ) : (
               <>
-                <p className="text-sm leading-5 text-app-muted/90">
-                  {captionExpanded ? hangoutSummary.caption_text : truncateText(hangoutSummary.caption_text, 120)}
-                </p>
-                {hangoutSummary.caption_text.length > 120 ? (
+                <p className="text-sm leading-5 text-app-muted/90">{captionText ? (captionExpanded ? captionText : truncateText(captionText, 120)) : 'No memory text yet.'}</p>
+                {captionText.length > 120 ? (
                   <button
                     type="button"
                     className="mt-1 inline-flex h-8 items-center text-xs font-medium text-app-link underline underline-offset-2"
@@ -1650,8 +1707,31 @@ export default function UploadDetailPage() {
                 ) : null}
               </>
             )}
+            {canEditVisit ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {VIBE_OPTIONS.map((tag) => {
+                  const selected = vibeTags.includes(tag);
+                  return (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => {
+                        setVibeTags((current) => (current.includes(tag) ? current.filter((value) => value !== tag) : [...current, tag]));
+                        setHasUnsavedChanges(true);
+                      }}
+                      className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                        selected
+                          ? 'border-app-primary/60 bg-app-primary/15 text-app-text'
+                          : 'border-app-border bg-app-card text-app-muted'
+                      }`}
+                    >
+                      {tag}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
-        ) : null}
       </div>
       <input
         ref={receiptReplaceUploadInputRef}
@@ -1870,102 +1950,75 @@ export default function UploadDetailPage() {
         </div>
       )}
 
-      {showHostShareSection && (
-        <div className="card-surface p-3 space-y-2">
-          <h2 className="section-label">Who was in your crew?</h2>
-          <div className="relative">
-            <div className="flex gap-2">
-              <Input
-                value={shareEmail}
-                onFocus={() => setShareFocused(true)}
-                onBlur={() => window.setTimeout(() => setShareFocused(false), 120)}
-                onChange={(event) => setShareEmail(event.target.value)}
-                placeholder="Search by email or type full email"
-                type="email"
-              />
-              <Button type="button" variant="secondary" fullWidth={false} onClick={addParticipant} disabled={shareLoading}>
-                Invite a buddy
-              </Button>
+      {crewSheetOpen && isHost ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/35">
+          <button type="button" className="absolute inset-0" aria-label="Close" onClick={() => setCrewSheetOpen(false)} />
+          <div className="relative w-full max-w-md rounded-t-2xl border border-app-border bg-app-card p-3">
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-app-text">Add crew</p>
+              <div className="relative">
+                <Input
+                  value={shareEmail}
+                  onFocus={() => setShareFocused(true)}
+                  onBlur={() => window.setTimeout(() => setShareFocused(false), 120)}
+                  onChange={(event) => setShareEmail(event.target.value)}
+                  placeholder="Type name or email"
+                  type="email"
+                />
+                {shareFocused && shareEmail.trim().length >= 2 ? (
+                  <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-app-border bg-app-card shadow-sm">
+                    {shareSuggestLoading ? <p className="p-3 text-xs text-app-muted">Searching users...</p> : null}
+                    {!shareSuggestLoading && shareSuggestions.length === 0 ? (
+                      <p className="p-3 text-xs text-app-muted">No user match. You can invite this email.</p>
+                    ) : null}
+                    {!shareSuggestLoading &&
+                      shareSuggestions.map((user) => (
+                        <button
+                          key={user.id}
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={async () => {
+                            setShareEmail(user.email);
+                            await addParticipant(user.email);
+                          }}
+                          className="w-full border-b border-app-border px-3 py-2 text-left last:border-b-0"
+                        >
+                          <div className="flex items-center gap-2">
+                            {user.avatar_url ? (
+                              <Image src={user.avatar_url} alt={user.display_name ?? user.email} width={22} height={22} className="h-6 w-6 rounded-full object-cover" unoptimized />
+                            ) : (
+                              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-app-bg text-[10px] font-semibold text-app-muted">
+                                {initialsFromName(user.display_name ?? user.email)}
+                              </span>
+                            )}
+                            <div className="min-w-0">
+                              <p className="truncate text-xs font-medium text-app-text">{user.display_name ?? user.email}</p>
+                              <p className="truncate text-[11px] text-app-muted">{user.email}</p>
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                  </div>
+                ) : null}
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  className="text-xs font-medium text-app-link underline underline-offset-2"
+                  onClick={() => void addParticipant()}
+                  disabled={shareLoading || shareEmail.trim().length === 0}
+                >
+                  {shareLoading ? 'Adding...' : 'Invite by email'}
+                </button>
+                <Button type="button" variant="secondary" size="sm" fullWidth={false} onClick={() => setCrewSheetOpen(false)}>
+                  Done
+                </Button>
+              </div>
+              {shareError ? <p className="text-xs text-rose-700 dark:text-rose-300">{shareError}</p> : null}
             </div>
-            {shareFocused && shareEmail.trim().length >= 2 && (
-              <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-app-border bg-app-card shadow-sm">
-                {shareSuggestLoading && <p className="p-3 text-xs text-app-muted">Searching users...</p>}
-                {!shareSuggestLoading && shareSuggestions.length === 0 && (
-                  <p className="p-3 text-xs text-app-muted">No user match. You can still invite this email.</p>
-                )}
-                {!shareSuggestLoading &&
-                  shareSuggestions.map((user) => (
-                    <button
-                      key={user.id}
-                      type="button"
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => {
-                        setShareEmail(user.email);
-                        setShareSuggestions([]);
-                        setShareFocused(false);
-                      }}
-                      className="w-full border-b border-app-border px-3 py-2 text-left last:border-b-0"
-                    >
-                      <p className="text-sm text-app-text">{user.email}</p>
-                    </button>
-                  ))}
-              </div>
-            )}
-          </div>
-          {shareError && <p className="text-xs text-rose-700 dark:text-rose-300">{shareError}</p>}
-          <div className="space-y-1.5">
-            {participants.length === 0 ? (
-              <p className="text-xs text-app-muted">No crew yet. Add your buddies.</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {participants
-                  .filter((participant) => participant.status !== 'removed')
-                  .map((participant) => {
-                    const isPending = participant.status === 'invited' && !participant.user_id;
-                    const name =
-                      participant.display_name?.trim() ||
-                      participant.invited_email ||
-                      (isPending ? 'Invite pending' : 'Buddy');
-                    const canRemove = isHost && participant.user_id !== upload.user_id;
-
-                    return (
-                      <div key={participant.id} className="inline-flex items-center gap-2 rounded-full border border-app-border bg-app-card px-2 py-1">
-                        <span className="text-xs font-medium text-app-text">{name}</span>
-                        {isPending ? <span className="text-[11px] text-app-muted">Invite pending</span> : null}
-                        {canRemove ? (
-                          <button
-                            type="button"
-                            aria-label={`Remove ${name}`}
-                            onClick={() => void removeParticipant(participant.id)}
-                            className="icon-button-subtle"
-                          >
-                            <X size={14} strokeWidth={1.5} />
-                          </button>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-              </div>
-            )}
           </div>
         </div>
-      )}
-
-      {canEditVisit && (
-        <div className="card-surface p-3 space-y-2">
-          <h2 className="section-label">Overall vibe</h2>
-          <Input
-            value={visitNote}
-            maxLength={VISIT_NOTE_MAX}
-            onChange={(e) => {
-              setVisitNote(e.target.value.slice(0, VISIT_NOTE_MAX));
-              setHasUnsavedChanges(true);
-            }}
-            placeholder="Share the vibe in one line"
-          />
-          <p className="text-xs text-app-muted">{visitNote.length}/{VISIT_NOTE_MAX}</p>
-        </div>
-      )}
+      ) : null}
 
       <div className="card-surface p-3 space-y-2.5">
         <div className="flex items-center justify-between gap-2">
