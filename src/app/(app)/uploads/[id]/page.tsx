@@ -1786,17 +1786,15 @@ export default function UploadDetailPage() {
           <div className="mt-2 flex flex-wrap gap-1.5">
             {VIBE_OPTIONS.map((tag) => {
               const selected = vibeTags.includes(tag);
-              const limitReached = !selected && vibeTags.length >= 2;
               return (
                 <button
                   key={tag}
                   type="button"
-                  disabled={!canEditVisit || limitReached}
+                  disabled={!canEditVisit}
                   onClick={() => {
                     if (!canEditVisit) return;
                     setVibeTags((current) => {
                       if (current.includes(tag)) return current.filter((value) => value !== tag);
-                      if (current.length >= 2) return current;
                       return [...current, tag];
                     });
                     setHasUnsavedChanges(true);
@@ -1805,14 +1803,14 @@ export default function UploadDetailPage() {
                     selected
                       ? 'border-app-primary/60 bg-app-primary/15 text-app-text'
                       : 'border-app-border bg-app-card text-app-muted'
-                  } ${limitReached || !canEditVisit ? 'opacity-60' : ''}`}
+                  } ${!canEditVisit ? 'opacity-60' : ''}`}
                 >
                   {tag}
                 </button>
               );
             })}
           </div>
-          <p className="mt-1 text-[11px] text-app-muted">Pick up to 2 tags.</p>
+          <p className="mt-1 text-[11px] text-app-muted">Pick any tags that fit this hangout.</p>
         </div>
       </div>
       <input
@@ -2439,6 +2437,8 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
+
 
 
 

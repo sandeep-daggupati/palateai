@@ -1,3 +1,5 @@
+export type HangoutVibeKey = 'hidden_gem' | 'go_to' | 'celebration' | 'casual' | 'fancy' | 'late_night';
+
 export type HangoutCrewMember = {
   id: string;
   displayName: string;
@@ -14,6 +16,7 @@ export type HangoutCardItem = {
   href: string;
   coverPhotoUrl: string | null;
   crew: HangoutCrewMember[];
+  vibeKeys: HangoutVibeKey[];
   vibeBadges: string[];
   placeType: string;
   photoCount: number;
