@@ -214,7 +214,13 @@ export default function HangoutsPage() {
         Pick<VisitParticipant, 'id' | 'visit_id' | 'user_id' | 'invited_email' | 'status'>
       >;
 
-      const profileIds = Array.from(new Set(participantRowsFull.map((row) => row.user_id).filter((id): id is string => Boolean(id))));
+      const profileIds = Array.from(
+        new Set(
+          [...participantRowsFull.map((row) => row.user_id), ...mergedVisits.map((visit) => visit.user_id)].filter(
+            (id): id is string => Boolean(id),
+          ),
+        ),
+      );
 
       const profileLookup: Record<string, ProfileLookup> = {};
       if (profileIds.length > 0) {
@@ -282,6 +288,23 @@ export default function HangoutsPage() {
         acc[key].push(member);
         return acc;
       }, {} as Record<string, HangoutCrewMember[]>);
+      for (const visit of mergedVisits) {
+        const hostProfile = profileLookup[visit.user_id];
+        const hostFallback = hostProfile?.email?.split('@')[0] ?? 'Organizer';
+        const hostName = hostProfile?.display_name || hostFallback;
+
+        if (!crewByVisitId[visit.id]) crewByVisitId[visit.id] = [];
+        const alreadyHasHost = crewByVisitId[visit.id].some((member) => normalizeToken(member.displayName) === normalizeToken(hostName));
+
+        if (!alreadyHasHost) {
+          crewByVisitId[visit.id].unshift({
+            id: `host-${visit.id}`,
+            displayName: hostName,
+            avatarUrl: hostProfile?.avatar_url ?? null,
+            isPending: false,
+          });
+        }
+      }
 
       const nextItems = mergedVisits.map((visit) => {
         const restaurant = visit.restaurant_id ? restaurantsById[visit.restaurant_id] : null;
@@ -393,4 +416,7 @@ export default function HangoutsPage() {
     </div>
   );
 }
+
+
+
 
