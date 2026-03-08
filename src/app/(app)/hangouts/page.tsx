@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
@@ -28,7 +28,7 @@ type ProfileLookup = {
 
 type EnrichedHangout = HangoutCardItem & {
   crewSearch: string;
-  sortPeople: number;
+  dishSearch: string;
 };
 
 function normalizeToken(value: string | null | undefined): string {
@@ -93,37 +93,6 @@ function vibeLabel(value: string): string {
   }
 }
 
-function inTimeRange(timestamp: number, filter: HangoutFilterState['time']): boolean {
-  if (filter === 'all') return true;
-  const now = new Date();
-
-  if (filter === 'this_week') {
-    const start = new Date(now);
-    const day = start.getDay();
-    start.setDate(start.getDate() - day);
-    start.setHours(0, 0, 0, 0);
-    return timestamp >= start.getTime();
-  }
-
-  if (filter === 'this_month') {
-    const start = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-    return timestamp >= start;
-  }
-
-  if (filter === 'last_3_months') {
-    const start = new Date(now);
-    start.setMonth(start.getMonth() - 3);
-    return timestamp >= start.getTime();
-  }
-
-  if (filter === 'this_year') {
-    const start = new Date(now.getFullYear(), 0, 1).getTime();
-    return timestamp >= start;
-  }
-
-  return true;
-}
-
 export default function HangoutsPage() {
   const searchParams = useSearchParams();
   const restaurantParam = (searchParams.get('restaurant_id') ?? '').trim();
@@ -137,8 +106,6 @@ export default function HangoutsPage() {
     crew: 'all',
     placeType: 'all',
     vibe: 'all',
-    time: 'all',
-    sort: 'newest',
   });
 
   useEffect(() => {
@@ -226,7 +193,7 @@ export default function HangoutsPage() {
           .select('id,visit_id,user_id,invited_email,status')
           .in('visit_id', visitIds)
           .neq('status', 'removed'),
-        supabase.from('dish_entries').select('id,hangout_id').eq('user_id', user.id).in('hangout_id', visitIds),
+        supabase.from('dish_entries').select('id,hangout_id,dish_name').eq('user_id', user.id).in('hangout_id', visitIds),
         supabase
           .from('photos')
           .select('id,hangout_id,storage_thumb,created_at')
@@ -261,7 +228,9 @@ export default function HangoutsPage() {
         }
       }
 
-      const dishCountByHangout = ((dishResult.data ?? []) as Array<{ id: string; hangout_id: string | null }>).reduce(
+      const dishRows = ((dishResult.data ?? []) as Array<{ id: string; hangout_id: string | null; dish_name?: string | null }>);
+
+      const dishCountByHangout = dishRows.reduce(
         (acc, row) => {
           if (!row.hangout_id) return acc;
           acc[row.hangout_id] = (acc[row.hangout_id] ?? 0) + 1;
@@ -337,7 +306,7 @@ export default function HangoutsPage() {
           photoCount: photoCountByHangout[visit.id] ?? 0,
           dishCount: dishCountByHangout[visit.id] ?? 0,
           crewSearch: crew.map((member) => normalizeToken(member.displayName)).join(' '),
-          sortPeople: crew.length,
+          dishSearch: dishRows.filter((entry) => entry.hangout_id === visit.id).map((entry) => normalizeToken(entry.dish_name ?? '')).join(' '),
         } satisfies EnrichedHangout;
       });
 
@@ -364,35 +333,24 @@ export default function HangoutsPage() {
   const filteredItems = useMemo(() => {
     const textQuery = normalizeToken(filters.search);
 
-    let next = allItems.filter((item) => {
-      const searchMatch =
-        !textQuery ||
-        normalizeToken(item.restaurantName).includes(textQuery) ||
-        normalizeToken(item.address).includes(textQuery) ||
-        item.crewSearch.includes(textQuery);
+    return allItems
+      .filter((item) => {
+        const searchMatch =
+          !textQuery ||
+          normalizeToken(item.restaurantName).includes(textQuery) ||
+          normalizeToken(item.address).includes(textQuery) ||
+          item.crewSearch.includes(textQuery) ||
+          item.dishSearch.includes(textQuery);
 
-      const crewMatch = filters.crew === 'all' || item.crew.some((member) => normalizeToken(member.displayName) === filters.crew);
-      const placeTypeMatch = filters.placeType === 'all' || item.placeType === filters.placeType;
-      const vibeMatch =
-        filters.vibe === 'all' ||
-        item.vibeBadges.some((badge) => normalizeToken(badge).replace(/\s+/g, '_') === filters.vibe);
-      const timeMatch = inTimeRange(item.timestamp, filters.time);
+        const crewMatch = filters.crew === 'all' || item.crew.some((member) => normalizeToken(member.displayName) === filters.crew);
+        const placeTypeMatch = filters.placeType === 'all' || item.placeType === filters.placeType;
+        const vibeMatch =
+          filters.vibe === 'all' ||
+          item.vibeBadges.some((badge) => normalizeToken(badge).replace(/\s+/g, '_') === filters.vibe);
 
-      return searchMatch && crewMatch && placeTypeMatch && vibeMatch && timeMatch;
-    });
-
-    if (filters.sort === 'oldest') {
-      next = next.sort((a, b) => a.timestamp - b.timestamp);
-    } else if (filters.sort === 'most_people') {
-      next = next.sort((a, b) => {
-        if (b.sortPeople !== a.sortPeople) return b.sortPeople - a.sortPeople;
-        return b.timestamp - a.timestamp;
-      });
-    } else {
-      next = next.sort((a, b) => b.timestamp - a.timestamp);
-    }
-
-    return next;
+        return searchMatch && crewMatch && placeTypeMatch && vibeMatch;
+      })
+      .sort((a, b) => b.timestamp - a.timestamp);
   }, [allItems, filters]);
 
   return (
@@ -421,8 +379,6 @@ export default function HangoutsPage() {
             crew: 'all',
             placeType: 'all',
             vibe: 'all',
-            time: 'all',
-            sort: 'newest',
           })
         }
       />
@@ -437,3 +393,4 @@ export default function HangoutsPage() {
     </div>
   );
 }
+

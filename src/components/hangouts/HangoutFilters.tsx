@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Calendar, ChevronDown, Coffee, Filter, Gem, Martini, Moon, Search, Sparkles, Star, Users, UtensilsCrossed, X } from 'lucide-react';
+import { ChevronDown, Coffee, Filter, Gem, Martini, Moon, Search, Sparkles, Star, Users, UtensilsCrossed, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export type HangoutFilterState = {
@@ -9,8 +9,6 @@ export type HangoutFilterState = {
   crew: string;
   placeType: string;
   vibe: string;
-  time: string;
-  sort: 'newest' | 'oldest' | 'most_people';
 };
 
 type Option = {
@@ -18,7 +16,7 @@ type Option = {
   label: string;
 };
 
-type FilterKey = 'crew' | 'place' | 'vibe' | 'time' | 'sort';
+type FilterKey = 'crew' | 'place' | 'vibe';
 
 type FilterConfig = {
   key: FilterKey;
@@ -47,20 +45,6 @@ const VIBE_OPTIONS: Option[] = [
   { value: 'casual', label: 'Casual' },
   { value: 'fancy', label: 'Fancy' },
   { value: 'late_night', label: 'Late Night' },
-];
-
-const TIME_OPTIONS: Option[] = [
-  { value: 'all', label: 'All' },
-  { value: 'this_week', label: 'This Week' },
-  { value: 'this_month', label: 'This Month' },
-  { value: 'last_3_months', label: 'Last 3 Months' },
-  { value: 'this_year', label: 'This Year' },
-];
-
-const SORT_OPTIONS: Array<{ value: HangoutFilterState['sort']; label: string }> = [
-  { value: 'newest', label: 'Newest' },
-  { value: 'oldest', label: 'Oldest' },
-  { value: 'most_people', label: 'Most people' },
 ];
 
 function getSelectedLabel(options: Option[], value: string): string | null {
@@ -144,7 +128,7 @@ function FilterChipPopover({ config }: { config: FilterConfig }) {
       </button>
 
       {open ? (
-        <div className="absolute left-0 top-9 z-30 w-56 max-w-[85vw] rounded-xl border border-app-border bg-app-card p-1.5">
+        <div className="absolute left-0 top-9 z-30 w-56 max-w-[85vw] rounded-xl border border-app-border bg-app-card p-1.5 shadow-sm">
           {config.options.map((option) => {
             const selected = option.value === config.value;
             return (
@@ -187,7 +171,7 @@ export function HangoutFilters({
   const [activeSheetFilter, setActiveSheetFilter] = useState<FilterKey>('crew');
 
   const hasActiveFilters = useMemo(() => {
-    return state.search || state.crew !== 'all' || state.placeType !== 'all' || state.vibe !== 'all' || state.time !== 'all';
+    return state.search || state.crew !== 'all' || state.placeType !== 'all' || state.vibe !== 'all';
   }, [state]);
 
   const configs = useMemo<FilterConfig[]>(() => {
@@ -216,24 +200,8 @@ export function HangoutFilters({
         value: state.vibe,
         onChange: (next) => onChange({ vibe: next }),
       },
-      {
-        key: 'time',
-        label: 'Time',
-        icon: <Calendar size={12} className="text-app-muted" />,
-        options: TIME_OPTIONS,
-        value: state.time,
-        onChange: (next) => onChange({ time: next }),
-      },
-      {
-        key: 'sort',
-        label: 'Sort',
-        icon: <ChevronDown size={12} className="text-app-muted" />,
-        options: SORT_OPTIONS,
-        value: state.sort,
-        onChange: (next) => onChange({ sort: next as HangoutFilterState['sort'] }),
-      },
     ];
-  }, [crewOptions, onChange, state.crew, state.placeType, state.sort, state.time, state.vibe]);
+  }, [crewOptions, onChange, state.crew, state.placeType, state.vibe]);
 
   const activeConfig = configs.find((config) => config.key === activeSheetFilter) ?? configs[0];
 
@@ -272,7 +240,7 @@ export function HangoutFilters({
           ) : null}
         </div>
       ) : (
-        <div className="action-row-scroll -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+        <div className="flex flex-wrap items-center gap-1.5">
           {configs.map((config) => (
             <FilterChipPopover key={config.key} config={config} />
           ))}
@@ -364,4 +332,3 @@ export function HangoutFilters({
     </section>
   );
 }
-
