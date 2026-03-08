@@ -4,10 +4,12 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { Camera, MapPin, Users, Utensils } from 'lucide-react';
 import { HangoutCardItem } from '@/components/hangouts/types';
+import { hangoutVibeLabel } from '@/lib/hangouts/vibes';
 
 export function HangoutCard({ item }: { item: HangoutCardItem }) {
   const shownCrew = item.crew.slice(0, 3);
   const extraCrew = item.crew.length - shownCrew.length;
+  const visibleVibes = item.vibeKeys.map(hangoutVibeLabel);
 
   return (
     <Link
@@ -36,7 +38,7 @@ export function HangoutCard({ item }: { item: HangoutCardItem }) {
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
-          {item.vibeBadges.slice(0, 2).map((badge) => (
+          {visibleVibes.map((badge) => (
             <span key={badge} className="inline-flex h-6 items-center rounded-full border border-app-border bg-app-bg px-2 text-[11px] font-medium text-app-muted">
               {badge}
             </span>
@@ -74,3 +76,4 @@ export function HangoutCard({ item }: { item: HangoutCardItem }) {
     </Link>
   );
 }
+

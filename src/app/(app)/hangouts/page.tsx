@@ -10,6 +10,7 @@ import { HangoutCardItem, HangoutCrewMember } from '@/components/hangouts/types'
 import { HangoutViewMode, HangoutViewToggle } from '@/components/hangouts/HangoutViewToggle';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { Photo, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
+import { hangoutMatchesVibeFilter, hangoutVibeLabel, normalizeHangoutVibeTags } from '@/lib/hangouts/vibes';
 
 const LIST_LIMIT = 80;
 
@@ -29,6 +30,7 @@ type ProfileLookup = {
 type EnrichedHangout = HangoutCardItem & {
   crewSearch: string;
   dishSearch: string;
+  rawVibeTags: string[];
 };
 
 function normalizeToken(value: string | null | undefined): string {
@@ -55,42 +57,6 @@ function inferPlaceType(name: string): string {
   if (/(cafe|coffee|espresso|tea)/.test(token)) return 'cafe';
   if (/(home|house|apt|apartment)/.test(token)) return 'home';
   return 'restaurant';
-}
-
-function normalizeVibes(raw: string[] | null): string[] {
-  const source = (raw ?? []).map((value) => normalizeToken(value));
-  const mapped = new Set<string>();
-
-  for (const tag of source) {
-    if (!tag) continue;
-    if (tag.includes('hidden')) mapped.add('hidden_gem');
-    if (tag.includes('go-to') || tag.includes('go to') || tag.includes('repeat')) mapped.add('go_to');
-    if (tag.includes('celebrat') || tag.includes('birthday')) mapped.add('celebration');
-    if (tag.includes('casual') || tag.includes('quick') || tag.includes('work') || tag.includes('vibes')) mapped.add('casual');
-    if (tag.includes('fancy') || tag.includes('date night')) mapped.add('fancy');
-    if (tag.includes('late')) mapped.add('late_night');
-  }
-
-  return Array.from(mapped);
-}
-
-function vibeLabel(value: string): string {
-  switch (value) {
-    case 'hidden_gem':
-      return 'Hidden Gem';
-    case 'go_to':
-      return 'Go-To';
-    case 'celebration':
-      return 'Celebration';
-    case 'casual':
-      return 'Casual';
-    case 'fancy':
-      return 'Fancy';
-    case 'late_night':
-      return 'Late Night';
-    default:
-      return value;
-  }
 }
 
 export default function HangoutsPage() {
@@ -312,7 +278,7 @@ export default function HangoutsPage() {
         const address = restaurant?.address ?? null;
         const timestamp = new Date(visit.visited_at ?? visit.created_at).getTime();
         const normalizedTimestamp = Number.isNaN(timestamp) ? 0 : timestamp;
-        const normalizedVibes = normalizeVibes(visit.vibe_tags);
+        const vibeKeys = normalizeHangoutVibeTags(visit.vibe_tags);
         const crew = crewByVisitId[visit.id] ?? [];
 
         return {
@@ -324,12 +290,14 @@ export default function HangoutsPage() {
           href: `/uploads/${visit.id}`,
           coverPhotoUrl: firstPhotoPathByHangout[visit.id] ? signedByPath[firstPhotoPathByHangout[visit.id]] ?? null : null,
           crew,
-          vibeBadges: normalizedVibes.length > 0 ? normalizedVibes.map(vibeLabel) : ['Casual'],
+          vibeKeys,
+          vibeBadges: vibeKeys.map(hangoutVibeLabel),
           placeType: inferPlaceType(restaurantName),
           photoCount: photoCountByHangout[visit.id] ?? 0,
           dishCount: dishCountByHangout[visit.id] ?? 0,
           crewSearch: crew.map((member) => normalizeToken(member.displayName)).join(' '),
           dishSearch: dishRows.filter((entry) => entry.hangout_id === visit.id).map((entry) => normalizeToken(entry.dish_name ?? '')).join(' '),
+          rawVibeTags: Array.isArray(visit.vibe_tags) ? visit.vibe_tags.filter((value): value is string => typeof value === 'string') : [],
         } satisfies EnrichedHangout;
       });
 
@@ -367,9 +335,17 @@ export default function HangoutsPage() {
 
         const crewMatch = filters.crew === 'all' || item.crew.some((member) => normalizeToken(member.displayName) === filters.crew);
         const placeTypeMatch = filters.placeType === 'all' || item.placeType === filters.placeType;
-        const vibeMatch =
-          filters.vibe === 'all' ||
-          item.vibeBadges.some((badge) => normalizeToken(badge).replace(/\s+/g, '_') === filters.vibe);
+        const vibeMatch = hangoutMatchesVibeFilter(item.vibeKeys, filters.vibe);
+
+        if (process.env.NODE_ENV !== 'production' && filters.vibe !== 'all') {
+          console.debug('[hangouts:vibe-filter]', {
+            hangout_id: item.id,
+            selected_vibe: filters.vibe,
+            stored_vibe_tags: item.rawVibeTags,
+            normalized_vibe_keys: item.vibeKeys,
+            vibe_match: vibeMatch,
+          });
+        }
 
         return searchMatch && crewMatch && placeTypeMatch && vibeMatch;
       })
