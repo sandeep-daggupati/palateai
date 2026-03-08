@@ -63,7 +63,7 @@ async function authorize(request: Request, visitId: string) {
     .eq('visit_id', visitId)
     .eq('user_id', user.id)
     .eq('status', 'active')
-    .single();
+    .maybeSingle();
 
   const isParticipant = Boolean(participantRow);
 
@@ -358,3 +358,4 @@ export async function DELETE(request: Request) {
 
   return NextResponse.json({ ok: true });
 }
+
