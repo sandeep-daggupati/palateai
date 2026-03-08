@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
@@ -66,7 +66,7 @@ function normalizeVibes(raw: string[] | null): string[] {
     if (tag.includes('hidden')) mapped.add('hidden_gem');
     if (tag.includes('go-to') || tag.includes('go to') || tag.includes('repeat')) mapped.add('go_to');
     if (tag.includes('celebrat') || tag.includes('birthday')) mapped.add('celebration');
-    if (tag.includes('casual') || tag.includes('quick')) mapped.add('casual');
+    if (tag.includes('casual') || tag.includes('quick') || tag.includes('work') || tag.includes('vibes')) mapped.add('casual');
     if (tag.includes('fancy') || tag.includes('date night')) mapped.add('fancy');
     if (tag.includes('late')) mapped.add('late_night');
   }
@@ -416,6 +416,7 @@ export default function HangoutsPage() {
     </div>
   );
 }
+
 
 
 
