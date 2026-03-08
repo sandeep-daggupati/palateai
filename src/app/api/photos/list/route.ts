@@ -81,6 +81,9 @@ export async function GET(request: Request) {
   }
 
   const rows = (data ?? []) as Photo[];
+  if (rows.length === 0) {
+    return NextResponse.json({ photos: [] });
+  }
 
   const thumbPaths = rows.map((row) => row.storage_thumb);
   const mediumPaths = rows.map((row) => row.storage_medium);
