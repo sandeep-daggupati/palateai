@@ -297,7 +297,7 @@ export default function UploadDetailPage() {
   const [saveHangoutToast, setSaveHangoutToast] = useState<string | null>(null);
   const [restaurantQuery, setRestaurantQuery] = useState('');
   const [restaurantSuggestions, setRestaurantSuggestions] = useState<PlaceSuggestion[]>([]);
-  const [detectedPlaceSuggestion, setDetectedPlaceSuggestion] = useState<PlaceSuggestion | null>(null);
+  const [detectedRestaurantChoices, setDetectedRestaurantChoices] = useState<PlaceSuggestion[]>([]);
   const [detectedPlaceLookupLoading, setDetectedPlaceLookupLoading] = useState(false);
   const [restaurantLookupLoading, setRestaurantLookupLoading] = useState(false);
   const [restaurantLookupError, setRestaurantLookupError] = useState<string | null>(null);
@@ -305,14 +305,11 @@ export default function UploadDetailPage() {
   const [manualRestaurantMode, setManualRestaurantMode] = useState(false);
   const [manualRestaurantName, setManualRestaurantName] = useState('');
   const [manualRestaurantAddress, setManualRestaurantAddress] = useState('');
-  const [detectedMerchant, setDetectedMerchant] = useState<DetectedMerchant | null>(null);
-  const [draftRestaurantName, setDraftRestaurantName] = useState('');
-  const [draftRestaurantAddress, setDraftRestaurantAddress] = useState('');
+  const [detectedMerchant, setDetectedMerchant] = useState<DetectedMerchant | null>(null);
   const [draftOccurredAt, setDraftOccurredAt] = useState<string | null>(null);
   const [draftOccurredAtSource, setDraftOccurredAtSource] = useState<VisitedAtSource | null>(null);
   const [visitDateEditing, setVisitDateEditing] = useState(false);
-  const [manualVisitDateEdited, setManualVisitDateEdited] = useState(false);
-  const [useDetectedRestaurant, setUseDetectedRestaurant] = useState(false);
+  const [manualVisitDateEdited, setManualVisitDateEdited] = useState(false);
   const [restaurantNameEditing, setRestaurantNameEditing] = useState(false);
   const [restaurantNameDraft, setRestaurantNameDraft] = useState('');
   const [restaurantNameSaving, setRestaurantNameSaving] = useState(false);
@@ -479,14 +476,11 @@ export default function UploadDetailPage() {
       setFood([]);
       setVibeTags([]);
       setDetectedMerchant(null);
-      setDraftRestaurantName('');
-      setDraftRestaurantAddress('');
       setDraftOccurredAt(null);
       setDraftOccurredAtSource(null);
       setManualVisitDateEdited(false);
       setVisitDateEditing(false);
-      setUseDetectedRestaurant(false);
-      setDetectedPlaceSuggestion(null);
+      setDetectedRestaurantChoices([]);
       setParticipants([]);
       return;
     }
@@ -592,10 +586,7 @@ export default function UploadDetailPage() {
     setManualVisitDateEdited((typedUpload.visited_at_source as VisitedAtSource | null) === 'manual');
     setVisitDateEditing(false);
     if (typedUpload.restaurant_id) {
-      setUseDetectedRestaurant(false);
-      setDraftRestaurantName('');
-      setDraftRestaurantAddress('');
-      setDetectedPlaceSuggestion(null);
+      setDetectedRestaurantChoices([]);
     }
 
     await loadParticipants();
@@ -714,35 +705,57 @@ export default function UploadDetailPage() {
           datetime?: string | null;
         } | null;
         if (!response.ok) return;
+
         mergeExtractedIntoDraft(mode, payload?.items ?? []);
+
         const merchant = payload?.merchant ?? null;
         if (merchant?.name || merchant?.address || merchant?.phone) {
           setDetectedMerchant(merchant);
-          if (!restaurant) {
-            setDraftRestaurantName(merchant.name ?? '');
-            setDraftRestaurantAddress(merchant.address ?? '');
 
-            const merchantQuery = [merchant.name, merchant.address].filter(Boolean).join(' ').trim();
-            if (merchantQuery.length >= 2) {
-              setDetectedPlaceLookupLoading(true);
-              try {
-                const placeResponse = await fetch(`/api/places/autocomplete?q=${encodeURIComponent(merchantQuery)}`);
-                const placePayload = (await placeResponse.json().catch(() => null)) as { results?: PlaceSuggestion[] } | null;
-                if (placeResponse.ok && Array.isArray(placePayload?.results) && placePayload.results.length > 0) {
-                  setDetectedPlaceSuggestion(placePayload.results[0]);
-                } else {
-                  setDetectedPlaceSuggestion(null);
-                }
-              } catch {
-                setDetectedPlaceSuggestion(null);
-              } finally {
-                setDetectedPlaceLookupLoading(false);
+          if (!restaurant && merchant?.name) {
+            setDetectedPlaceLookupLoading(true);
+            try {
+              const headers = {
+                'Content-Type': 'application/json',
+                ...(await getAuthHeader()),
+              };
+
+              const resolveResponse = await fetch('/api/restaurants/resolve', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                  upload_id: uploadId,
+                  merchant_name: merchant.name,
+                  merchant_address: merchant.address,
+                  visit_lat: upload?.visit_lat ?? null,
+                  visit_lng: upload?.visit_lng ?? null,
+                }),
+              });
+
+              const resolvePayload = (await resolveResponse.json().catch(() => null)) as {
+                autoResolved?: boolean;
+                restaurant?: RestaurantDirectory;
+                choices?: PlaceSuggestion[];
+              } | null;
+
+              if (resolveResponse.ok && resolvePayload?.autoResolved && resolvePayload.restaurant) {
+                setRestaurant(resolvePayload.restaurant);
+                setUpload((current) =>
+                  current ? { ...current, restaurant_id: resolvePayload.restaurant?.id ?? current.restaurant_id } : current,
+                );
+                setRestaurantQuery(resolvePayload.restaurant.name);
+                setDetectedRestaurantChoices([]);
+              } else {
+                setDetectedRestaurantChoices(resolvePayload?.choices ?? []);
               }
-            } else {
-              setDetectedPlaceSuggestion(null);
+            } catch {
+              setDetectedRestaurantChoices([]);
+            } finally {
+              setDetectedPlaceLookupLoading(false);
             }
           }
         }
+
         const detectedAt = normalizeDetectedDatetime(payload?.datetime);
         const allowApplyDetectedTime = !manualVisitDateEdited && draftOccurredAtSource !== 'manual';
         if (detectedAt && allowApplyDetectedTime) {
@@ -754,9 +767,8 @@ export default function UploadDetailPage() {
         setIsExtracting(false);
       }
     },
-    [draftOccurredAtSource, manualVisitDateEdited, mergeExtractedIntoDraft, restaurant, uploadId],
+    [draftOccurredAtSource, getAuthHeader, manualVisitDateEdited, mergeExtractedIntoDraft, restaurant, upload?.visit_lat, upload?.visit_lng, uploadId],
   );
-
 
   const syncPlaceDirectory = useCallback(async () => {
     if (!restaurant?.id || !restaurant.place_id) return;
@@ -1135,10 +1147,8 @@ export default function UploadDetailPage() {
         setRestaurant(nextRestaurant);
         setUpload((current) => (current ? { ...current, restaurant_id: nextRestaurant.id } : current));
         setRestaurantQuery(nextRestaurant.name);
-        setDraftRestaurantName('');
-        setDraftRestaurantAddress('');
-        setUseDetectedRestaurant(false);
-        setDetectedPlaceSuggestion(null);
+        setDetectedRestaurantChoices([]);
+        setManualRestaurantMode(false);
         setRestaurantSuggestions([]);
         setRestaurantFocused(false);
       } catch (error) {
@@ -1178,10 +1188,7 @@ export default function UploadDetailPage() {
       setRestaurantQuery(createdRestaurant.name);
       setManualRestaurantName('');
       setManualRestaurantAddress('');
-      setDraftRestaurantName('');
-      setDraftRestaurantAddress('');
-      setUseDetectedRestaurant(false);
-      setDetectedPlaceSuggestion(null);
+      setDetectedRestaurantChoices([]);
       setManualRestaurantMode(false);
     } catch (error) {
       setRestaurantLookupError(error instanceof Error ? error.message : 'Could not update restaurant');
@@ -1380,30 +1387,12 @@ export default function UploadDetailPage() {
       const promotedImagePaths = await promoteTempReceiptImages();
       const supabase = getBrowserSupabaseClient();
       const preservedEntryIds = new Set<string>();
-      let effectiveRestaurantId = upload.restaurant_id;
-
-      if (!effectiveRestaurantId && useDetectedRestaurant && draftRestaurantName.trim()) {
-        const { data: createdRestaurant, error: createRestaurantError } = await supabase
-          .from('restaurants')
-          .insert({
-            user_id: currentUserId,
-            name: draftRestaurantName.trim(),
-            address: draftRestaurantAddress.trim() || null,
-          })
-          .select('id,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
-          .single();
-        if (createRestaurantError || !createdRestaurant) {
-          throw createRestaurantError ?? new Error('Could not create restaurant from receipt detection');
-        }
-        effectiveRestaurantId = createdRestaurant.id;
-        setRestaurant(createdRestaurant as RestaurantDirectory);
-        setUpload((current) => (current ? { ...current, restaurant_id: createdRestaurant.id } : current));
-      }
+      const effectiveRestaurantId = upload.restaurant_id;
 
       const effectiveOccurredAt = draftOccurredAt ?? upload.visited_at ?? upload.created_at ?? new Date().toISOString();
       const effectiveOccurredAtSource: VisitedAtSource =
         draftOccurredAtSource ?? (manualVisitDateEdited ? 'manual' : 'fallback');
-      const effectiveRestaurantName = restaurant?.name ?? (draftRestaurantName.trim() || 'unknown-restaurant');
+      const effectiveRestaurantName = restaurant?.name ?? 'unknown-restaurant';
 
       for (const row of activeFood) {
         const dishName = row.hangoutItem.name_final || row.hangoutItem.name_raw;
@@ -1531,9 +1520,7 @@ export default function UploadDetailPage() {
     currentUserId,
     dishes,
     draftOccurredAt,
-    draftOccurredAtSource,
-    draftRestaurantAddress,
-    draftRestaurantName,
+    draftOccurredAtSource,
     getAuthHeader,
     hangoutSummary?.caption_source,
     isReceiptCapture,
@@ -1541,8 +1528,7 @@ export default function UploadDetailPage() {
     promoteTempReceiptImages,
     restaurant?.name,
     router,
-    upload,
-    useDetectedRestaurant,
+    upload,
     vibeTags,
   ]);
 
@@ -1807,119 +1793,125 @@ export default function UploadDetailPage() {
           ) : null}
         </div>
         {canEditVisit && !restaurant ? (
-          <div className="relative space-y-1">
-            {!restaurant ? (
-              <div className="flex flex-wrap gap-2 pb-1">
-                <Button type="button" variant={!manualRestaurantMode ? 'secondary' : 'ghost'} size="sm" fullWidth={false} onClick={() => setManualRestaurantMode(false)}>
-                  Search restaurant
-                </Button>
-                <Button type="button" variant={manualRestaurantMode ? 'secondary' : 'ghost'} size="sm" fullWidth={false} onClick={() => setManualRestaurantMode(true)}>
-                  Add restaurant manually
-                </Button>
+          <div className="space-y-2">
+            {!manualRestaurantMode && detectedMerchant?.name ? (
+              <div className="rounded-xl border border-app-border bg-app-card/70 p-2.5">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-app-muted">Restaurant</p>
+                <p className="text-sm font-semibold text-app-text">{detectedMerchant.name}</p>
+                {detectedMerchant.address ? <p className="text-xs text-app-muted">{detectedMerchant.address}</p> : null}
+                <div className="mt-1.5 flex items-center justify-between gap-2">
+                  <p className="text-[11px] text-app-muted">Detected from receipt</p>
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-app-link underline underline-offset-2"
+                    onClick={() => {
+                      setManualRestaurantMode(true);
+                      setManualRestaurantName(detectedMerchant.name ?? '');
+                      setManualRestaurantAddress(detectedMerchant.address ?? '');
+                    }}
+                  >
+                    Change
+                  </button>
+                </div>
               </div>
             ) : null}
-            {!manualRestaurantMode ? (
-              <>
-                <Input
-                  value={restaurantQuery}
-                  onChange={(event) => setRestaurantQuery(event.target.value)}
-                  onFocus={() => setRestaurantFocused(true)}
-                  onBlur={() => window.setTimeout(() => setRestaurantFocused(false), 120)}
-                  placeholder="Search restaurant"
-                />
-                {restaurantFocused && restaurantQuery.trim().length >= 2 ? (
-                  <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-app-border bg-app-card shadow-sm">
-                    {restaurantLookupLoading ? <p className="p-3 text-sm text-app-muted">Searching...</p> : null}
-                    {!restaurantLookupLoading && restaurantSuggestions.length === 0 ? (
-                      <p className="p-3 text-sm text-app-muted">No matching places found.</p>
-                    ) : null}
-                    {!restaurantLookupLoading &&
-                      restaurantSuggestions.map((suggestion) => (
-                        <button
-                          key={suggestion.placeId}
-                          type="button"
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => void onSelectRestaurantSuggestion(suggestion)}
-                          className="w-full border-b border-app-border px-3 py-3 text-left last:border-b-0"
-                        >
-                          <p className="text-sm font-medium text-app-text">{suggestion.primaryText}</p>
-                          {suggestion.secondaryText ? <p className="text-xs text-app-muted">{suggestion.secondaryText}</p> : null}
-                        </button>
-                      ))}
-                  </div>
-                ) : null}
-              </>
-            ) : (
-              <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-                <Input value={manualRestaurantName} onChange={(event) => setManualRestaurantName(event.target.value)} placeholder="Restaurant name" />
-                <Input value={manualRestaurantAddress} onChange={(event) => setManualRestaurantAddress(event.target.value)} placeholder="Address (optional)" />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  fullWidth={false}
-                  onClick={() => void saveManualRestaurant()}
-                  disabled={manualRestaurantName.trim().length === 0}
-                >
-                  Save
-                </Button>
+
+            {!manualRestaurantMode && detectedPlaceLookupLoading ? <p className="text-xs text-app-muted">Resolving restaurant...</p> : null}
+
+            {!manualRestaurantMode && detectedRestaurantChoices.length > 0 ? (
+              <div className="rounded-xl border border-app-border bg-app-card/70 p-2">
+                <p className="mb-1 text-xs font-medium text-app-text">Pick the right place</p>
+                <div className="space-y-1">
+                  {detectedRestaurantChoices.map((choice) => (
+                    <button
+                      key={choice.placeId}
+                      type="button"
+                      onClick={() => void onSelectRestaurantSuggestion(choice)}
+                      className="w-full rounded-lg border border-app-border px-2 py-2 text-left"
+                    >
+                      <p className="text-xs font-medium text-app-text">{choice.primaryText}</p>
+                      {choice.secondaryText ? <p className="text-[11px] text-app-muted">{choice.secondaryText}</p> : null}
+                    </button>
+                  ))}
+                </div>
               </div>
-            )}
+            ) : null}
+
+            {(manualRestaurantMode || !detectedMerchant?.name) ? (
+              <div className="relative space-y-1">
+                <div className="flex flex-wrap gap-2 pb-1">
+                  <Button
+                    type="button"
+                    variant={!manualRestaurantMode ? 'secondary' : 'ghost'}
+                    size="sm"
+                    fullWidth={false}
+                    onClick={() => setManualRestaurantMode(false)}
+                  >
+                    Search restaurant
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={manualRestaurantMode ? 'secondary' : 'ghost'}
+                    size="sm"
+                    fullWidth={false}
+                    onClick={() => setManualRestaurantMode(true)}
+                  >
+                    Add restaurant manually
+                  </Button>
+                </div>
+
+                {!manualRestaurantMode ? (
+                  <>
+                    <Input
+                      value={restaurantQuery}
+                      onChange={(event) => setRestaurantQuery(event.target.value)}
+                      onFocus={() => setRestaurantFocused(true)}
+                      onBlur={() => window.setTimeout(() => setRestaurantFocused(false), 120)}
+                      placeholder="Search restaurant"
+                    />
+                    {restaurantFocused && restaurantQuery.trim().length >= 2 ? (
+                      <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-app-border bg-app-card shadow-sm">
+                        {restaurantLookupLoading ? <p className="p-3 text-sm text-app-muted">Searching...</p> : null}
+                        {!restaurantLookupLoading && restaurantSuggestions.length === 0 ? (
+                          <p className="p-3 text-sm text-app-muted">No matching places found.</p>
+                        ) : null}
+                        {!restaurantLookupLoading &&
+                          restaurantSuggestions.map((suggestion) => (
+                            <button
+                              key={suggestion.placeId}
+                              type="button"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => void onSelectRestaurantSuggestion(suggestion)}
+                              className="w-full border-b border-app-border px-3 py-3 text-left last:border-b-0"
+                            >
+                              <p className="text-sm font-medium text-app-text">{suggestion.primaryText}</p>
+                              {suggestion.secondaryText ? <p className="text-xs text-app-muted">{suggestion.secondaryText}</p> : null}
+                            </button>
+                          ))}
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                    <Input value={manualRestaurantName} onChange={(event) => setManualRestaurantName(event.target.value)} placeholder="Restaurant name" />
+                    <Input value={manualRestaurantAddress} onChange={(event) => setManualRestaurantAddress(event.target.value)} placeholder="Address (optional)" />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      fullWidth={false}
+                      onClick={() => void saveManualRestaurant()}
+                      disabled={manualRestaurantName.trim().length === 0}
+                    >
+                      Save
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
         ) : null}
         {restaurantLookupError ? <p className="text-xs text-rose-700 dark:text-rose-300">{restaurantLookupError}</p> : null}
-        {!restaurant && detectedMerchant?.name ? (
-          <div className="rounded-xl border border-app-border bg-app-card/70 p-2.5">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-xs font-medium text-app-text">Restaurant (detected)</p>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="text-xs font-medium text-app-link underline underline-offset-2"
-                  onClick={() => {
-                    setDraftRestaurantName(detectedMerchant.name ?? '');
-                    setDraftRestaurantAddress(detectedMerchant.address ?? '');
-                    setUseDetectedRestaurant(true);
-                    setHasUnsavedChanges(true);
-                  }}
-                >
-                  {useDetectedRestaurant ? 'Using' : 'Use'}
-                </button>
-                <button
-                  type="button"
-                  className="text-xs font-medium text-app-link underline underline-offset-2"
-                  onClick={() => {
-                    setManualRestaurantMode(true);
-                    setManualRestaurantName(draftRestaurantName || detectedMerchant.name || '');
-                    setManualRestaurantAddress(draftRestaurantAddress || detectedMerchant.address || '');
-                  }}
-                >
-                  Edit
-                </button>
-              </div>
-            </div>
-            <p className="text-sm text-app-text">{draftRestaurantName || detectedMerchant.name}</p>
-            {(draftRestaurantAddress || detectedMerchant.address) ? (
-              <p className="text-xs text-app-muted">{draftRestaurantAddress || detectedMerchant.address}</p>
-            ) : null}
-            {detectedPlaceLookupLoading ? <p className="mt-1 text-xs text-app-muted">Finding place match...</p> : null}
-            {detectedPlaceSuggestion ? (
-              <div className="mt-1.5 flex items-center justify-between gap-2 rounded-lg border border-app-border px-2 py-1.5">
-                <div className="min-w-0">
-                  <p className="truncate text-xs font-medium text-app-text">{detectedPlaceSuggestion.primaryText}</p>
-                  {detectedPlaceSuggestion.secondaryText ? <p className="truncate text-[11px] text-app-muted">{detectedPlaceSuggestion.secondaryText}</p> : null}
-                </div>
-                <button
-                  type="button"
-                  className="shrink-0 text-xs font-medium text-app-link underline underline-offset-2"
-                  onClick={() => void onSelectRestaurantSuggestion(detectedPlaceSuggestion)}
-                >
-                  Use place match
-                </button>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
         {restaurant && detectedMerchant?.name ? (
           <p className="text-xs text-app-muted">Receipt detected: {detectedMerchant.name}</p>
         ) : null}
@@ -2641,3 +2633,20 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
