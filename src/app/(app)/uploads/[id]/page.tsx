@@ -3,12 +3,12 @@
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Check, CheckCircle2, ChevronDown, Clock3, Globe, MapPin, Navigation, Pencil, Phone, Plus, Sparkles, X } from 'lucide-react';
+import { Check, CheckCircle2, ChevronDown, Clock3, Globe, MapPin, Navigation, Pencil, Phone, Plus, X } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { DishActionBar } from '@/components/DishActionBar';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { DishCatalog, DishEntry, HangoutItem, HangoutSummary, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
+import { DishCatalog, DishEntry, HangoutItem, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
 import { toDishKey } from '@/lib/utils';
 import { normalizeName } from '@/lib/extraction/normalize';
 import { getGoogleMapsLink } from '@/lib/google/mapsLinks';
@@ -17,11 +17,11 @@ import { listDishPhotosForHangout, listHangoutPhotos, uploadDishPhoto, uploadHan
 import { uploadImage } from '@/lib/storage/uploadImage';
 
 const VIBE_OPTIONS = [
-  'Great vibes',
-  'Go-to spot',
   'Quick bite',
-  'Celebrating',
+  'Go-to spot',
+  'Great vibes',
   'Work hangout',
+  'Celebrating',
   'Late-night',
 ] as const;
 
@@ -199,10 +199,6 @@ function formatPrice(value: number | null): string {
   return `$${value.toFixed(2)}`;
 }
 
-function truncateText(value: string, max = 140): string {
-  if (value.length <= max) return value;
-  return `${value.slice(0, max - 3)}...`;
-}
 
 function normalizeDish(value: string): string {
   return normalizeName(value) || value.trim().toLowerCase();
@@ -241,14 +237,7 @@ export default function UploadDetailPage() {
   const [dishes, setFood] = useState<UnifiedDishRow[]>([]);
   const [catalogByDishKey, setCatalogByDishKey] = useState<Record<string, DishCatalog>>({});
 
-  const [hangoutSummary, setHangoutSummary] = useState<HangoutSummary | null>(null);
   const [vibeTags, setVibeTags] = useState<string[]>([]);
-  const [captionExpanded, setCaptionExpanded] = useState(false);
-  const [captionEditing, setCaptionEditing] = useState(false);
-  const [captionDraft, setCaptionDraft] = useState('');
-  const [captionSaving, setCaptionSaving] = useState(false);
-  const [captionRegenerating, setCaptionRegenerating] = useState(false);
-  const [captionError, setCaptionError] = useState<string | null>(null);
   const [hoursExpanded, setHoursExpanded] = useState(false);
   const [hiddenItemsOpen, setHiddenItemsOpen] = useState(false);
 
@@ -305,11 +294,14 @@ export default function UploadDetailPage() {
   const [manualRestaurantMode, setManualRestaurantMode] = useState(false);
   const [manualRestaurantName, setManualRestaurantName] = useState('');
   const [manualRestaurantAddress, setManualRestaurantAddress] = useState('');
-  const [detectedMerchant, setDetectedMerchant] = useState<DetectedMerchant | null>(null);
+  const [detectedMerchant, setDetectedMerchant] = useState<DetectedMerchant | null>(null);
+
+
   const [draftOccurredAt, setDraftOccurredAt] = useState<string | null>(null);
   const [draftOccurredAtSource, setDraftOccurredAtSource] = useState<VisitedAtSource | null>(null);
   const [visitDateEditing, setVisitDateEditing] = useState(false);
-  const [manualVisitDateEdited, setManualVisitDateEdited] = useState(false);
+  const [manualVisitDateEdited, setManualVisitDateEdited] = useState(false);
+
   const [restaurantNameEditing, setRestaurantNameEditing] = useState(false);
   const [restaurantNameDraft, setRestaurantNameDraft] = useState('');
   const [restaurantNameSaving, setRestaurantNameSaving] = useState(false);
@@ -364,26 +356,6 @@ export default function UploadDetailPage() {
     setParticipants(payload.participants ?? []);
   }, [getAuthHeader, uploadId]);
 
-  const loadHangoutCaption = useCallback(async () => {
-    if (!isReceiptCapture) {
-      setHangoutSummary(null);
-      return;
-    }
-
-    const headers = await getAuthHeader();
-    if (!headers.Authorization) return;
-
-    const response = await fetch(`/api/caption?hangout_id=${encodeURIComponent(uploadId)}`, { headers });
-    if (!response.ok) {
-      setHangoutSummary(null);
-      return;
-    }
-
-    const payload = (await response.json()) as { caption?: HangoutSummary };
-    const caption = payload.caption ?? null;
-    setHangoutSummary(caption);
-    setCaptionDraft(caption?.caption_text ?? '');
-  }, [getAuthHeader, isReceiptCapture, uploadId]);
 
   useEffect(() => {
     if (!restaurant) {
@@ -590,12 +562,7 @@ export default function UploadDetailPage() {
     }
 
     await loadParticipants();
-    if (inferCaptureMode(typedUpload) === 'receipt') {
-      await loadHangoutCaption();
-    } else {
-      setHangoutSummary(null);
-    }
-  }, [loadHangoutCaption, loadParticipants, uploadId]);
+  }, [loadParticipants, uploadId]);
 
   useEffect(() => {
     void load();
@@ -1286,79 +1253,6 @@ export default function UploadDetailPage() {
     [currentUserId, runExtraction, upload],
   );
 
-  const saveCaptionOverride = useCallback(async () => {
-    if (!upload?.id || !canEditVisit) return;
-    const nextText = captionDraft.trim();
-    if (!nextText) {
-      setCaptionError('Caption cannot be empty.');
-      return;
-    }
-
-    setCaptionSaving(true);
-    setCaptionError(null);
-    try {
-      const headers = await getAuthHeader();
-      const response = await fetch('/api/caption', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...headers,
-        },
-        body: JSON.stringify({
-          hangout_id: upload.id,
-          caption_text: nextText,
-        }),
-      });
-      const payload = (await response.json().catch(() => null)) as { caption?: HangoutSummary; error?: string } | null;
-      if (!response.ok) {
-        throw new Error(payload?.error ?? 'Could not save caption');
-      }
-      if (payload?.caption) {
-        setHangoutSummary(payload.caption);
-        setCaptionDraft(payload.caption.caption_text ?? nextText);
-      }
-      setCaptionEditing(false);
-    } catch (error) {
-      setCaptionError(error instanceof Error ? error.message : 'Could not save caption');
-    } finally {
-      setCaptionSaving(false);
-    }
-  }, [canEditVisit, captionDraft, getAuthHeader, upload?.id]);
-
-  const regenerateCaption = useCallback(async () => {
-    if (!upload?.id || !canEditVisit) return;
-    setCaptionRegenerating(true);
-    setCaptionError(null);
-    try {
-      const headers = await getAuthHeader();
-      const response = await fetch('/api/caption', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...headers,
-        },
-        body: JSON.stringify({
-          hangout_id: upload.id,
-          force: true,
-          vibe_tags: vibeTags,
-          overall_vibe: hangoutSummary?.caption_source === 'user' ? captionDraft : undefined,
-        }),
-      });
-      const payload = (await response.json().catch(() => null)) as { caption?: HangoutSummary; error?: string } | null;
-      if (!response.ok) {
-        throw new Error(payload?.error ?? 'Could not regenerate caption');
-      }
-      if (payload?.caption) {
-        setHangoutSummary(payload.caption);
-        setCaptionDraft(payload.caption.caption_text ?? '');
-      }
-    } catch (error) {
-      setCaptionError(error instanceof Error ? error.message : 'Could not regenerate caption');
-    } finally {
-      setCaptionRegenerating(false);
-    }
-  }, [canEditVisit, captionDraft, getAuthHeader, hangoutSummary?.caption_source, upload?.id, vibeTags]);
-
   const saveHangout = useCallback(async () => {
     if (!upload || !currentUserId) return;
     setSaveHangoutError(null);
@@ -1479,33 +1373,6 @@ export default function UploadDetailPage() {
         })
         .eq('id', upload.id);
 
-      if (isReceiptCapture) {
-        try {
-          const headers = await getAuthHeader();
-          const response = await fetch('/api/caption', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...headers,
-            },
-            body: JSON.stringify({
-              hangout_id: upload.id,
-              vibe_tags: vibeTags,
-              overall_vibe: hangoutSummary?.caption_source === 'user' ? captionDraft : undefined,
-            }),
-          });
-          if (response.ok) {
-            const payload = (await response.json()) as { caption?: HangoutSummary };
-            if (payload.caption) {
-              setHangoutSummary(payload.caption);
-              setCaptionDraft(payload.caption.caption_text ?? '');
-            }
-          }
-        } catch {
-          // Caption generation is best-effort and should never block save.
-        }
-      }
-
       setSaveHangoutToast('Hangout saved');
       setSavedFoodFingerprint(nextFingerprint);
       setHasUnsavedChanges(false);
@@ -1516,19 +1383,18 @@ export default function UploadDetailPage() {
       setSaveHangoutLoading(false);
     }
   }, [
-    captionDraft,
     currentUserId,
     dishes,
     draftOccurredAt,
-    draftOccurredAtSource,
-    getAuthHeader,
-    hangoutSummary?.caption_source,
-    isReceiptCapture,
+    draftOccurredAtSource,
+
+
     manualVisitDateEdited,
     promoteTempReceiptImages,
     restaurant?.name,
     router,
-    upload,
+    upload,
+
     vibeTags,
   ]);
 
@@ -1598,7 +1464,6 @@ export default function UploadDetailPage() {
   const todayHours = getTodayHours(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
   const openNow = getOpenNowStatus(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
   const showUnsavedIndicator = hasUnsavedChanges || (savedFoodFingerprint.length > 0 && savedFoodFingerprint !== draftFoodFingerprint);
-  const captionText = hangoutSummary?.caption_text?.trim() ?? '';
   const showFromReceiptHint = draftOccurredAtSource === 'receipt';
 
   return (
@@ -1915,99 +1780,40 @@ export default function UploadDetailPage() {
         {restaurant && detectedMerchant?.name ? (
           <p className="text-xs text-app-muted">Receipt detected: {detectedMerchant.name}</p>
         ) : null}
-        <div className="rounded-lg border border-app-border border-l-2 border-l-app-primary bg-app-primary/5 px-2.5 py-2">
-            <div className="mb-1 flex items-center justify-between gap-2">
-              <div className="inline-flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.08em] text-app-muted" title="Generated by PalateAI. Edit anytime.">
-                {hangoutSummary?.caption_source === 'user' ? null : <Sparkles size={12} strokeWidth={1.5} />}
-                {hangoutSummary?.caption_source === 'user' ? 'Edited' : 'AI caption'}
-              </div>
-              {canEditVisit ? (
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    className="icon-button-subtle"
-                    aria-label="Edit caption"
-                    title="Edit caption"
-                    onClick={() => {
-                      setCaptionEditing((prev) => !prev);
-                      setCaptionDraft(hangoutSummary?.caption_text ?? '');
-                      setCaptionError(null);
-                    }}
-                  >
-                    <Pencil size={14} strokeWidth={1.5} />
-                  </button>
-                  <button
-                    type="button"
-                    className="inline-flex h-8 items-center text-xs font-medium text-app-link underline underline-offset-2"
-                    onClick={() => void regenerateCaption()}
-                    disabled={captionRegenerating}
-                  >
-                    {captionRegenerating ? 'Trying...' : 'Try another caption'}
-                  </button>
-                </div>
-              ) : null}
-            </div>
-            {captionEditing ? (
-              <div className="space-y-2">
-                <textarea
-                  value={captionDraft}
-                  onChange={(event) => setCaptionDraft(event.target.value)}
-                  maxLength={160}
-                  rows={2}
-                  className="w-full rounded-xl border border-app-border bg-app-bg px-3 py-2 text-sm text-app-text focus:outline-none focus:ring-2 focus:ring-app-primary/35"
-                />
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs text-app-muted">{captionDraft.length}/160</p>
-                  <div className="flex gap-2">
-                    <Button type="button" variant="secondary" size="sm" fullWidth={false} onClick={() => setCaptionEditing(false)}>
-                      Cancel
-                    </Button>
-                    <Button type="button" size="sm" fullWidth={false} onClick={() => void saveCaptionOverride()} disabled={captionSaving}>
-                      {captionSaving ? 'Saving...' : 'Save'}
-                    </Button>
-                  </div>
-                </div>
-                {captionError ? <p className="text-xs text-rose-700 dark:text-rose-300">{captionError}</p> : null}
-              </div>
-            ) : (
-              <>
-                <p className="text-sm leading-5 text-app-muted/90">{captionText ? (captionExpanded ? captionText : truncateText(captionText, 120)) : 'No memory text yet.'}</p>
-                {captionText.length > 120 ? (
-                  <button
-                    type="button"
-                    className="mt-1 inline-flex h-8 items-center text-xs font-medium text-app-link underline underline-offset-2"
-                    onClick={() => setCaptionExpanded((prev) => !prev)}
-                  >
-                    {captionExpanded ? 'Show less' : 'Show more'}
-                  </button>
-                ) : null}
-              </>
-            )}
-            {canEditVisit ? (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {VIBE_OPTIONS.map((tag) => {
-                  const selected = vibeTags.includes(tag);
-                  return (
-                    <button
-                      key={tag}
-                      type="button"
-                      onClick={() => {
-                        setVibeTags((current) => (current.includes(tag) ? current.filter((value) => value !== tag) : [...current, tag]));
-                        setHasUnsavedChanges(true);
-                      }}
-                      className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-                        selected
-                          ? 'border-app-primary/60 bg-app-primary/15 text-app-text'
-                          : 'border-app-border bg-app-card text-app-muted'
-                      }`}
-                    >
-                      {tag}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
+        <div className="rounded-lg border border-app-border bg-app-card/60 px-3 py-2.5">
+          <h2 className="section-label">Vibe</h2>
+          <p className="mt-1 text-xs text-app-muted">Tag this hangout to help organize your memories.</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {VIBE_OPTIONS.map((tag) => {
+              const selected = vibeTags.includes(tag);
+              const limitReached = !selected && vibeTags.length >= 2;
+              return (
+                <button
+                  key={tag}
+                  type="button"
+                  disabled={!canEditVisit || limitReached}
+                  onClick={() => {
+                    if (!canEditVisit) return;
+                    setVibeTags((current) => {
+                      if (current.includes(tag)) return current.filter((value) => value !== tag);
+                      if (current.length >= 2) return current;
+                      return [...current, tag];
+                    });
+                    setHasUnsavedChanges(true);
+                  }}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                    selected
+                      ? 'border-app-primary/60 bg-app-primary/15 text-app-text'
+                      : 'border-app-border bg-app-card text-app-muted'
+                  } ${limitReached || !canEditVisit ? 'opacity-60' : ''}`}
+                >
+                  {tag}
+                </button>
+              );
+            })}
           </div>
+          <p className="mt-1 text-[11px] text-app-muted">Pick up to 2 tags.</p>
+        </div>
       </div>
       <input
         ref={receiptReplaceUploadInputRef}
@@ -2633,6 +2439,14 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
 
 
 
