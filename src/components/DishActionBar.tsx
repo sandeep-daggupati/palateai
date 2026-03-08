@@ -68,6 +68,7 @@ export function DishActionBar({
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent) => {
+      if (isMobile) return;
       const target = event.target as Node;
       if (ratingRef.current && !ratingRef.current.contains(target)) setRatingOpen(false);
       if (menuRef.current && !menuRef.current.contains(target)) setMenuOpen(false);
@@ -88,7 +89,7 @@ export function DishActionBar({
       document.removeEventListener('mousedown', onPointerDown);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, []);
+  }, [isMobile]);
 
   const selectedIcon = ratingValue ? IDENTITY_ICON[ratingValue] : null;
   const SelectedIcon = selectedIcon;
@@ -102,7 +103,7 @@ export function DishActionBar({
 
   return (
     <div className="relative max-w-full">
-      <div className="action-row-scroll flex min-h-11 max-w-full items-center gap-1.5 overflow-x-auto px-1 py-0.5">
+      <div className="action-row-scroll flex min-h-11 max-w-full items-center gap-1.5 overflow-x-auto px-1 py-0.5 sm:overflow-visible">
         {showPhotoAction ? (
           <button
             type="button"
