@@ -1019,34 +1019,74 @@ export default function UploadDetailPage() {
         if (!detailsResponse.ok) throw new Error(detailsPayload.error ?? 'Could not fetch place details');
 
         const supabase = getBrowserSupabaseClient();
-        const { data: upsertedRestaurant, error: upsertError } = await supabase
+        const { data: existingRestaurant } = await supabase
           .from('restaurants')
-          .upsert(
-            {
-              user_id: currentUserId,
-              place_id: detailsPayload.placeId,
-              name: detailsPayload.name,
-              address: detailsPayload.address,
-              lat: detailsPayload.lat,
-              lng: detailsPayload.lng,
-            },
-            { onConflict: 'user_id,place_id' },
-          )
-          .select('id,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
-          .single();
-        if (upsertError) throw upsertError;
+          .select('id')
+          .eq('user_id', currentUserId)
+          .eq('place_id', detailsPayload.placeId)
+          .maybeSingle();
 
-        const { error: uploadUpdateError } = await supabase.from('receipt_uploads').update({ restaurant_id: upsertedRestaurant.id }).eq('id', upload.id);
+        const restaurantMutation = existingRestaurant?.id
+          ? await supabase
+              .from('restaurants')
+              .update({
+                name: detailsPayload.name,
+                address: detailsPayload.address,
+                lat: detailsPayload.lat,
+                lng: detailsPayload.lng,
+                maps_url: detailsPayload.googleMapsUrl ?? null,
+              })
+              .eq('id', existingRestaurant.id)
+              .select('id,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
+              .single()
+          : await supabase
+              .from('restaurants')
+              .insert({
+                user_id: currentUserId,
+                place_id: detailsPayload.placeId,
+                name: detailsPayload.name,
+                address: detailsPayload.address,
+                lat: detailsPayload.lat,
+                lng: detailsPayload.lng,
+                maps_url: detailsPayload.googleMapsUrl ?? null,
+              })
+              .select('id,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
+              .single();
+
+        if (restaurantMutation.error || !restaurantMutation.data) throw restaurantMutation.error ?? new Error('Could not save restaurant');
+        let nextRestaurant = restaurantMutation.data as RestaurantDirectory;
+
+        try {
+          const headers = {
+            'Content-Type': 'application/json',
+            ...(await getAuthHeader()),
+          };
+          const syncResponse = await fetch('/api/places/sync', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ restaurant_id: nextRestaurant.id, force: true }),
+          });
+          if (syncResponse.ok) {
+            const syncPayload = (await syncResponse.json()) as { ok?: boolean; restaurant?: RestaurantDirectory };
+            if (syncPayload.ok && syncPayload.restaurant) {
+              nextRestaurant = syncPayload.restaurant;
+            }
+          }
+        } catch {
+          // Non-blocking: selection should still succeed even if sync fails.
+        }
+
+        const { error: uploadUpdateError } = await supabase.from('receipt_uploads').update({ restaurant_id: nextRestaurant.id }).eq('id', upload.id);
         if (uploadUpdateError) throw uploadUpdateError;
-        await supabase.from('hangouts').update({ restaurant_id: upsertedRestaurant.id }).eq('id', upload.id);
+        await supabase.from('hangouts').update({ restaurant_id: nextRestaurant.id }).eq('id', upload.id);
         await supabase
           .from('dish_entries')
-          .update({ restaurant_id: upsertedRestaurant.id })
+          .update({ restaurant_id: nextRestaurant.id })
           .eq('hangout_id', upload.id);
 
-        setRestaurant((upsertedRestaurant ?? null) as RestaurantDirectory | null);
-        setUpload((current) => (current ? { ...current, restaurant_id: upsertedRestaurant.id } : current));
-        setRestaurantQuery(upsertedRestaurant.name);
+        setRestaurant(nextRestaurant);
+        setUpload((current) => (current ? { ...current, restaurant_id: nextRestaurant.id } : current));
+        setRestaurantQuery(nextRestaurant.name);
         setDraftRestaurantName('');
         setDraftRestaurantAddress('');
         setUseDetectedRestaurant(false);
@@ -1056,7 +1096,7 @@ export default function UploadDetailPage() {
         setRestaurantLookupError(error instanceof Error ? error.message : 'Could not update restaurant');
       }
     },
-    [currentUserId, upload],
+    [currentUserId, getAuthHeader, upload],
   );
 
   const saveManualRestaurant = useCallback(async () => {

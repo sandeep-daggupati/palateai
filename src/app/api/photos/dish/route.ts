@@ -145,6 +145,7 @@ export async function POST(request: Request) {
         .from('photos')
         .update({
           user_id: auth.userId,
+          created_by: auth.userId,
           kind: 'dish',
           hangout_id: dishEntry.hangout_id,
           dish_entry_id: dishEntryId,
@@ -159,6 +160,7 @@ export async function POST(request: Request) {
         .from('photos')
         .insert({
           user_id: auth.userId,
+          created_by: auth.userId,
           kind: 'dish',
           hangout_id: dishEntry.hangout_id,
           dish_entry_id: dishEntryId,
