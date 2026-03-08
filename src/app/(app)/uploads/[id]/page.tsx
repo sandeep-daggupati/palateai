@@ -284,6 +284,8 @@ export default function UploadDetailPage() {
   const [saveHangoutToast, setSaveHangoutToast] = useState<string | null>(null);
   const [restaurantQuery, setRestaurantQuery] = useState('');
   const [restaurantSuggestions, setRestaurantSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [detectedPlaceSuggestion, setDetectedPlaceSuggestion] = useState<PlaceSuggestion | null>(null);
+  const [detectedPlaceLookupLoading, setDetectedPlaceLookupLoading] = useState(false);
   const [restaurantLookupLoading, setRestaurantLookupLoading] = useState(false);
   const [restaurantLookupError, setRestaurantLookupError] = useState<string | null>(null);
   const [restaurantFocused, setRestaurantFocused] = useState(false);
@@ -465,6 +467,7 @@ export default function UploadDetailPage() {
       setDraftRestaurantAddress('');
       setDraftOccurredAt(null);
       setUseDetectedRestaurant(false);
+      setDetectedPlaceSuggestion(null);
       setParticipants([]);
       return;
     }
@@ -570,6 +573,7 @@ export default function UploadDetailPage() {
       setUseDetectedRestaurant(false);
       setDraftRestaurantName('');
       setDraftRestaurantAddress('');
+      setDetectedPlaceSuggestion(null);
     }
 
     await loadParticipants();
@@ -695,6 +699,26 @@ export default function UploadDetailPage() {
           if (!restaurant) {
             setDraftRestaurantName(merchant.name ?? '');
             setDraftRestaurantAddress(merchant.address ?? '');
+
+            const merchantQuery = [merchant.name, merchant.address].filter(Boolean).join(' ').trim();
+            if (merchantQuery.length >= 2) {
+              setDetectedPlaceLookupLoading(true);
+              try {
+                const placeResponse = await fetch(`/api/places/autocomplete?q=${encodeURIComponent(merchantQuery)}`);
+                const placePayload = (await placeResponse.json().catch(() => null)) as { results?: PlaceSuggestion[] } | null;
+                if (placeResponse.ok && Array.isArray(placePayload?.results) && placePayload.results.length > 0) {
+                  setDetectedPlaceSuggestion(placePayload.results[0]);
+                } else {
+                  setDetectedPlaceSuggestion(null);
+                }
+              } catch {
+                setDetectedPlaceSuggestion(null);
+              } finally {
+                setDetectedPlaceLookupLoading(false);
+              }
+            } else {
+              setDetectedPlaceSuggestion(null);
+            }
           }
         }
         const detectedAt = normalizeDetectedDatetime(payload?.datetime);
@@ -1090,6 +1114,7 @@ export default function UploadDetailPage() {
         setDraftRestaurantName('');
         setDraftRestaurantAddress('');
         setUseDetectedRestaurant(false);
+        setDetectedPlaceSuggestion(null);
         setRestaurantSuggestions([]);
         setRestaurantFocused(false);
       } catch (error) {
@@ -1132,6 +1157,7 @@ export default function UploadDetailPage() {
       setDraftRestaurantName('');
       setDraftRestaurantAddress('');
       setUseDetectedRestaurant(false);
+      setDetectedPlaceSuggestion(null);
       setManualRestaurantMode(false);
     } catch (error) {
       setRestaurantLookupError(error instanceof Error ? error.message : 'Could not update restaurant');
@@ -1803,6 +1829,22 @@ export default function UploadDetailPage() {
             <p className="text-sm text-app-text">{draftRestaurantName || detectedMerchant.name}</p>
             {(draftRestaurantAddress || detectedMerchant.address) ? (
               <p className="text-xs text-app-muted">{draftRestaurantAddress || detectedMerchant.address}</p>
+            ) : null}
+            {detectedPlaceLookupLoading ? <p className="mt-1 text-xs text-app-muted">Finding place match...</p> : null}
+            {detectedPlaceSuggestion ? (
+              <div className="mt-1.5 flex items-center justify-between gap-2 rounded-lg border border-app-border px-2 py-1.5">
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-medium text-app-text">{detectedPlaceSuggestion.primaryText}</p>
+                  {detectedPlaceSuggestion.secondaryText ? <p className="truncate text-[11px] text-app-muted">{detectedPlaceSuggestion.secondaryText}</p> : null}
+                </div>
+                <button
+                  type="button"
+                  className="shrink-0 text-xs font-medium text-app-link underline underline-offset-2"
+                  onClick={() => void onSelectRestaurantSuggestion(detectedPlaceSuggestion)}
+                >
+                  Use place match
+                </button>
+              </div>
             ) : null}
           </div>
         ) : null}
