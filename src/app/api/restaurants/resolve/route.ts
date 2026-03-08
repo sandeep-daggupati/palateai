@@ -71,6 +71,10 @@ function localScore(merchantName: string, merchantAddress: string, candidate: Re
   return merchantAddress ? nameSim * 0.75 + addressSim * 0.25 : nameSim;
 }
 
+function hasDirectoryFields(row: RestaurantRow): boolean {
+  return Boolean(row.phone_number || row.website || row.opening_hours || row.maps_url);
+}
+
 async function findBestLocalRestaurant(
   service: ReturnType<typeof getServiceSupabaseClient>,
   userId: string,
@@ -169,18 +173,46 @@ export async function POST(request: Request) {
 
   const localStrong = Boolean(
     localBest &&
-    (localBest.score >= 0.82 ||
-      (tokenSimilarity(merchantName, localBest.row.name) > 0.75 && tokenSimilarity(merchantAddress, localBest.row.address) > 0.6)),
+      (localBest.score >= 0.82 ||
+        (tokenSimilarity(merchantName, localBest.row.name) > 0.75 && tokenSimilarity(merchantAddress, localBest.row.address) > 0.6)),
   );
 
-  if (localStrong && localBest) {
-    await attachRestaurantToUpload(service, uploadId, localBest.row.id);
+  if (localStrong && localBest && localBest.row.place_id) {
+    let restaurant = localBest.row;
+
+    if (!hasDirectoryFields(restaurant)) {
+      try {
+        const details = await fetchPlaceDetails(restaurant.place_id as string);
+        const { data: enriched } = await service
+          .from('restaurants')
+          .update({
+            phone_number: details.phone_number,
+            website: details.website,
+            maps_url: details.maps_url,
+            opening_hours: details.opening_hours,
+            utc_offset_minutes: details.utc_offset_minutes,
+            google_rating: details.google_rating,
+            price_level: details.price_level,
+            business_status: details.business_status,
+            last_place_sync: new Date().toISOString(),
+          })
+          .eq('id', restaurant.id)
+          .select('id,user_id,name,place_id,address,lat,lng,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync,created_at')
+          .single();
+
+        if (enriched) restaurant = enriched as RestaurantRow;
+      } catch {
+        // Keep local match even if details refresh fails.
+      }
+    }
+
+    await attachRestaurantToUpload(service, uploadId, restaurant.id);
     return NextResponse.json({
       ok: true,
       autoResolved: true,
       confidence: localBest.score,
       source: 'local',
-      restaurant: localBest.row,
+      restaurant,
       choices: [],
     });
   }
@@ -189,6 +221,18 @@ export async function POST(request: Request) {
   const google = await googleTextSearch(query);
 
   if (google.status !== 'OK' || !google.results?.length) {
+    if (localStrong && localBest) {
+      await attachRestaurantToUpload(service, uploadId, localBest.row.id);
+      return NextResponse.json({
+        ok: true,
+        autoResolved: true,
+        confidence: localBest.score,
+        source: 'local_fallback',
+        restaurant: localBest.row,
+        choices: [],
+      });
+    }
+
     return NextResponse.json({
       ok: true,
       autoResolved: false,
@@ -239,27 +283,49 @@ export async function POST(request: Request) {
   );
 
   if (top && topIsHighConfidence) {
-    const upsert = await service
-      .from('restaurants')
-      .upsert(
-        {
-          user_id: auth.userId,
+    let restaurant: RestaurantRow | null = null;
+
+    if (localStrong && localBest) {
+      const { data: updatedLocal, error: localUpdateError } = await service
+        .from('restaurants')
+        .update({
           place_id: top.placeId,
           name: top.name,
           address: top.address || null,
           lat: top.lat,
           lng: top.lng,
-        },
-        { onConflict: 'user_id,place_id' },
-      )
-      .select('id,user_id,name,place_id,address,lat,lng,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync,created_at')
-      .single();
+        })
+        .eq('id', localBest.row.id)
+        .select('id,user_id,name,place_id,address,lat,lng,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync,created_at')
+        .single();
 
-    if (upsert.error || !upsert.data) {
-      return NextResponse.json({ ok: false, error: 'Failed to save resolved restaurant' }, { status: 500 });
+      if (localUpdateError || !updatedLocal) {
+        return NextResponse.json({ ok: false, error: 'Failed to enrich local restaurant match' }, { status: 500 });
+      }
+      restaurant = updatedLocal as RestaurantRow;
+    } else {
+      const upsert = await service
+        .from('restaurants')
+        .upsert(
+          {
+            user_id: auth.userId,
+            place_id: top.placeId,
+            name: top.name,
+            address: top.address || null,
+            lat: top.lat,
+            lng: top.lng,
+          },
+          { onConflict: 'user_id,place_id' },
+        )
+        .select('id,user_id,name,place_id,address,lat,lng,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync,created_at')
+        .single();
+
+      if (upsert.error || !upsert.data) {
+        return NextResponse.json({ ok: false, error: 'Failed to save resolved restaurant' }, { status: 500 });
+      }
+
+      restaurant = upsert.data as RestaurantRow;
     }
-
-    let restaurant = upsert.data as RestaurantRow;
 
     try {
       const details = await fetchPlaceDetails(top.placeId);
@@ -291,7 +357,7 @@ export async function POST(request: Request) {
       ok: true,
       autoResolved: true,
       confidence: top.confidence,
-      source: 'google',
+      source: localStrong ? 'local_google' : 'google',
       restaurant,
       choices: [],
     });
@@ -312,3 +378,4 @@ export async function POST(request: Request) {
     choices,
   });
 }
+
