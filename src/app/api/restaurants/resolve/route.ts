@@ -105,11 +105,12 @@ async function googleTextSearch(query: string): Promise<GoogleTextSearchResponse
     return { status: 'CONFIG_ERROR', error_message: 'GOOGLE_PLACES_API_KEY is not configured' };
   }
 
+  // Do not force type=restaurant; receipts can come from merchants like Costco, cafes, bakeries, etc.
   const params = new URLSearchParams({
     query,
     key: apiKey,
-    type: 'restaurant',
     language: 'en',
+    region: 'us',
   });
 
   const response = await fetch(`https://maps.googleapis.com/maps/api/place/textsearch/json?${params.toString()}`, {
@@ -217,8 +218,17 @@ export async function POST(request: Request) {
     });
   }
 
-  const query = [merchantName, merchantAddress].filter(Boolean).join(' ').trim();
-  const google = await googleTextSearch(query);
+  const queryCandidates = [
+    [merchantName, merchantAddress].filter(Boolean).join(' ').trim(),
+    merchantName,
+    merchantAddress,
+  ].filter((value, index, arr): value is string => Boolean(value) && arr.indexOf(value) === index);
+
+  let google: GoogleTextSearchResponse = { status: 'ZERO_RESULTS' };
+  for (const query of queryCandidates) {
+    google = await googleTextSearch(query);
+    if (google.status === 'OK' && (google.results?.length ?? 0) > 0) break;
+  }
 
   if (google.status !== 'OK' || !google.results?.length) {
     if (localStrong && localBest) {
@@ -378,4 +388,6 @@ export async function POST(request: Request) {
     choices,
   });
 }
+
+
 
