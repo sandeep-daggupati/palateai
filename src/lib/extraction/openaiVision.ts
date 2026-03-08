@@ -90,6 +90,51 @@ function truncate(value: string, max = 220): string {
   return value.length <= max ? value : `${value.slice(0, max)}...`;
 }
 
+function toNaiveDateTime(year: number, month: number, day: number, hour: number, minute: number, second = 0): string | null {
+  if (year < 2000 || year > 2100) return null;
+  if (month < 1 || month > 12) return null;
+  if (day < 1 || day > 31) return null;
+  if (hour < 0 || hour > 23) return null;
+  if (minute < 0 || minute > 59) return null;
+  if (second < 0 || second > 59) return null;
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${year}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(minute)}:${pad(second)}`;
+}
+
+function parseReceiptDateTime(value: string | null): string | null {
+  if (!value) return null;
+  const cleaned = value.trim();
+  if (!cleaned) return null;
+
+  const isoMatch = cleaned.match(/(\d{4})-(\d{2})-(\d{2})[T\s](\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?/i);
+  if (isoMatch) {
+    let hour = Number(isoMatch[4]);
+    const minute = Number(isoMatch[5]);
+    const second = Number(isoMatch[6] ?? '0');
+    const meridiem = isoMatch[7]?.toUpperCase();
+    if (meridiem === 'PM' && hour < 12) hour += 12;
+    if (meridiem === 'AM' && hour === 12) hour = 0;
+    return toNaiveDateTime(Number(isoMatch[1]), Number(isoMatch[2]), Number(isoMatch[3]), hour, minute, second);
+  }
+
+  const usMatch = cleaned.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})[\s,]+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?/i);
+  if (usMatch) {
+    const month = Number(usMatch[1]);
+    const day = Number(usMatch[2]);
+    const rawYear = Number(usMatch[3]);
+    const year = rawYear < 100 ? 2000 + rawYear : rawYear;
+    let hour = Number(usMatch[4]);
+    const minute = Number(usMatch[5]);
+    const second = Number(usMatch[6] ?? '0');
+    const meridiem = usMatch[7]?.toUpperCase();
+    if (meridiem === 'PM' && hour < 12) hour += 12;
+    if (meridiem === 'AM' && hour === 12) hour = 0;
+    return toNaiveDateTime(year, month, day, hour, minute, second);
+  }
+
+  return null;
+}
+
 function redactImageUrl(url: string): string {
   try {
     const parsed = new URL(url);
@@ -173,7 +218,9 @@ Rules:
 - Include only purchased menu items (dish/drink names) with their item prices.
 - Ignore totals, subtotal, tax, tip, service fee, discounts, coupons, payment lines, change, tender, order IDs.
 - merchant fields are optional; return null when missing.
-- datetime should be receipt date/time if visible, in ISO string when possible; otherwise null.
+- datetime should be transaction timestamp if visible. Prefer timestamps near APPROVED, PURCHASE, TOTAL, AMOUNT, CARD, AUTH.
+- detect common formats: MM/DD/YYYY HH:MM, MM/DD/YY HH:MM, YYYY-MM-DD HH:MM, HH:MM AM/PM.
+- return datetime as "YYYY-MM-DDTHH:MM:SS" (24h, no timezone) when date+time are confidently found; else null.
 - If quantity appears (e.g. 2x), still return a single item name; price should be the line price shown.
 - "price" must be a number like 15.95 (no currency symbols).
 - Keep names as printed but trim whitespace.`;
@@ -231,7 +278,7 @@ Rules:
       address: typeof parsed.merchant?.address === "string" ? parsed.merchant.address.trim() || null : null,
       phone: typeof parsed.merchant?.phone === "string" ? parsed.merchant.phone.trim() || null : null,
     },
-    datetime: typeof parsed.datetime === "string" ? parsed.datetime.trim() || null : null,
+    datetime: parseReceiptDateTime(typeof parsed.datetime === "string" ? parsed.datetime : null),
   };
 }
 

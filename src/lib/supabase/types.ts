@@ -110,6 +110,7 @@ export type Database = {
           audio_path: string | null;
           currency_detected: string | null;
           visited_at: string | null;
+          visited_at_source: string | null;
           visit_lat: number | null;
           visit_lng: number | null;
           visit_rating: number | null;
@@ -130,6 +131,7 @@ export type Database = {
           audio_path?: string | null;
           currency_detected?: string | null;
           visited_at?: string | null;
+          visited_at_source?: string | null;
           visit_lat?: number | null;
           visit_lng?: number | null;
           visit_rating?: number | null;
@@ -150,6 +152,7 @@ export type Database = {
           audio_path?: string | null;
           currency_detected?: string | null;
           visited_at?: string | null;
+          visited_at_source?: string | null;
           visit_lat?: number | null;
           visit_lng?: number | null;
           visit_rating?: number | null;
@@ -712,4 +715,3 @@ export type Photo = Database['public']['Tables']['photos']['Row'];
 export type TableRow<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row'];
 export type TableInsert<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Insert'];
 export type TableUpdate<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Update'];
-

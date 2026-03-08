@@ -68,6 +68,7 @@ type DetectedMerchant = {
   address: string | null;
   phone: string | null;
 };
+type VisitedAtSource = 'receipt' | 'manual' | 'fallback';
 type RestaurantDirectory = Pick<
   Restaurant,
   | 'id'
@@ -172,13 +173,25 @@ function getOpenNowStatus(openingHours: Restaurant['opening_hours'], utcOffsetMi
   return parseOpenNowFromTodayLine(todayLine, minutes);
 }
 
-function formatDate(value: string | null): string {
-  if (!value) return 'Unknown date';
-  return new Date(value).toLocaleDateString(undefined, {
+function formatDateTime(value: string | null): string {
+  if (!value) return 'Unknown';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
+  return date.toLocaleString(undefined, {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
   });
+}
+
+function toDateTimeLocalInput(value: string | null): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function formatPrice(value: number | null): string {
@@ -296,6 +309,9 @@ export default function UploadDetailPage() {
   const [draftRestaurantName, setDraftRestaurantName] = useState('');
   const [draftRestaurantAddress, setDraftRestaurantAddress] = useState('');
   const [draftOccurredAt, setDraftOccurredAt] = useState<string | null>(null);
+  const [draftOccurredAtSource, setDraftOccurredAtSource] = useState<VisitedAtSource | null>(null);
+  const [visitDateEditing, setVisitDateEditing] = useState(false);
+  const [manualVisitDateEdited, setManualVisitDateEdited] = useState(false);
   const [useDetectedRestaurant, setUseDetectedRestaurant] = useState(false);
   const [restaurantNameEditing, setRestaurantNameEditing] = useState(false);
   const [restaurantNameDraft, setRestaurantNameDraft] = useState('');
@@ -466,6 +482,9 @@ export default function UploadDetailPage() {
       setDraftRestaurantName('');
       setDraftRestaurantAddress('');
       setDraftOccurredAt(null);
+      setDraftOccurredAtSource(null);
+      setManualVisitDateEdited(false);
+      setVisitDateEditing(false);
       setUseDetectedRestaurant(false);
       setDetectedPlaceSuggestion(null);
       setParticipants([]);
@@ -568,7 +587,10 @@ export default function UploadDetailPage() {
     setEntryMetaById(entryMap);
     setRestaurant((restaurantData.data ?? null) as RestaurantDirectory | null);
     setVibeTags(Array.isArray(typedUpload.vibe_tags) ? typedUpload.vibe_tags.filter((value): value is string => typeof value === 'string') : []);
-    setDraftOccurredAt(typedUpload.visited_at ?? null);
+    setDraftOccurredAt(typedUpload.visited_at ?? typedUpload.created_at ?? null);
+    setDraftOccurredAtSource((typedUpload.visited_at_source as VisitedAtSource | null) ?? null);
+    setManualVisitDateEdited((typedUpload.visited_at_source as VisitedAtSource | null) === 'manual');
+    setVisitDateEditing(false);
     if (typedUpload.restaurant_id) {
       setUseDetectedRestaurant(false);
       setDraftRestaurantName('');
@@ -722,15 +744,17 @@ export default function UploadDetailPage() {
           }
         }
         const detectedAt = normalizeDetectedDatetime(payload?.datetime);
-        if (detectedAt && !upload?.visited_at) {
+        const allowApplyDetectedTime = !manualVisitDateEdited && draftOccurredAtSource !== 'manual';
+        if (detectedAt && allowApplyDetectedTime) {
           setDraftOccurredAt(detectedAt);
+          setDraftOccurredAtSource('receipt');
         }
         setHasUnsavedChanges(true);
       } finally {
         setIsExtracting(false);
       }
     },
-    [mergeExtractedIntoDraft, restaurant, upload?.visited_at, uploadId],
+    [draftOccurredAtSource, manualVisitDateEdited, mergeExtractedIntoDraft, restaurant, uploadId],
   );
 
 
@@ -1376,7 +1400,9 @@ export default function UploadDetailPage() {
         setUpload((current) => (current ? { ...current, restaurant_id: createdRestaurant.id } : current));
       }
 
-      const effectiveOccurredAt = draftOccurredAt ?? upload.visited_at ?? upload.created_at;
+      const effectiveOccurredAt = draftOccurredAt ?? upload.visited_at ?? upload.created_at ?? new Date().toISOString();
+      const effectiveOccurredAtSource: VisitedAtSource =
+        draftOccurredAtSource ?? (manualVisitDateEdited ? 'manual' : 'fallback');
       const effectiveRestaurantName = restaurant?.name ?? (draftRestaurantName.trim() || 'unknown-restaurant');
 
       for (const row of activeFood) {
@@ -1447,6 +1473,7 @@ export default function UploadDetailPage() {
         .update({
           restaurant_id: effectiveRestaurantId,
           visited_at: effectiveOccurredAt,
+          visited_at_source: effectiveOccurredAtSource,
           vibe_tags: vibeTags.length > 0 ? vibeTags : [],
           status: 'approved',
           processed_at: new Date().toISOString(),
@@ -1504,11 +1531,13 @@ export default function UploadDetailPage() {
     currentUserId,
     dishes,
     draftOccurredAt,
+    draftOccurredAtSource,
     draftRestaurantAddress,
     draftRestaurantName,
     getAuthHeader,
     hangoutSummary?.caption_source,
     isReceiptCapture,
+    manualVisitDateEdited,
     promoteTempReceiptImages,
     restaurant?.name,
     router,
@@ -1555,7 +1584,8 @@ export default function UploadDetailPage() {
     return <div className="card-surface text-sm text-app-muted">You do not have access to this hangout.</div>;
   }
 
-  const visitDate = formatDate(upload.visited_at ?? upload.created_at);
+  const visitDateTimeValue = draftOccurredAt ?? upload.visited_at ?? upload.created_at;
+  const visitDateLabel = formatDateTime(visitDateTimeValue);
   const visibleFood = dishes.filter((row) => row.hangoutItem.included);
   const hiddenFood = dishes.filter((row) => !row.hangoutItem.included);
   const draftFoodFingerprint = JSON.stringify(
@@ -1583,6 +1613,7 @@ export default function UploadDetailPage() {
   const openNow = getOpenNowStatus(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
   const showUnsavedIndicator = hasUnsavedChanges || (savedFoodFingerprint.length > 0 && savedFoodFingerprint !== draftFoodFingerprint);
   const captionText = hangoutSummary?.caption_text?.trim() ?? '';
+  const showFromReceiptHint = draftOccurredAtSource === 'receipt';
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-3 pb-4">
@@ -1644,9 +1675,50 @@ export default function UploadDetailPage() {
               </span>
             ) : null}
           </div>
-          <p className="text-xs leading-4 text-app-muted">
-            {visitDate} · With {withLabel}
-          </p>
+          <div className="flex flex-wrap items-center gap-1 text-xs leading-4 text-app-muted">
+            <span>Visited</span>
+            {visitDateEditing && canEditVisit ? (
+              <div className="flex items-center gap-1">
+                <input
+                  type="datetime-local"
+                  value={toDateTimeLocalInput(visitDateTimeValue)}
+                  onChange={(event) => {
+                    const value = event.target.value ? new Date(event.target.value).toISOString() : null;
+                    setDraftOccurredAt(value);
+                    setDraftOccurredAtSource('manual');
+                    setManualVisitDateEdited(true);
+                    setHasUnsavedChanges(true);
+                  }}
+                  className="h-8 rounded-lg border border-app-border bg-app-bg px-2 text-xs text-app-text focus:outline-none focus:ring-2 focus:ring-app-primary/35"
+                  aria-label="Visited date and time"
+                />
+                <button
+                  type="button"
+                  className="icon-button-subtle h-7 w-7"
+                  onClick={() => setVisitDateEditing(false)}
+                  aria-label="Done editing visited date and time"
+                >
+                  <Check size={13} strokeWidth={1.7} />
+                </button>
+              </div>
+            ) : (
+              <>
+                <span>{visitDateLabel}</span>
+                {showFromReceiptHint ? <span className="text-[11px] text-app-muted">from receipt</span> : null}
+                {canEditVisit ? (
+                  <button
+                    type="button"
+                    className="icon-button-subtle h-7 w-7"
+                    onClick={() => setVisitDateEditing(true)}
+                    aria-label="Edit visited date and time"
+                  >
+                    <Pencil size={12} strokeWidth={1.6} />
+                  </button>
+                ) : null}
+              </>
+            )}
+            <span>· With {withLabel}</span>
+          </div>
           <div className="flex flex-wrap items-center gap-2 pt-1">
             {activeCrew.map((participant) => {
               const name = participant.display_name?.trim() || participant.invited_email || 'Crew member';
