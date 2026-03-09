@@ -87,7 +87,7 @@ export default function LoginPage() {
             <span className="text-brand-accent dark:text-brand-accent-dark">AI</span>
           </h1>
           <p className="text-sm text-app-text">Remember every meal you love.</p>
-          <p className="text-sm text-app-muted">Drop in a receipt or menu. PalateAI builds your food memories, one meal at a time.</p>
+          <p className="text-sm text-app-muted">Drop in a receipt or photo. PalateAI builds your food memories, one meal at a time.</p>
         </div>
 
         <Button onClick={onLoginGoogle} disabled={loadingGoogle || loadingPassword} size="md">
