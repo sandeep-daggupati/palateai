@@ -326,6 +326,7 @@ export default function UploadDetailPage() {
 
   const canViewVisit = isHost || isActiveParticipant;
   const canEditVisit = canViewVisit;
+  const canEditHangoutIdentity = isHost;
   const hasAnyExtractedItems = dishes.length > 0;
   const captureMode = useMemo(() => inferCaptureMode(upload), [upload]);
   const isReceiptCapture = captureMode === 'receipt';
@@ -685,7 +686,7 @@ export default function UploadDetailPage() {
         if (merchant?.name || merchant?.address || merchant?.phone) {
           setDetectedMerchant(merchant);
 
-          if (!restaurant && merchant?.name) {
+          if (canEditHangoutIdentity && !restaurant && merchant?.name) {
             setDetectedPlaceLookupLoading(true);
             try {
               const headers = {
@@ -730,7 +731,7 @@ export default function UploadDetailPage() {
         }
 
         const detectedAt = normalizeDetectedDatetime(payload?.datetime);
-        const allowApplyDetectedTime = !manualVisitDateEdited && draftOccurredAtSource !== 'manual';
+        const allowApplyDetectedTime = canEditHangoutIdentity && !manualVisitDateEdited && draftOccurredAtSource !== 'manual';
         if (detectedAt && allowApplyDetectedTime) {
           setDraftOccurredAt(detectedAt);
           setDraftOccurredAtSource('receipt');
@@ -740,7 +741,7 @@ export default function UploadDetailPage() {
         setIsExtracting(false);
       }
     },
-    [draftOccurredAtSource, getAuthHeader, manualVisitDateEdited, mergeExtractedIntoDraft, restaurant, upload?.visit_lat, upload?.visit_lng, uploadId],
+    [canEditHangoutIdentity, draftOccurredAtSource, getAuthHeader, manualVisitDateEdited, mergeExtractedIntoDraft, restaurant, upload?.visit_lat, upload?.visit_lng, uploadId],
   );
 
   const syncPlaceDirectory = useCallback(async () => {
@@ -1013,7 +1014,7 @@ export default function UploadDetailPage() {
   };
 
   const saveRestaurantName = useCallback(async () => {
-    if (!canEditVisit || !restaurant?.id) return;
+    if (!canEditHangoutIdentity || !restaurant?.id) return;
     const nextName = restaurantNameDraft.trim();
     if (!nextName || nextName === (restaurant.name ?? '').trim()) {
       setRestaurantNameEditing(false);
@@ -1040,11 +1041,11 @@ export default function UploadDetailPage() {
     } finally {
       setRestaurantNameSaving(false);
     }
-  }, [canEditVisit, restaurant, restaurantNameDraft]);
+  }, [canEditHangoutIdentity, restaurant, restaurantNameDraft]);
 
   const onSelectRestaurantSuggestion = useCallback(
     async (suggestion: PlaceSuggestion) => {
-      if (!upload || !currentUserId) return;
+      if (!canEditHangoutIdentity || !upload || !currentUserId) return;
       try {
         setRestaurantLookupError(null);
         const detailsResponse = await fetch(`/api/places/details?placeId=${encodeURIComponent(suggestion.placeId)}`);
@@ -1128,11 +1129,11 @@ export default function UploadDetailPage() {
         setRestaurantLookupError(error instanceof Error ? error.message : 'Could not update restaurant');
       }
     },
-    [currentUserId, getAuthHeader, upload],
+    [canEditHangoutIdentity, currentUserId, getAuthHeader, upload],
   );
 
   const saveManualRestaurant = useCallback(async () => {
-    if (!upload || !currentUserId) return;
+    if (!canEditHangoutIdentity || !upload || !currentUserId) return;
     const name = manualRestaurantName.trim();
     if (!name) return;
     try {
@@ -1166,7 +1167,7 @@ export default function UploadDetailPage() {
     } catch (error) {
       setRestaurantLookupError(error instanceof Error ? error.message : 'Could not update restaurant');
     }
-  }, [currentUserId, manualRestaurantAddress, manualRestaurantName, upload]);
+  }, [canEditHangoutIdentity, currentUserId, manualRestaurantAddress, manualRestaurantName, upload]);
 
   const promoteTempReceiptImages = useCallback(async (): Promise<string[] | null> => {
     if (!upload?.image_paths?.length || !currentUserId) return null;
@@ -1511,7 +1512,7 @@ export default function UploadDetailPage() {
             ) : (
               <>
                 <h1 className="truncate text-2xl font-semibold leading-7 text-app-text">{restaurant?.name ?? 'Restaurant not detected'}</h1>
-                {canEditVisit && restaurant?.id ? (
+                {canEditHangoutIdentity && restaurant?.id ? (
                   <button
                     type="button"
                     className="icon-button-subtle"
@@ -1536,7 +1537,7 @@ export default function UploadDetailPage() {
           </div>
           <div className="flex flex-wrap items-center gap-1 text-xs leading-4 text-app-muted">
             <span>Visited</span>
-            {visitDateEditing && canEditVisit ? (
+            {visitDateEditing && canEditHangoutIdentity ? (
               <div className="flex items-center gap-1">
                 <input
                   type="datetime-local"
@@ -1564,7 +1565,7 @@ export default function UploadDetailPage() {
               <>
                 <span>{visitDateLabel}</span>
                 {showFromReceiptHint ? <span className="text-[11px] text-app-muted">from receipt</span> : null}
-                {canEditVisit ? (
+                {canEditHangoutIdentity ? (
                   <button
                     type="button"
                     className="icon-button-subtle h-7 w-7"
@@ -1665,7 +1666,7 @@ export default function UploadDetailPage() {
             </p>
           ) : null}
         </div>
-        {canEditVisit && !restaurant ? (
+        {canEditHangoutIdentity && !restaurant ? (
           <div className="space-y-2">
             {!manualRestaurantMode && detectedMerchant?.name ? (
               <div className="rounded-xl border border-app-border bg-app-card/70 p-2.5">
@@ -2446,9 +2447,6 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
-
-
 
 
 
