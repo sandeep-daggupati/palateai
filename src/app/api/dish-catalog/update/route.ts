@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { Database } from '@/lib/supabase/types';
 import { getServiceSupabaseClient } from '@/lib/supabase/server';
 import { toDishKey } from '@/lib/utils';
+import { sanitizeText } from '@/lib/text/sanitize';
 
 function getAnonSupabaseClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -43,7 +44,7 @@ async function authorize(request: Request) {
 
 function cleanText(value: unknown, maxLen: number): string | null {
   if (typeof value !== 'string') return null;
-  const cleaned = value.trim().replace(/\s+/g, ' ');
+  const cleaned = sanitizeText(value);
   if (!cleaned) return null;
   return cleaned.slice(0, maxLen);
 }
@@ -55,9 +56,7 @@ function cleanFlavorTags(value: unknown): string[] | null {
 
   for (const item of value) {
     if (typeof item !== 'string') continue;
-    const tag = item
-      .trim()
-      .toLowerCase()
+    const tag = sanitizeText(item).toLowerCase()
       .replace(/[^a-z0-9- ]+/g, '')
       .replace(/\s+/g, '-');
 
@@ -152,3 +151,4 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ ok: true, catalog: data });
 }
+

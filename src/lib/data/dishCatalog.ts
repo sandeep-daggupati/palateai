@@ -1,5 +1,6 @@
 import { getServiceSupabaseClient } from '@/lib/supabase/server';
 import { TableInsert, TableRow } from '@/lib/supabase/types';
+import { sanitizeText } from '@/lib/text/sanitize';
 
 type ResponsesOutput = {
   output_text?: unknown;
@@ -51,7 +52,7 @@ function truncate(value: string, max = 220): string {
 
 function sanitizeString(value: unknown, maxLen: number): string | null {
   if (typeof value !== 'string') return null;
-  const cleaned = value.trim().replace(/\s+/g, ' ');
+  const cleaned = sanitizeText(value);
   if (!cleaned) return null;
   return cleaned.slice(0, maxLen);
 }
@@ -186,8 +187,8 @@ export async function ensureDishCatalogEntry(params: {
   dishName: string;
   restaurantName?: string | null;
 }): Promise<TableRow<'dish_catalog'> | null> {
-  const dishKey = params.dishKey.trim();
-  const dishName = params.dishName.trim();
+  const dishKey = sanitizeText(params.dishKey).trim();
+  const dishName = sanitizeText(params.dishName).trim();
   if (!dishKey || !dishName) return null;
 
   const supabase = getServiceSupabaseClient();
@@ -222,3 +223,5 @@ export async function ensureDishCatalogEntry(params: {
 
   return data as TableRow<'dish_catalog'>;
 }
+
+

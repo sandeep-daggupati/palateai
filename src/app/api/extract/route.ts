@@ -6,6 +6,7 @@ import { cleanupExtractedItems } from "@/lib/extraction/cleanup";
 import { getServiceSupabaseClient } from "@/lib/supabase/server";
 import { ensureDishCatalogEntry } from "@/lib/data/dishCatalog";
 import { toDishKey } from "@/lib/utils";
+import { sanitizeNullableText, sanitizeText } from "@/lib/text/sanitize";
 
 type MappingRow = {
   raw_name: string;
@@ -40,7 +41,7 @@ function dedupeDishNames(names: string[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
   for (const name of names) {
-    const cleaned = name.trim();
+    const cleaned = sanitizeText(name);
     if (!cleaned) continue;
     const key = cleaned.toLowerCase();
     if (seen.has(key)) continue;
@@ -159,8 +160,8 @@ export async function POST(req: Request) {
       currency: extracted.currency,
     });
 
-    const restaurantName = (restaurant.data as { name?: string; address?: string } | null)?.name ?? null;
-    const restaurantAddress = (restaurant.data as { name?: string; address?: string } | null)?.address ?? null;
+    const restaurantName = sanitizeText((restaurant.data as { name?: string; address?: string } | null)?.name ?? "") || null;
+    const restaurantAddress = sanitizeText((restaurant.data as { name?: string; address?: string } | null)?.address ?? "") || null;
     const restaurantContext = [restaurantName, restaurantAddress].filter(Boolean).join(" - ") || null;
 
     const processed = await postProcessExtractedItems({
@@ -181,9 +182,9 @@ export async function POST(req: Request) {
 
     const rows = cleaned.map((it) => ({
       upload_id: uploadIdValue,
-      name_raw: it.name_raw,
+      name_raw: sanitizeText(it.name_raw),
       price_raw: it.price_raw,
-      name_final: it.name_final,
+      name_final: sanitizeNullableText(it.name_final),
       price_final: it.price_final,
       confidence: it.confidence,
       included: it.included,
@@ -216,7 +217,7 @@ export async function POST(req: Request) {
       }
     }
 
-    if (!dryRun) {
+    {
       const restaurantNameForKey = restaurantName ?? "unknown-restaurant";
       const catalogDishNames = dedupeDishNames(
         cleaned
@@ -282,3 +283,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: message, traceId }, { status: 500 });
   }
 }
+
+
+
+
+
+
+
