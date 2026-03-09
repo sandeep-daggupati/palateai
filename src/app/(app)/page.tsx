@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ForYouTodayCard } from '@/components/home/ForYouTodayCard';
 import { HighlightsCard } from '@/components/home/HighlightsCard';
 import { RecentHangoutsCard } from '@/components/home/RecentHangoutsCard';
@@ -61,12 +61,14 @@ function DisplayNameGate({
   open,
   loading,
   initialValue,
-  onSave,
+  onContinue,
+  onSkip,
 }: {
   open: boolean;
   loading: boolean;
   initialValue: string;
-  onSave: (value: string) => Promise<void>;
+  onContinue: (value: string) => Promise<void>;
+  onSkip: () => void;
 }) {
   const [displayName, setDisplayName] = useState(initialValue);
 
@@ -81,20 +83,25 @@ function DisplayNameGate({
       <div className="absolute inset-0 bg-black/45" />
       <section className="relative z-10 w-full rounded-t-2xl border border-app-border bg-app-card p-4 sm:max-w-md sm:rounded-2xl">
         <p className="text-base font-semibold text-app-text">Welcome to PalateAI</p>
-        <p className="mt-1 text-sm text-app-muted">Set your display name to continue.</p>
+        <p className="mt-1 text-sm text-app-muted">What should your friends call you here?</p>
         <div className="mt-3 space-y-2">
           <Input
             value={displayName}
             onChange={(event) => setDisplayName(event.target.value)}
             maxLength={60}
-            placeholder="Your display name"
+            placeholder="Display name"
           />
+          <p className="text-xs text-app-muted">This is how you&apos;ll appear in hangouts and when friends search for you.</p>
+          <Button type="button" disabled={loading || displayName.trim().length === 0} onClick={() => void onContinue(displayName)}>
+            {loading ? 'Saving...' : 'Continue'}
+          </Button>
           <Button
             type="button"
-            disabled={loading || displayName.trim().length === 0}
-            onClick={() => void onSave(displayName)}
+            variant="secondary"
+            disabled={loading}
+            onClick={onSkip}
           >
-            {loading ? 'Saving...' : 'Continue'}
+            Skip for now
           </Button>
         </div>
       </section>
@@ -102,177 +109,16 @@ function DisplayNameGate({
   );
 }
 
-function OnboardingOverlay({
-  open,
-  step,
-  onNext,
-  onFinish,
-}: {
-  open: boolean;
-  step: 1 | 2 | 3 | 4 | 5;
-  onNext: () => void;
-  onFinish: () => Promise<void>;
-}) {
-  const [spotlight, setSpotlight] = useState<{
-    top: number;
-    left: number;
-    width: number;
-    height: number;
-    radius: string;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!open || typeof document === 'undefined' || typeof window === 'undefined') {
-      setSpotlight(null);
-      return;
-    }
-
-    const selectorByStep: Partial<Record<1 | 2 | 3 | 4 | 5, string>> = {
-      2: '[data-onboarding-target="add-button"]',
-      3: '[data-onboarding-target="home-tab"]',
-      4: '[data-onboarding-target="food-tab"]',
-      5: '[data-onboarding-target="hangouts-tab"]',
-    };
-
-    const selector = selectorByStep[step];
-    if (!selector) {
-      setSpotlight(null);
-      return;
-    }
-
-    const target = document.querySelector(selector) as HTMLElement | null;
-    if (!target) {
-      setSpotlight(null);
-      return;
-    }
-
-    let rafId: number | null = null;
-    const updateSpotlight = () => {
-      const rect = target.getBoundingClientRect();
-      const viewportOffsetTop = window.visualViewport?.offsetTop ?? 0;
-      const viewportOffsetLeft = window.visualViewport?.offsetLeft ?? 0;
-      const computed = window.getComputedStyle(target);
-
-      setSpotlight({
-        top: rect.top + viewportOffsetTop,
-        left: rect.left + viewportOffsetLeft,
-        width: rect.width,
-        height: rect.height,
-        radius: computed.borderRadius || '12px',
-      });
-    };
-
-    const scheduleUpdate = () => {
-      if (rafId !== null) return;
-      rafId = window.requestAnimationFrame(() => {
-        rafId = null;
-        updateSpotlight();
-      });
-    };
-
-    updateSpotlight();
-    window.addEventListener('scroll', scheduleUpdate, true);
-    window.addEventListener('resize', scheduleUpdate);
-    window.visualViewport?.addEventListener('resize', scheduleUpdate);
-    window.visualViewport?.addEventListener('scroll', scheduleUpdate);
-
-    return () => {
-      if (rafId !== null) {
-        window.cancelAnimationFrame(rafId);
-      }
-      window.removeEventListener('scroll', scheduleUpdate, true);
-      window.removeEventListener('resize', scheduleUpdate);
-      window.visualViewport?.removeEventListener('resize', scheduleUpdate);
-      window.visualViewport?.removeEventListener('scroll', scheduleUpdate);
-    };
-  }, [open, step]);
-
-  if (!open) return null;
-
-  return (
-    <div className="fixed inset-0 z-[65]">
-      <div className="absolute inset-0 bg-black/45" />
-      {spotlight ? (
-        <div
-          aria-hidden
-          className="pointer-events-none fixed z-[66]"
-          style={{
-            top: spotlight.top,
-            left: spotlight.left,
-            width: spotlight.width,
-            height: spotlight.height,
-            borderRadius: spotlight.radius,
-            boxShadow: '0 0 0 2px var(--color-primary), 0 0 0 8px rgba(31, 61, 43, 0.24)',
-          }}
-        />
-      ) : null}
-
-      <section className="absolute bottom-3 left-3 right-3 rounded-2xl border border-app-border bg-app-card p-3 sm:left-auto sm:right-4 sm:w-[360px]">
-        {step === 1 ? (
-          <>
-            <p className="text-base font-semibold text-app-text">Welcome</p>
-            <p className="mt-1 text-sm text-app-muted">
-              PalateAI helps you capture meals, spot patterns, and revisit your best food moments.
-            </p>
-            <Button type="button" className="mt-3" onClick={onNext}>
-              Next
-            </Button>
-          </>
-        ) : null}
-
-        {step === 2 ? (
-          <>
-            <p className="text-base font-semibold text-app-text">Start with Add</p>
-            <p className="mt-1 text-sm text-app-muted">Log a meal, scan a receipt, or add a food photo. This is where every memory starts.</p>
-            <Button type="button" className="mt-3" onClick={onNext}>
-              Next
-            </Button>
-          </>
-        ) : null}
-
-        {step === 3 ? (
-          <>
-            <p className="text-base font-semibold text-app-text">Home tab</p>
-            <p className="mt-1 text-sm text-app-muted">Home shows your highlights, insights, and recent hangouts — a quick snapshot of your palate.</p>
-            <Button type="button" className="mt-3" onClick={onNext}>
-              Next
-            </Button>
-          </>
-        ) : null}
-
-        {step === 4 ? (
-          <>
-            <p className="text-base font-semibold text-app-text">Food tab</p>
-            <p className="mt-1 text-sm text-app-muted">Every meal you log lives here. See what you loved, what you want again, and your full food history.</p>
-            <Button type="button" className="mt-3" onClick={onNext}>
-              Next
-            </Button>
-          </>
-        ) : null}
-
-        {step === 5 ? (
-          <>
-            <p className="text-base font-semibold text-app-text">Hangouts tab</p>
-            <p className="mt-1 text-sm text-app-muted">Hangouts capture shared meals. Tag friends, save the place, and remember the night.</p>
-            <Button type="button" className="mt-3" onClick={() => void onFinish()}>
-              Finish
-            </Button>
-          </>
-        ) : null}
-      </section>
-    </div>
-  );
-}
-
 export default function HomePage() {
-  const [hasLoggedEntries, setHasLoggedEntries] = useState(false);
+  const [hasFoodEntries, setHasFoodEntries] = useState(false);
+  const [hasHangouts, setHasHangouts] = useState(false);
   const [insight, setInsight] = useState<InsightPayload | null>(null);
   const [highlights, setHighlights] = useState<HighlightCard[]>(FALLBACK_HIGHLIGHTS);
   const [hangoutChips, setHangoutChips] = useState<HangoutChip[]>([]);
   const [profile, setProfile] = useState<ProfileState | null>(null);
+  const [googleNameSuggestion, setGoogleNameSuggestion] = useState('');
+  const [setupDismissed, setSetupDismissed] = useState(false);
   const [savingDisplayName, setSavingDisplayName] = useState(false);
-  const [onboardingStep, setOnboardingStep] = useState<1 | 2 | 3 | 4 | 5>(1);
-  const onboardingStepRef = useRef<1 | 2 | 3 | 4 | 5>(1);
 
   useEffect(() => {
     const load = async () => {
@@ -282,13 +128,21 @@ export default function HomePage() {
       } = await supabase.auth.getUser();
 
       if (!user) {
-        setHasLoggedEntries(false);
+        setHasFoodEntries(false);
+        setHasHangouts(false);
         setInsight(null);
         setHighlights(FALLBACK_HIGHLIGHTS);
         setHangoutChips([]);
         setProfile(null);
+        setGoogleNameSuggestion('');
+        setSetupDismissed(false);
         return;
       }
+
+      const metadataNameCandidates = [user.user_metadata?.full_name, user.user_metadata?.name, user.user_metadata?.user_name]
+        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+        .filter((value) => value.length > 0);
+      setGoogleNameSuggestion(metadataNameCandidates[0] ?? '');
 
       await ensureProfile();
 
@@ -324,15 +178,17 @@ export default function HomePage() {
         }
       }
 
-      const [highlightCards, chipPayload, entryProbe] = await Promise.all([
+      const [highlightCards, chipPayload, entryProbe, hangoutProbe] = await Promise.all([
         getHighlights(supabase, user.id),
         getHangoutChips(supabase, user.id),
         supabase.from('dish_entries').select('id').eq('user_id', user.id).limit(1),
+        supabase.from('hangout_participants').select('hangout_id').eq('user_id', user.id).limit(1),
       ]);
 
       setHighlights(highlightCards.slice(0, 3));
       setHangoutChips(chipPayload.chips);
-      setHasLoggedEntries(((entryProbe.data ?? []) as Array<{ id: string }>).length > 0);
+      setHasFoodEntries(((entryProbe.data ?? []) as Array<{ id: string }>).length > 0);
+      setHasHangouts(((hangoutProbe.data ?? []) as Array<{ hangout_id: string }>).length > 0);
     };
 
     void load();
@@ -348,105 +204,113 @@ export default function HomePage() {
     const supabase = getBrowserSupabaseClient();
     const { error } = await supabase
       .from('profiles')
-      .update({ display_name: next, updated_at: new Date().toISOString() })
+      .update({ display_name: next, onboarded: true, updated_at: new Date().toISOString() })
       .eq('id', profile.id);
 
     if (!error) {
-      setProfile((current) => (current ? { ...current, display_name: next } : current));
+      setProfile((current) => (current ? { ...current, display_name: next, onboarded: true } : current));
     }
     setSavingDisplayName(false);
   };
 
-  const finishOnboarding = async () => {
+  const skipDisplayNameSetup = () => {
+    setSetupDismissed(true);
     if (!profile) return;
 
     const supabase = getBrowserSupabaseClient();
-    const { error } = await supabase
+    void supabase
       .from('profiles')
       .update({ onboarded: true, updated_at: new Date().toISOString() })
-      .eq('id', profile.id);
-
-    if (!error) {
-      setProfile((current) => (current ? { ...current, onboarded: true } : current));
-    }
+      .eq('id', profile.id)
+      .then(({ error }) => {
+        if (!error) {
+          setProfile((current) => (current ? { ...current, onboarded: true } : current));
+        }
+      });
   };
 
   const displayName = profile?.display_name?.trim() ?? '';
-  const showDisplayNameGate = Boolean(profile) && !displayName;
-  const showOnboarding = Boolean(profile) && !showDisplayNameGate && !(profile?.onboarded ?? true);
-
-  useEffect(() => {
-    if (showOnboarding) {
-      setOnboardingStep(1);
-    }
-  }, [showOnboarding]);
-
-  useEffect(() => {
-    onboardingStepRef.current = onboardingStep;
-  }, [onboardingStep]);
-
-  useEffect(() => {
-    if (!showOnboarding || typeof window === 'undefined') return;
-
-    const marker = { onboarding: true };
-    window.history.pushState(marker, '');
-
-    const onPopState = () => {
-      const current = onboardingStepRef.current;
-      if (current > 1) {
-        setOnboardingStep((prev) => (prev > 1 ? ((prev - 1) as 1 | 2 | 3 | 4 | 5) : prev));
-      }
-      window.history.pushState(marker, '');
-    };
-
-    window.addEventListener('popstate', onPopState);
-    return () => {
-      window.removeEventListener('popstate', onPopState);
-    };
-  }, [showOnboarding]);
+  const setupInitialValue = displayName || googleNameSuggestion;
+  const showDisplayNameGate = Boolean(profile) && !setupDismissed && (!displayName || !(profile?.onboarded ?? true));
+  const showZeroStateHome = !hasFoodEntries && !hasHangouts;
 
   const heroHeading = useMemo(() => {
-    if (hasLoggedEntries && displayName) return `Welcome back, ${displayName}.`;
-    if (hasLoggedEntries) return 'Welcome back.';
+    if (hasFoodEntries && displayName) return `Welcome back, ${displayName}.`;
+    if (hasFoodEntries) return 'Welcome back.';
     return 'Welcome to PalateAI';
-  }, [displayName, hasLoggedEntries]);
+  }, [displayName, hasFoodEntries]);
 
   return (
     <>
       <div className="space-y-2 pb-4">
-        <section className="space-y-1.5 py-1">
-          <h1 className="text-xl font-semibold text-app-text">{heroHeading}</h1>
-          <p className="text-sm text-app-muted">{hasLoggedEntries ? 'What did you eat today?' : 'Start building your food story.'}</p>
-          <div className="pt-1">
-            <Link
-              href="/add"
-              className="inline-flex h-10 items-center justify-center rounded-xl border border-transparent bg-app-primary px-4 text-sm font-semibold text-app-primary-text"
-            >
-              {hasLoggedEntries ? 'Add a meal' : 'Add your first meal'}
-            </Link>
-          </div>
-          {!hasLoggedEntries ? <p className="text-xs text-app-muted">Log a dish, scan a receipt, or add a photo.</p> : null}
-        </section>
+        {showZeroStateHome ? (
+          <>
+            <section className="space-y-1.5 py-1">
+              <h1 className="text-xl font-semibold text-app-text">Welcome to PalateAI</h1>
+              <p className="text-sm text-app-muted">Your personal food memory.</p>
+            </section>
 
-        <ForYouTodayCard insight={insight} />
+            <section className="card-surface space-y-3">
+              <p className="text-base font-semibold text-app-text">What did you eat today?</p>
+              <div className="space-y-2">
+                <Link
+                  href="/add?mode=receipt"
+                  className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-transparent bg-app-primary px-4 text-sm font-semibold text-app-primary-text"
+                >
+                  Scan receipt
+                </Link>
+                <Link
+                  href="/add?mode=food_photo"
+                  className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-app-border bg-app-card px-4 text-sm font-semibold text-app-text"
+                >
+                  Add food photo
+                </Link>
+              </div>
+            </section>
 
-        <HighlightsCard highlights={highlights} />
+            <section className="grid gap-2">
+              <article className="card-surface space-y-1.5">
+                <p className="text-sm font-semibold text-app-text">Scan receipts to log hangouts.</p>
+              </article>
+              <article className="card-surface space-y-1.5">
+                <p className="text-sm font-semibold text-app-text">Save food you loved.</p>
+              </article>
+              <article className="card-surface space-y-1.5">
+                <p className="text-sm font-semibold text-app-text">Tag friends and remember great meals.</p>
+              </article>
+            </section>
+          </>
+        ) : (
+          <>
+            <section className="space-y-1.5 py-1">
+              <h1 className="text-xl font-semibold text-app-text">{heroHeading}</h1>
+              <p className="text-sm text-app-muted">{hasFoodEntries ? 'What did you eat today?' : 'Start building your food story.'}</p>
+              <div className="pt-1">
+                <Link
+                  href="/add"
+                  className="inline-flex h-10 items-center justify-center rounded-xl border border-transparent bg-app-primary px-4 text-sm font-semibold text-app-primary-text"
+                >
+                  {hasFoodEntries ? 'Add a meal' : 'Add your first meal'}
+                </Link>
+              </div>
+              {!hasFoodEntries ? <p className="text-xs text-app-muted">Log a dish, scan a receipt, or add a photo.</p> : null}
+            </section>
 
-        <RecentHangoutsCard chips={hangoutChips} />
+            <ForYouTodayCard insight={insight} />
+
+            <HighlightsCard highlights={highlights} />
+
+            <RecentHangoutsCard chips={hangoutChips} />
+          </>
+        )}
       </div>
 
       <DisplayNameGate
         open={showDisplayNameGate}
         loading={savingDisplayName}
-        initialValue={displayName}
-        onSave={saveDisplayName}
-      />
-
-      <OnboardingOverlay
-        open={showOnboarding}
-        step={onboardingStep}
-        onNext={() => setOnboardingStep((prev) => (prev < 5 ? ((prev + 1) as 1 | 2 | 3 | 4 | 5) : prev))}
-        onFinish={finishOnboarding}
+        initialValue={setupInitialValue}
+        onContinue={saveDisplayName}
+        onSkip={skipDisplayNameSetup}
       />
     </>
   );

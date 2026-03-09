@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { uploadDishPhoto } from '@/lib/data/photosRepo';
@@ -36,6 +36,7 @@ const fieldLabelClass = 'section-label';
 
 export default function AddPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [captureMode, setCaptureMode] = useState<CaptureMode | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [restaurantId, setRestaurantId] = useState<string>('');
@@ -57,6 +58,13 @@ export default function AddPage() {
 
   const imagePickerRef = useRef<HTMLInputElement | null>(null);
   const imageCameraRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const mode = searchParams.get('mode');
+    if (mode === 'receipt' || mode === 'food_photo') {
+      setCaptureMode(mode);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (!captureMode || captureMode !== 'food_photo') return;
