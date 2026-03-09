@@ -334,7 +334,7 @@ export default function HangoutsPage() {
           ownershipLabel:
             visit.user_id === user.id
               ? 'You created'
-              : `Added by ${profileLookup[visit.user_id]?.display_name || profileLookup[visit.user_id]?.email?.split('@')[0] || 'a friend'}`,
+              : `Added by ${profileLookup[visit.user_id]?.display_name || 'a friend'}`,
           isOwnedByCurrentUser: visit.user_id === user.id,
           timestamp: normalizedTimestamp,
           href: `/uploads/${visit.id}`,
