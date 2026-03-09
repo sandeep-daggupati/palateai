@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { HangoutFilters, HangoutFilterState } from '@/components/hangouts/HangoutFilters';
@@ -353,18 +352,7 @@ export default function HangoutsPage() {
   }, [allItems, filters]);
 
   return (
-    <div className="space-y-3 pb-5">
-      <section className="card-surface space-y-1.5 p-3">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="text-xl font-semibold text-app-text">Hangouts</h1>
-          <Link href="/" className="text-xs font-medium text-app-link">
-            Back to Home
-          </Link>
-        </div>
-        <p className="text-sm text-app-muted">Shared food memories with your crew.</p>
-      </section>
-
-      <div className="flex items-center justify-between gap-2">
+    <div className="space-y-3 pb-5">`n      <div className="flex items-center justify-between gap-2">
         <HangoutViewToggle view={view} onChange={setView} />
       </div>
 
@@ -392,6 +380,7 @@ export default function HangoutsPage() {
     </div>
   );
 }
+
 
 
 
