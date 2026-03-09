@@ -1463,8 +1463,6 @@ export default function UploadDetailPage() {
   const activeCrew = participants
     .filter((participant) => participant.status === 'active')
     .map((participant) => participant);
-  const withNames = activeCrew.map((participant) => participant.display_name ?? 'Buddy');
-  const withLabel = withNames.length > 0 ? withNames.join(', ') : 'Solo';
   const isSavedHangout = upload.status === 'approved';
   const directionsHref = getGoogleMapsLink(restaurant?.place_id, restaurant?.address, restaurant?.name);
   const todayHours = getTodayHours(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
@@ -1579,7 +1577,6 @@ export default function UploadDetailPage() {
               </>
             )}
             <span>· {creatorLabel}</span>
-            <span>· With {withLabel}</span>
           </div>
           <div className="flex flex-wrap items-center gap-2 pt-1">
             {activeCrew.map((participant) => {
@@ -2449,7 +2446,6 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
 
 
 
