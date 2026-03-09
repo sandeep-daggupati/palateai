@@ -15,15 +15,7 @@ import { getGoogleMapsLink } from '@/lib/google/mapsLinks';
 import { SignedPhoto } from '@/lib/photos/types';
 import { listDishPhotosForHangout, listHangoutPhotos, uploadDishPhoto, uploadHangoutPhoto } from '@/lib/data/photosRepo';
 import { uploadImage } from '@/lib/storage/uploadImage';
-
-const VIBE_OPTIONS = [
-  'Quick bite',
-  'Go-to spot',
-  'Great vibes',
-  'Work hangout',
-  'Celebrating',
-  'Late-night',
-] as const;
+import { HANGOUT_VIBE_OPTIONS, HangoutVibeKey, normalizeHangoutVibeTags } from '@/lib/hangouts/vibes';
 
 type UnifiedDishRow = {
   hangoutItem: HangoutItem;
@@ -141,7 +133,7 @@ function parseOpenNowFromTodayLine(todayLine: string, currentMinutes: number): b
   if (!windows.length) return null;
 
   for (const window of windows) {
-    const span = window.split(/[–-]/).map((part) => part.trim());
+    const span = window.split(/[â€“-]/).map((part) => part.trim());
     if (span.length !== 2) continue;
     const start = parseTimeToMinutes(span[0]);
     const end = parseTimeToMinutes(span[1]);
@@ -237,7 +229,7 @@ export default function UploadDetailPage() {
   const [dishes, setFood] = useState<UnifiedDishRow[]>([]);
   const [catalogByDishKey, setCatalogByDishKey] = useState<Record<string, DishCatalog>>({});
 
-  const [vibeTags, setVibeTags] = useState<string[]>([]);
+  const [vibeTags, setVibeTags] = useState<HangoutVibeKey[]>([]);
   const [hoursExpanded, setHoursExpanded] = useState(false);
   const [hiddenItemsOpen, setHiddenItemsOpen] = useState(false);
 
@@ -552,7 +544,7 @@ export default function UploadDetailPage() {
     setCatalogByDishKey(nextCatalogByDishKey);
     setEntryMetaById(entryMap);
     setRestaurant((restaurantData.data ?? null) as RestaurantDirectory | null);
-    setVibeTags(Array.isArray(typedUpload.vibe_tags) ? typedUpload.vibe_tags.filter((value): value is string => typeof value === 'string') : []);
+    setVibeTags(normalizeHangoutVibeTags(Array.isArray(typedUpload.vibe_tags) ? typedUpload.vibe_tags.filter((value): value is string => typeof value === 'string') : []));
     setDraftOccurredAt(typedUpload.visited_at ?? typedUpload.created_at ?? null);
     setDraftOccurredAtSource((typedUpload.visited_at_source as VisitedAtSource | null) ?? null);
     setManualVisitDateEdited((typedUpload.visited_at_source as VisitedAtSource | null) === 'manual');
@@ -1568,7 +1560,7 @@ export default function UploadDetailPage() {
                 ) : null}
               </>
             )}
-            <span>· With {withLabel}</span>
+            <span>Â· With {withLabel}</span>
           </div>
           <div className="flex flex-wrap items-center gap-2 pt-1">
             {activeCrew.map((participant) => {
@@ -1784,28 +1776,29 @@ export default function UploadDetailPage() {
           <h2 className="section-label">Vibe</h2>
           <p className="mt-1 text-xs text-app-muted">Tag this hangout to help organize your memories.</p>
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {VIBE_OPTIONS.map((tag) => {
-              const selected = vibeTags.includes(tag);
+            {HANGOUT_VIBE_OPTIONS.map((option) => {
+              const selected = vibeTags.includes(option.key);
               return (
                 <button
-                  key={tag}
+                  key={option.key}
                   type="button"
                   disabled={!canEditVisit}
                   onClick={() => {
                     if (!canEditVisit) return;
                     setVibeTags((current) => {
-                      if (current.includes(tag)) return current.filter((value) => value !== tag);
-                      return [...current, tag];
+                      if (current.includes(option.key)) return current.filter((value) => value !== option.key);
+                      return [...current, option.key];
                     });
                     setHasUnsavedChanges(true);
                   }}
-                  className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
                     selected
                       ? 'border-app-primary/60 bg-app-primary/15 text-app-text'
                       : 'border-app-border bg-app-card text-app-muted'
                   } ${!canEditVisit ? 'opacity-60' : ''}`}
                 >
-                  {tag}
+                  {selected ? <Check size={12} strokeWidth={1.7} className="mr-1" /> : null}
+                  {option.label}
                 </button>
               );
             })}
@@ -2202,7 +2195,7 @@ export default function UploadDetailPage() {
                         <div className="min-w-0">
                           <p className={`truncate text-sm font-semibold leading-5 text-app-text ${isNeverAgain ? 'line-through' : ''}`}>
                             {dishName}
-                            {quantity > 1 ? ` ×${quantity}` : ''}
+                            {quantity > 1 ? ` Ã—${quantity}` : ''}
                           </p>
                           {catalog?.description ? (
                             <p className="line-clamp-2 text-xs leading-4 text-app-muted">{catalog.description}</p>
@@ -2210,8 +2203,8 @@ export default function UploadDetailPage() {
                           {catalog?.cuisine || (catalog?.flavor_tags && catalog.flavor_tags.length > 0) ? (
                             <p className="text-[11px] leading-4 text-app-muted">
                               {catalog.cuisine ? `${catalog.cuisine}` : ''}
-                              {catalog.cuisine && catalog.flavor_tags && catalog.flavor_tags.length > 0 ? ' · ' : ''}
-                              {catalog.flavor_tags?.join(' · ')}
+                              {catalog.cuisine && catalog.flavor_tags && catalog.flavor_tags.length > 0 ? ' Â· ' : ''}
+                              {catalog.flavor_tags?.join(' Â· ')}
                             </p>
                           ) : null}
                         </div>
@@ -2319,7 +2312,7 @@ export default function UploadDetailPage() {
                     <div key={`hidden-${row.hangoutItem.id}`} className="flex items-center justify-between p-2 text-xs text-app-muted">
                       <span className="truncate">
                         {name}
-                        {qty > 1 ? ` ×${qty}` : ''}
+                        {qty > 1 ? ` Ã—${qty}` : ''}
                       </span>
                       <span>{formatPrice(row.hangoutItem.unit_price)}</span>
                     </div>
@@ -2437,6 +2430,8 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
+
 
 
 

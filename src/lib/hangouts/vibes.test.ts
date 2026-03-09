@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { displayedVibeKeys, hangoutMatchesVibeFilter, normalizeHangoutVibeTags } from '@/lib/hangouts/vibes';
+import { hangoutMatchesVibeFilter, normalizeHangoutVibeTags } from '@/lib/hangouts/vibes';
 
 describe('hangout vibe normalization and filtering', () => {
-  it('includes celebration when tags contain celebration text', () => {
+  it('maps celebration text to canonical key', () => {
     const keys = normalizeHangoutVibeTags(['Celebrating', 'Quick bite']);
     expect(keys).toContain('celebration');
   });
 
-  it('does not match celebration when only go_to exists', () => {
+  it('does not match celebration when only go-to spot exists', () => {
     const keys = normalizeHangoutVibeTags(['Go-to spot']);
     expect(hangoutMatchesVibeFilter(keys, 'celebration')).toBe(false);
   });
@@ -16,8 +16,8 @@ describe('hangout vibe normalization and filtering', () => {
     expect(hangoutMatchesVibeFilter([], 'celebration')).toBe(false);
   });
 
-  it('prioritizes selected vibe in displayed badges', () => {
-    const displayed = displayedVibeKeys(['casual', 'go_to', 'celebration'], 'celebration', 2);
-    expect(displayed).toContain('celebration');
+  it('matches with_friends for legacy great vibes tags', () => {
+    const keys = normalizeHangoutVibeTags(['Great vibes']);
+    expect(keys).toContain('with_friends');
   });
 });
