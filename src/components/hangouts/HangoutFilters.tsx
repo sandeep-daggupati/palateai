@@ -1,7 +1,8 @@
-﻿'use client';
+'use client';
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronDown, Coffee, Filter, Gem, Martini, Moon, Search, Sparkles, Star, Users, UtensilsCrossed, X } from 'lucide-react';
+import { Briefcase, ChevronDown, Coffee, Filter, Gem, Moon, Search, Sparkles, Star, Users, UtensilsCrossed, X } from 'lucide-react';
+import { HANGOUT_VIBE_OPTIONS, HangoutVibeKey } from '@/lib/hangouts/vibes';
 import { cn } from '@/lib/utils';
 
 export type HangoutFilterState = {
@@ -37,15 +38,7 @@ const PLACE_TYPE_OPTIONS: Option[] = [
   { value: 'food_truck', label: 'Food Truck' },
 ];
 
-const VIBE_OPTIONS: Option[] = [
-  { value: 'all', label: 'All' },
-  { value: 'hidden_gem', label: 'Hidden Gem' },
-  { value: 'go_to', label: 'Go-To' },
-  { value: 'celebration', label: 'Celebration' },
-  { value: 'casual', label: 'Casual' },
-  { value: 'fancy', label: 'Fancy' },
-  { value: 'late_night', label: 'Late Night' },
-];
+const VIBE_OPTIONS: Option[] = [{ value: 'all', label: 'All' }, ...HANGOUT_VIBE_OPTIONS.map((entry) => ({ value: entry.key, label: entry.label }))];
 
 function getSelectedLabel(options: Option[], value: string): string | null {
   if (value === 'all') return null;
@@ -53,19 +46,21 @@ function getSelectedLabel(options: Option[], value: string): string | null {
 }
 
 function vibeIcon(value: string): ReactNode {
-  switch (value) {
-    case 'hidden_gem':
-      return <Gem size={13} strokeWidth={1.5} />;
-    case 'go_to':
+  switch (value as HangoutVibeKey) {
+    case 'quick_bite':
+      return <Coffee size={13} strokeWidth={1.5} />;
+    case 'go_to_spot':
       return <Star size={13} strokeWidth={1.5} />;
     case 'celebration':
       return <Sparkles size={13} strokeWidth={1.5} />;
-    case 'casual':
-      return <Coffee size={13} strokeWidth={1.5} />;
-    case 'fancy':
-      return <Martini size={13} strokeWidth={1.5} />;
-    case 'late_night':
+    case 'work_hangout':
+      return <Briefcase size={13} strokeWidth={1.5} />;
+    case 'with_friends':
+      return <Users size={13} strokeWidth={1.5} />;
+    case 'night_out':
       return <Moon size={13} strokeWidth={1.5} />;
+    case 'hidden_gem':
+      return <Gem size={13} strokeWidth={1.5} />;
     default:
       return <Sparkles size={13} strokeWidth={1.5} />;
   }

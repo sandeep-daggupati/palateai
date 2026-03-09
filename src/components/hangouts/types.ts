@@ -1,4 +1,11 @@
-export type HangoutVibeKey = 'hidden_gem' | 'go_to' | 'celebration' | 'casual' | 'fancy' | 'late_night';
+export type HangoutVibeKey =
+  | 'quick_bite'
+  | 'go_to_spot'
+  | 'celebration'
+  | 'work_hangout'
+  | 'with_friends'
+  | 'night_out'
+  | 'hidden_gem';
 
 export type HangoutCrewMember = {
   id: string;
