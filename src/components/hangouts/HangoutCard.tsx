@@ -2,13 +2,10 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { Camera, MapPin, Users, Utensils } from 'lucide-react';
+import { Camera, Users, Utensils } from 'lucide-react';
 import { HangoutCardItem } from '@/components/hangouts/types';
-import { hangoutVibeLabel } from '@/lib/hangouts/vibes';
 
 export function HangoutCard({ item }: { item: HangoutCardItem }) {
-  const visibleVibes = item.vibeKeys.map(hangoutVibeLabel);
-
   return (
     <Link
       href={item.href}
@@ -22,48 +19,28 @@ export function HangoutCard({ item }: { item: HangoutCardItem }) {
             Add a hangout photo
           </div>
         )}
+
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/65 via-black/25 to-transparent" />
+        <div className="absolute bottom-2 right-2 flex items-center gap-2 text-[11px] font-medium text-white">
+          <span className="inline-flex items-center gap-1">
+            <Users size={12} />
+            {item.participantCount}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Utensils size={12} />
+            {item.dishCount}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Camera size={12} />
+            {item.photoCount}
+          </span>
+        </div>
       </div>
 
-      <div className="space-y-2 p-3">
-        <div>
-          <p className="truncate text-sm font-semibold text-app-text">{item.restaurantName}</p>
-          {item.address ? (
-            <p className="line-clamp-1 inline-flex items-center gap-1 text-xs text-app-muted">
-              <MapPin size={12} />
-              {item.address}
-            </p>
-          ) : null}
-        </div>
-
-        <div className="space-y-1">
-          <p className="text-xs text-app-muted">
-            {item.dateLabel} · {item.ownershipLabel}
-          </p>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {visibleVibes.map((badge) => (
-              <span key={badge} className="inline-flex h-6 items-center rounded-full border border-app-border bg-app-bg px-2 text-[11px] font-medium text-app-muted">
-                {badge}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between gap-2 pt-0.5">
-          <div className="flex items-center gap-2 text-[11px] text-app-muted">
-            <span className="inline-flex items-center gap-1">
-              <Users size={12} />
-              {item.participantCount}
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <Camera size={12} />
-              {item.photoCount}
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <Utensils size={12} />
-              {item.dishCount}
-            </span>
-          </div>
-        </div>
+      <div className="p-3">
+        <p className="truncate text-sm font-semibold text-app-text">
+          {item.restaurantName} · {item.dateLabel} · {item.ownershipLabel}
+        </p>
       </div>
     </Link>
   );
