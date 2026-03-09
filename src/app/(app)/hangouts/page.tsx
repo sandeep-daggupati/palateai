@@ -204,7 +204,7 @@ export default function HangoutsPage() {
           .select('id,visit_id,user_id,invited_email,status')
           .in('visit_id', visitIds)
           .neq('status', 'removed'),
-        supabase.from('dish_entries').select('id,hangout_id,dish_name').eq('user_id', user.id).in('hangout_id', visitIds),
+        supabase.from('dish_entries').select('id,hangout_id,dish_name').in('hangout_id', visitIds),
         supabase
           .from('photos')
           .select('id,hangout_id,storage_thumb,created_at')
@@ -299,6 +299,14 @@ export default function HangoutsPage() {
         acc[key].push(member);
         return acc;
       }, {} as Record<string, HangoutCrewMember[]>);
+
+      const participantCountByVisitId = participantRowsFull.reduce((acc, row) => {
+        if (row.status !== 'active') return acc;
+        const key = row.visit_id;
+        acc[key] = (acc[key] ?? 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
       for (const visit of mergedVisits) {
         const hostProfile = profileLookup[visit.user_id];
         const hostFallback = hostProfile?.email?.split('@')[0] ?? 'Organizer';
@@ -314,6 +322,11 @@ export default function HangoutsPage() {
             avatarUrl: hostProfile?.avatar_url ?? null,
             isPending: false,
           });
+        }
+
+        // Some rows can miss host participation entries; ensure count includes organizer.
+        if (!participantCountByVisitId[visit.id] || participantCountByVisitId[visit.id] < 1) {
+          participantCountByVisitId[visit.id] = 1;
         }
       }
 
@@ -339,6 +352,7 @@ export default function HangoutsPage() {
           timestamp: normalizedTimestamp,
           href: `/uploads/${visit.id}`,
           coverPhotoUrl: firstPhotoPathByHangout[visit.id] ? signedByPath[firstPhotoPathByHangout[visit.id]] ?? null : null,
+          participantCount: participantCountByVisitId[visit.id] ?? 1,
           crew,
           vibeKeys,
           vibeBadges: vibeKeys.map(hangoutVibeLabel),
