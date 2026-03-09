@@ -48,7 +48,10 @@ export function HangoutTimeline({ items }: { items: HangoutCardItem[] }) {
                     ))}
                   </div>
                 </div>
-                <p className="shrink-0 text-xs text-app-muted">{item.dateLabel}</p>
+                <div className="shrink-0 text-right text-xs text-app-muted">
+                  <p>{item.dateLabel}</p>
+                  <p>{item.ownershipLabel}</p>
+                </div>
               </div>
 
               <div className="mt-2 flex items-center gap-3 text-[11px] text-app-muted">
@@ -68,4 +71,3 @@ export function HangoutTimeline({ items }: { items: HangoutCardItem[] }) {
     </div>
   );
 }
-

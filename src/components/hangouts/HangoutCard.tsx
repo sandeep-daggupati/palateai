@@ -38,6 +38,9 @@ export function HangoutCard({ item }: { item: HangoutCardItem }) {
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
+          <span className="inline-flex h-6 items-center rounded-full border border-app-border bg-app-bg px-2 text-[11px] text-app-muted">
+            {item.ownershipLabel}
+          </span>
           {visibleVibes.map((badge) => (
             <span key={badge} className="inline-flex h-6 items-center rounded-full border border-app-border bg-app-bg px-2 text-[11px] font-medium text-app-muted">
               {badge}
@@ -76,4 +79,3 @@ export function HangoutCard({ item }: { item: HangoutCardItem }) {
     </Link>
   );
 }
-

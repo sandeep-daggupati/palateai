@@ -39,6 +39,7 @@ type HangoutFilterState = {
   crew: string[];
   placeType: string[];
   vibe: string[];
+  ownership: 'all' | 'mine' | 'shared';
 };
 
 const PLACE_TYPE_OPTIONS = [
@@ -115,6 +116,7 @@ export default function HangoutsPage() {
     crew: [],
     placeType: [],
     vibe: [],
+    ownership: 'all',
   });
 
   useEffect(() => {
@@ -329,6 +331,11 @@ export default function HangoutsPage() {
           restaurantName,
           address,
           dateLabel: formatDate(visit.visited_at ?? visit.created_at),
+          ownershipLabel:
+            visit.user_id === user.id
+              ? 'You created'
+              : `Added by ${profileLookup[visit.user_id]?.display_name || profileLookup[visit.user_id]?.email?.split('@')[0] || 'a friend'}`,
+          isOwnedByCurrentUser: visit.user_id === user.id,
           timestamp: normalizedTimestamp,
           href: `/uploads/${visit.id}`,
           coverPhotoUrl: firstPhotoPathByHangout[visit.id] ? signedByPath[firstPhotoPathByHangout[visit.id]] ?? null : null,
@@ -408,13 +415,18 @@ export default function HangoutsPage() {
         const crewMatch = filters.crew.length === 0 || item.crew.some((member) => filters.crew.includes(normalizeToken(member.displayName)));
         const placeTypeMatch = filters.placeType.length === 0 || filters.placeType.includes(item.placeType);
         const vibeMatch = filters.vibe.length === 0 || filters.vibe.some((value) => item.vibeKeys.includes(value as HangoutVibeKey));
+        const ownershipMatch =
+          filters.ownership === 'all' ||
+          (filters.ownership === 'mine' && item.isOwnedByCurrentUser) ||
+          (filters.ownership === 'shared' && !item.isOwnedByCurrentUser);
 
-        return searchMatch && crewMatch && placeTypeMatch && vibeMatch;
+        return searchMatch && crewMatch && placeTypeMatch && vibeMatch && ownershipMatch;
       })
       .sort((a, b) => b.timestamp - a.timestamp);
   }, [allItems, filters]);
 
-  const hasActiveFilters = Boolean(filters.search.trim()) || filters.crew.length > 0 || filters.placeType.length > 0 || filters.vibe.length > 0;
+  const hasActiveFilters =
+    Boolean(filters.search.trim()) || filters.crew.length > 0 || filters.placeType.length > 0 || filters.vibe.length > 0 || filters.ownership !== 'all';
 
   return (
     <div className="space-y-3 pb-5">
@@ -432,9 +444,46 @@ export default function HangoutsPage() {
             crew: [],
             placeType: [],
             vibe: [],
+            ownership: 'all',
           })
         }
       />
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setFilters((current) => ({ ...current, ownership: 'all' }))}
+          className={`inline-flex h-8 items-center rounded-full border px-3 text-xs font-medium ${
+            filters.ownership === 'all'
+              ? 'border-app-primary bg-app-primary text-app-primary-text'
+              : 'border-app-border bg-app-card text-app-muted'
+          }`}
+        >
+          All
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilters((current) => ({ ...current, ownership: 'mine' }))}
+          className={`inline-flex h-8 items-center rounded-full border px-3 text-xs font-medium ${
+            filters.ownership === 'mine'
+              ? 'border-app-primary bg-app-primary text-app-primary-text'
+              : 'border-app-border bg-app-card text-app-muted'
+          }`}
+        >
+          Mine
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilters((current) => ({ ...current, ownership: 'shared' }))}
+          className={`inline-flex h-8 items-center rounded-full border px-3 text-xs font-medium ${
+            filters.ownership === 'shared'
+              ? 'border-app-primary bg-app-primary text-app-primary-text'
+              : 'border-app-border bg-app-card text-app-muted'
+          }`}
+        >
+          Shared with me
+        </button>
+      </div>
 
       {loading ? (
         <p className="empty-surface">Loading hangouts...</p>

@@ -19,6 +19,8 @@ export type HangoutCardItem = {
   restaurantName: string;
   address: string | null;
   dateLabel: string;
+  ownershipLabel: string;
+  isOwnedByCurrentUser: boolean;
   timestamp: number;
   href: string;
   coverPhotoUrl: string | null;
