@@ -82,6 +82,40 @@ type RestaurantDirectory = Pick<
   | 'business_status'
   | 'last_place_sync'
 >;
+const HANGOUT_DRAFT_DISH_COUNT_KEY = 'palateai:hangout-draft-visible-dish-count';
+
+function readDraftDishCountMap(): Record<string, number> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(HANGOUT_DRAFT_DISH_COUNT_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const out: Record<string, number> = {};
+    Object.entries(parsed).forEach(([key, value]) => {
+      if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+        out[key] = Math.floor(value);
+      }
+    });
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function writeDraftDishCount(uploadId: string, count: number): void {
+  if (typeof window === 'undefined') return;
+  const next = readDraftDishCountMap();
+  next[uploadId] = Math.max(0, Math.floor(count));
+  window.localStorage.setItem(HANGOUT_DRAFT_DISH_COUNT_KEY, JSON.stringify(next));
+}
+
+function clearDraftDishCount(uploadId: string): void {
+  if (typeof window === 'undefined') return;
+  const next = readDraftDishCountMap();
+  if (!(uploadId in next)) return;
+  delete next[uploadId];
+  window.localStorage.setItem(HANGOUT_DRAFT_DISH_COUNT_KEY, JSON.stringify(next));
+}
 
 function inferCaptureMode(upload: ReceiptUpload | null): 'receipt' | 'food_photo' {
   if (!upload) return 'receipt';
@@ -584,6 +618,12 @@ export default function UploadDetailPage() {
     if (!upload) return;
     void loadDishPhotos(entryMetaById);
   }, [entryMetaById, loadDishPhotos, upload]);
+
+  useEffect(() => {
+    if (!upload?.id) return;
+    const visibleDishCount = dishes.filter((row) => row.hangoutItem.included).length;
+    writeDraftDishCount(upload.id, visibleDishCount);
+  }, [dishes, upload?.id]);
 
 
   useEffect(() => {
@@ -1199,6 +1239,7 @@ export default function UploadDetailPage() {
     setSaveHangoutError(null);
     try {
       if (upload.status === 'approved') {
+        clearDraftDishCount(upload.id);
         await load();
         setHasUnsavedChanges(false);
         setPendingReceiptFile(null);
@@ -1219,6 +1260,7 @@ export default function UploadDetailPage() {
           visit_note: null,
         })
         .eq('id', upload.id);
+      clearDraftDishCount(upload.id);
       router.push('/add');
     } finally {
       setCancelingDraft(false);
@@ -1379,6 +1421,8 @@ export default function UploadDetailPage() {
           updated_at: new Date().toISOString(),
         })
         .eq('id', upload.id);
+
+      clearDraftDishCount(upload.id);
 
       setSaveHangoutToast('Hangout saved');
       setSavedFoodFingerprint(nextFingerprint);
@@ -2447,8 +2491,6 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
-
 
 
 

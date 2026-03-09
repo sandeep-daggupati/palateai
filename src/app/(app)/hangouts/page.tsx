@@ -36,11 +36,12 @@ type HangoutViewMode = 'grid' | 'timeline';
 
 type HangoutFilterState = {
   search: string;
-  crew: string[];
+  hangoutType: 'all' | 'mine' | 'shared';
   placeType: string[];
   vibe: string[];
-  ownership: 'all' | 'mine' | 'shared';
 };
+
+const HANGOUT_DRAFT_DISH_COUNT_KEY = 'palateai:hangout-draft-visible-dish-count';
 
 const PLACE_TYPE_OPTIONS = [
   { value: 'restaurant', label: 'Restaurant' },
@@ -62,7 +63,6 @@ function formatDate(value: string | null): string {
   return date.toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
-    year: 'numeric',
   });
 }
 
@@ -111,17 +111,46 @@ export default function HangoutsPage() {
   const [allItems, setAllItems] = useState<EnrichedHangout[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<HangoutViewMode>('grid');
+  const [draftDishCountByHangoutId, setDraftDishCountByHangoutId] = useState<Record<string, number>>({});
   const [filters, setFilters] = useState<HangoutFilterState>({
     search: queryParam,
-    crew: [],
+    hangoutType: 'all',
     placeType: [],
     vibe: [],
-    ownership: 'all',
   });
 
   useEffect(() => {
     setFilters((current) => ({ ...current, search: queryParam }));
   }, [queryParam]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const hydrate = () => {
+      try {
+        const raw = window.localStorage.getItem(HANGOUT_DRAFT_DISH_COUNT_KEY);
+        if (!raw) {
+          setDraftDishCountByHangoutId({});
+          return;
+        }
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        const next: Record<string, number> = {};
+        Object.entries(parsed).forEach(([key, value]) => {
+          if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+            next[key] = Math.floor(value);
+          }
+        });
+        setDraftDishCountByHangoutId(next);
+      } catch {
+        setDraftDishCountByHangoutId({});
+      }
+    };
+
+    hydrate();
+    const onStorage = () => hydrate();
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -346,8 +375,8 @@ export default function HangoutsPage() {
           dateLabel: formatDate(visit.visited_at ?? visit.created_at),
           ownershipLabel:
             visit.user_id === user.id
-              ? 'You created'
-              : `Added by ${profileLookup[visit.user_id]?.display_name || 'a friend'}`,
+              ? 'Yours'
+              : 'Shared',
           isOwnedByCurrentUser: visit.user_id === user.id,
           timestamp: normalizedTimestamp,
           href: `/uploads/${visit.id}`,
@@ -372,28 +401,23 @@ export default function HangoutsPage() {
     void load();
   }, [restaurantParam]);
 
-  const crewOptions = useMemo(() => {
-    const values = Array.from(
-      new Set(
-        allItems
-          .flatMap((item) => item.crew)
-          .map((member) => member.displayName)
-          .filter(Boolean),
-      ),
-    ).sort((a, b) => a.localeCompare(b));
-
-    return values.map((value) => ({ value: normalizeToken(value), label: value }));
-  }, [allItems]);
-
   const filterConfigs = useMemo<SearchControlFilterConfig[]>(() => {
     return [
       {
-        key: 'crew',
-        label: 'Crew',
+        key: 'hangout-type',
+        label: 'Hangout Type',
         icon: <Users size={12} className="text-app-muted" />,
-        options: crewOptions,
-        selectedValues: filters.crew,
-        onToggle: (value) => setFilters((current) => ({ ...current, crew: toggleListValue(current.crew, value) })),
+        options: [
+          { value: 'all', label: 'All' },
+          { value: 'mine', label: 'Mine' },
+          { value: 'shared', label: 'Shared with me' },
+        ],
+        selectedValues: [filters.hangoutType],
+        onToggle: (value) =>
+          setFilters((current) => ({
+            ...current,
+            hangoutType: value === 'mine' || value === 'shared' ? value : 'all',
+          })),
       },
       {
         key: 'place',
@@ -412,12 +436,21 @@ export default function HangoutsPage() {
         onToggle: (value) => setFilters((current) => ({ ...current, vibe: toggleListValue(current.vibe, value) })),
       },
     ];
-  }, [crewOptions, filters.crew, filters.placeType, filters.vibe]);
+  }, [filters.hangoutType, filters.placeType, filters.vibe]);
+
+  const itemsWithDraftCounts = useMemo(
+    () =>
+      allItems.map((item) => ({
+        ...item,
+        dishCount: Math.max(item.dishCount, draftDishCountByHangoutId[item.id] ?? 0),
+      })),
+    [allItems, draftDishCountByHangoutId],
+  );
 
   const filteredItems = useMemo(() => {
     const textQuery = normalizeToken(filters.search);
 
-    return allItems
+    return itemsWithDraftCounts
       .filter((item) => {
         const searchMatch =
           !textQuery ||
@@ -426,21 +459,20 @@ export default function HangoutsPage() {
           item.crewSearch.includes(textQuery) ||
           item.dishSearch.includes(textQuery);
 
-        const crewMatch = filters.crew.length === 0 || item.crew.some((member) => filters.crew.includes(normalizeToken(member.displayName)));
         const placeTypeMatch = filters.placeType.length === 0 || filters.placeType.includes(item.placeType);
         const vibeMatch = filters.vibe.length === 0 || filters.vibe.some((value) => item.vibeKeys.includes(value as HangoutVibeKey));
-        const ownershipMatch =
-          filters.ownership === 'all' ||
-          (filters.ownership === 'mine' && item.isOwnedByCurrentUser) ||
-          (filters.ownership === 'shared' && !item.isOwnedByCurrentUser);
+        const hangoutTypeMatch =
+          filters.hangoutType === 'all' ||
+          (filters.hangoutType === 'mine' && item.isOwnedByCurrentUser) ||
+          (filters.hangoutType === 'shared' && !item.isOwnedByCurrentUser);
 
-        return searchMatch && crewMatch && placeTypeMatch && vibeMatch && ownershipMatch;
+        return searchMatch && placeTypeMatch && vibeMatch && hangoutTypeMatch;
       })
       .sort((a, b) => b.timestamp - a.timestamp);
-  }, [allItems, filters]);
+  }, [filters, itemsWithDraftCounts]);
 
   const hasActiveFilters =
-    Boolean(filters.search.trim()) || filters.crew.length > 0 || filters.placeType.length > 0 || filters.vibe.length > 0 || filters.ownership !== 'all';
+    Boolean(filters.search.trim()) || filters.placeType.length > 0 || filters.vibe.length > 0 || filters.hangoutType !== 'all';
 
   return (
     <div className="space-y-3 pb-5">
@@ -455,49 +487,12 @@ export default function HangoutsPage() {
         onClearAll={() =>
           setFilters({
             search: '',
-            crew: [],
+            hangoutType: 'all',
             placeType: [],
             vibe: [],
-            ownership: 'all',
           })
         }
       />
-
-      <div className="flex flex-wrap items-center gap-1.5">
-        <button
-          type="button"
-          onClick={() => setFilters((current) => ({ ...current, ownership: 'all' }))}
-          className={`inline-flex h-8 items-center rounded-full border px-3 text-xs font-medium ${
-            filters.ownership === 'all'
-              ? 'border-app-primary bg-app-primary text-app-primary-text'
-              : 'border-app-border bg-app-card text-app-muted'
-          }`}
-        >
-          All
-        </button>
-        <button
-          type="button"
-          onClick={() => setFilters((current) => ({ ...current, ownership: 'mine' }))}
-          className={`inline-flex h-8 items-center rounded-full border px-3 text-xs font-medium ${
-            filters.ownership === 'mine'
-              ? 'border-app-primary bg-app-primary text-app-primary-text'
-              : 'border-app-border bg-app-card text-app-muted'
-          }`}
-        >
-          Mine
-        </button>
-        <button
-          type="button"
-          onClick={() => setFilters((current) => ({ ...current, ownership: 'shared' }))}
-          className={`inline-flex h-8 items-center rounded-full border px-3 text-xs font-medium ${
-            filters.ownership === 'shared'
-              ? 'border-app-primary bg-app-primary text-app-primary-text'
-              : 'border-app-border bg-app-card text-app-muted'
-          }`}
-        >
-          Shared with me
-        </button>
-      </div>
 
       {loading ? (
         <p className="empty-surface">Loading hangouts...</p>
