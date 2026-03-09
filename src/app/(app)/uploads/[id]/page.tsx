@@ -11,6 +11,7 @@ import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { DishCatalog, DishEntry, HangoutItem, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
 import { toDishKey } from '@/lib/utils';
 import { normalizeName } from '@/lib/extraction/normalize';
+import { sanitizeText } from '@/lib/text/sanitize';
 import { getGoogleMapsLink } from '@/lib/google/mapsLinks';
 import { SignedPhoto } from '@/lib/photos/types';
 import { listDishPhotosForHangout, listHangoutPhotos, uploadDishPhoto, uploadHangoutPhoto } from '@/lib/data/photosRepo';
@@ -133,7 +134,7 @@ function parseOpenNowFromTodayLine(todayLine: string, currentMinutes: number): b
   if (!windows.length) return null;
 
   for (const window of windows) {
-    const span = window.split(/[â€“-]/).map((part) => part.trim());
+    const span = window.split(/[–-]/).map((part) => part.trim());
     if (span.length !== 2) continue;
     const start = parseTimeToMinutes(span[0]);
     const end = parseTimeToMinutes(span[1]);
@@ -507,7 +508,7 @@ export default function UploadDetailPage() {
     const dishKeys = Array.from(
       new Set(
         unifiedRows.map((row) => {
-          const dishName = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+          const dishName = sanitizeText(row.hangoutItem.name_final || row.hangoutItem.name_raw);
           return toDishKey(`${restaurantNameForKey} ${dishName}`);
         }),
       ),
@@ -528,7 +529,7 @@ export default function UploadDetailPage() {
       JSON.stringify(
         unifiedRows
           .map((row) => {
-            const name = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+            const name = sanitizeText(row.hangoutItem.name_final || row.hangoutItem.name_raw);
             return {
               key: normalizedDraftKey(name, row.hangoutItem.unit_price),
               quantity: row.hangoutItem.quantity ?? 1,
@@ -627,13 +628,13 @@ export default function UploadDetailPage() {
       const byKey = new Map<string, UnifiedDishRow>();
 
       for (const row of base) {
-        const name = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+        const name = sanitizeText(row.hangoutItem.name_final || row.hangoutItem.name_raw);
         const key = normalizedDraftKey(name, row.hangoutItem.unit_price);
         byKey.set(key, row);
       }
 
       for (const row of mappedRows) {
-        const name = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+        const name = sanitizeText(row.hangoutItem.name_final || row.hangoutItem.name_raw);
         const key = normalizedDraftKey(name, row.hangoutItem.unit_price);
         const existing = byKey.get(key);
         if (!existing) {
@@ -779,7 +780,7 @@ export default function UploadDetailPage() {
     const currentFingerprint = JSON.stringify(
       dishes
         .map((row) => {
-          const name = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+          const name = sanitizeText(row.hangoutItem.name_final || row.hangoutItem.name_raw);
           return {
             key: normalizedDraftKey(name, row.hangoutItem.unit_price),
             quantity: row.hangoutItem.quantity ?? 1,
@@ -882,7 +883,7 @@ export default function UploadDetailPage() {
 
   const openDishCatalogEditor = useCallback(
     (row: UnifiedDishRow) => {
-      const dishName = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+      const dishName = sanitizeText(row.hangoutItem.name_final || row.hangoutItem.name_raw);
       const dishKey = row.myEntry?.dish_key ?? toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`);
       const catalog = catalogByDishKey[dishKey] ?? null;
       setEditingDishRow({
@@ -1259,7 +1260,7 @@ export default function UploadDetailPage() {
       const nextFingerprint = JSON.stringify(
         dishes
           .map((row) => {
-            const name = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+            const name = sanitizeText(row.hangoutItem.name_final || row.hangoutItem.name_raw);
             return {
               key: normalizedDraftKey(name, row.hangoutItem.unit_price),
               quantity: row.hangoutItem.quantity ?? 1,
@@ -1281,7 +1282,7 @@ export default function UploadDetailPage() {
       const effectiveRestaurantName = restaurant?.name ?? 'unknown-restaurant';
 
       for (const row of activeFood) {
-        const dishName = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+        const dishName = sanitizeText(row.hangoutItem.name_final || row.hangoutItem.name_raw);
         const dishKey = toDishKey(`${effectiveRestaurantName} ${dishName}`);
         const draftIdentity = row.myEntry?.identity_tag ?? null;
         const draftComment = row.myEntry?.comment?.trim() ? row.myEntry.comment.trim() : null;
@@ -1435,7 +1436,7 @@ export default function UploadDetailPage() {
   const draftFoodFingerprint = JSON.stringify(
     dishes
       .map((row) => {
-        const name = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+        const name = sanitizeText(row.hangoutItem.name_final || row.hangoutItem.name_raw);
         return {
           key: normalizedDraftKey(name, row.hangoutItem.unit_price),
           quantity: row.hangoutItem.quantity ?? 1,
@@ -1560,7 +1561,7 @@ export default function UploadDetailPage() {
                 ) : null}
               </>
             )}
-            <span>Â· With {withLabel}</span>
+            <span>· With {withLabel}</span>
           </div>
           <div className="flex flex-wrap items-center gap-2 pt-1">
             {activeCrew.map((participant) => {
@@ -2153,7 +2154,7 @@ export default function UploadDetailPage() {
         {visibleFood.length > 0 ? (
           <div className="divide-y divide-app-border/60">
             {visibleFood.map((row) => {
-              const dishName = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+              const dishName = sanitizeText(row.hangoutItem.name_final || row.hangoutItem.name_raw);
               const quantity = Math.max(1, row.hangoutItem.quantity ?? 1);
               const unitPrice = row.hangoutItem.unit_price;
               const identityValue = row.myEntry?.identity_tag ?? null;
@@ -2195,7 +2196,7 @@ export default function UploadDetailPage() {
                         <div className="min-w-0">
                           <p className={`truncate text-sm font-semibold leading-5 text-app-text ${isNeverAgain ? 'line-through' : ''}`}>
                             {dishName}
-                            {quantity > 1 ? ` Ã—${quantity}` : ''}
+                            {quantity > 1 ? ` ×${quantity}` : ''}
                           </p>
                           {catalog?.description ? (
                             <p className="line-clamp-2 text-xs leading-4 text-app-muted">{catalog.description}</p>
@@ -2203,8 +2204,8 @@ export default function UploadDetailPage() {
                           {catalog?.cuisine || (catalog?.flavor_tags && catalog.flavor_tags.length > 0) ? (
                             <p className="text-[11px] leading-4 text-app-muted">
                               {catalog.cuisine ? `${catalog.cuisine}` : ''}
-                              {catalog.cuisine && catalog.flavor_tags && catalog.flavor_tags.length > 0 ? ' Â· ' : ''}
-                              {catalog.flavor_tags?.join(' Â· ')}
+                              {catalog.cuisine && catalog.flavor_tags && catalog.flavor_tags.length > 0 ? ' · ' : ''}
+                              {catalog.flavor_tags?.map((tag) => sanitizeText(tag)).join(' · ')}
                             </p>
                           ) : null}
                         </div>
@@ -2306,13 +2307,13 @@ export default function UploadDetailPage() {
             {hiddenItemsOpen && (
               <div className="mt-1 divide-y divide-app-border/50 rounded-lg border border-app-border/70 bg-app-card/50">
                 {hiddenFood.map((row) => {
-                  const name = row.hangoutItem.name_final || row.hangoutItem.name_raw;
+                  const name = sanitizeText(row.hangoutItem.name_final || row.hangoutItem.name_raw);
                   const qty = Math.max(1, row.hangoutItem.quantity ?? 1);
                   return (
                     <div key={`hidden-${row.hangoutItem.id}`} className="flex items-center justify-between p-2 text-xs text-app-muted">
                       <span className="truncate">
                         {name}
-                        {qty > 1 ? ` Ã—${qty}` : ''}
+                        {qty > 1 ? ` ×${qty}` : ''}
                       </span>
                       <span>{formatPrice(row.hangoutItem.unit_price)}</span>
                     </div>
@@ -2430,6 +2431,8 @@ export default function UploadDetailPage() {
     </div>
   );
 }
+
+
 
 
 

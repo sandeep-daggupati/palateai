@@ -1,4 +1,5 @@
 // src/lib/extraction/openaiVision.ts
+import { sanitizeNullableText, sanitizeText } from '@/lib/text/sanitize';
 type Extracted = {
   items: Array<{ name: string; price: number }>;
   currency: string | null;
@@ -253,7 +254,7 @@ Rules:
   const cleaned: Extracted["items"] = [];
 
   for (const it of items) {
-    const name = typeof it.name === "string" ? it.name.trim() : "";
+    const name = sanitizeText(it.name);
     const price = it.price;
 
     if (!name || name.length > 120) continue;
@@ -266,17 +267,17 @@ Rules:
   console.info(`[extract:${traceId}] openaiVision.cleaned`, {
     parsedItems: items.length,
     keptItems: cleaned.length,
-    currency: typeof parsed.currency === "string" ? parsed.currency : null,
+    currency: sanitizeNullableText(parsed.currency),
   });
 
   return {
     items: cleaned,
-    currency: typeof parsed.currency === "string" ? parsed.currency : null,
-    notes: typeof parsed.notes === "string" ? parsed.notes : null,
+    currency: sanitizeNullableText(parsed.currency),
+    notes: sanitizeNullableText(parsed.notes),
     merchant: {
-      name: typeof parsed.merchant?.name === "string" ? parsed.merchant.name.trim() || null : null,
-      address: typeof parsed.merchant?.address === "string" ? parsed.merchant.address.trim() || null : null,
-      phone: typeof parsed.merchant?.phone === "string" ? parsed.merchant.phone.trim() || null : null,
+      name: sanitizeNullableText(parsed.merchant?.name),
+      address: sanitizeNullableText(parsed.merchant?.address),
+      phone: sanitizeNullableText(parsed.merchant?.phone),
     },
     datetime: parseReceiptDateTime(typeof parsed.datetime === "string" ? parsed.datetime : null),
   };
@@ -341,8 +342,8 @@ ${flaggedBlock}
 
   const cleaned: Array<{ raw_name: string; repaired_name: string; confidence: number }> = [];
   for (const entry of entries) {
-    const rawName = typeof entry.raw_name === "string" ? entry.raw_name.trim() : "";
-    const repairedName = typeof entry.repaired_name === "string" ? entry.repaired_name.trim() : "";
+    const rawName = sanitizeText(entry.raw_name);
+    const repairedName = sanitizeText(entry.repaired_name);
     const confidence = typeof entry.confidence === "number" ? entry.confidence : -1;
 
     if (!rawName || !repairedName) continue;
@@ -357,3 +358,4 @@ ${flaggedBlock}
 
   return cleaned;
 }
+
