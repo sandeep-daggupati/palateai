@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Briefcase, ChevronDown, Coffee, Filter, Gem, Moon, Search, Sparkles, Star, Users, UtensilsCrossed, X } from 'lucide-react';
+import { Briefcase, ChevronDown, Coffee, Gem, Moon, Search, Sparkles, Star, Users, UtensilsCrossed } from 'lucide-react';
 import { HANGOUT_VIBE_OPTIONS, HangoutVibeKey } from '@/lib/hangouts/vibes';
 import { cn } from '@/lib/utils';
 
@@ -64,20 +64,6 @@ function vibeIcon(value: string): ReactNode {
     default:
       return <Sparkles size={13} strokeWidth={1.5} />;
   }
-}
-
-function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => {
-    const media = window.matchMedia('(max-width: 639px)');
-    const sync = () => setIsMobile(media.matches);
-    sync();
-    media.addEventListener('change', sync);
-    return () => media.removeEventListener('change', sync);
-  }, []);
-
-  return isMobile;
 }
 
 function FilterChipPopover({ config }: { config: FilterConfig }) {
@@ -161,10 +147,6 @@ export function HangoutFilters({
   crewOptions: Option[];
   onClear: () => void;
 }) {
-  const isMobile = useIsMobile();
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [activeSheetFilter, setActiveSheetFilter] = useState<FilterKey>('crew');
-
   const hasActiveFilters = useMemo(() => {
     return state.search || state.crew !== 'all' || state.placeType !== 'all' || state.vibe !== 'all';
   }, [state]);
@@ -198,8 +180,6 @@ export function HangoutFilters({
     ];
   }, [crewOptions, onChange, state.crew, state.placeType, state.vibe]);
 
-  const activeConfig = configs.find((config) => config.key === activeSheetFilter) ?? configs[0];
-
   return (
     <section className="card-surface space-y-2 p-3">
       <div className="relative">
@@ -212,118 +192,20 @@ export function HangoutFilters({
         />
       </div>
 
-      {isMobile ? (
-        <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {configs.map((config) => (
+          <FilterChipPopover key={config.key} config={config} />
+        ))}
+        {hasActiveFilters ? (
           <button
             type="button"
-            onClick={() => setSheetOpen(true)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-app-border bg-app-card px-3 text-xs font-medium text-app-text"
+            onClick={onClear}
+            className="inline-flex h-8 shrink-0 items-center rounded-full border border-app-border px-3 text-xs font-medium text-app-muted"
           >
-            <Filter size={12} />
-            Filters
-            {hasActiveFilters ? <span className="text-app-primary">•</span> : null}
+            Clear all
           </button>
-
-          {hasActiveFilters ? (
-            <button
-              type="button"
-              onClick={onClear}
-              className="inline-flex h-8 items-center rounded-full border border-app-border px-3 text-xs font-medium text-app-muted"
-            >
-              Clear all
-            </button>
-          ) : null}
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {configs.map((config) => (
-            <FilterChipPopover key={config.key} config={config} />
-          ))}
-          {hasActiveFilters ? (
-            <button
-              type="button"
-              onClick={onClear}
-              className="inline-flex h-8 shrink-0 items-center rounded-full border border-app-border px-3 text-xs font-medium text-app-muted"
-            >
-              Clear all
-            </button>
-          ) : null}
-        </div>
-      )}
-
-      {sheetOpen ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/35 sm:hidden">
-          <button type="button" className="absolute inset-0" aria-label="Close filters" onClick={() => setSheetOpen(false)} />
-          <div className="relative w-full max-w-2xl rounded-t-2xl border border-app-border bg-app-card p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-            <div className="mb-2 flex items-center justify-between">
-              <p className="text-sm font-semibold text-app-text">Filters</p>
-              <button type="button" onClick={() => setSheetOpen(false)} className="icon-button-subtle" aria-label="Close">
-                <X size={14} />
-              </button>
-            </div>
-
-            <div className="action-row-scroll -mx-1 mb-2 flex gap-1.5 overflow-x-auto px-1 pb-1">
-              {configs.map((config) => {
-                const selectedLabel = getSelectedLabel(config.options, config.value);
-                const active = activeSheetFilter === config.key;
-                return (
-                  <button
-                    key={config.key}
-                    type="button"
-                    onClick={() => setActiveSheetFilter(config.key)}
-                    className={cn(
-                      'inline-flex h-8 shrink-0 items-center gap-1 rounded-full border px-3 text-xs font-medium',
-                      active ? 'border-app-primary bg-app-primary text-app-primary-text' : 'border-app-border text-app-text',
-                    )}
-                  >
-                    {config.icon}
-                    {selectedLabel ? `${config.label}: ${selectedLabel}` : config.label}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="max-h-[55vh] overflow-y-auto rounded-xl border border-app-border p-1.5">
-              {activeConfig.options.map((option) => {
-                const selected = option.value === activeConfig.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => {
-                      activeConfig.onChange(option.value);
-                    }}
-                    className={cn(
-                      'flex h-9 w-full items-center gap-1.5 rounded-lg px-2 text-left text-sm',
-                      selected ? 'bg-app-primary text-app-primary-text' : 'text-app-text hover:bg-app-bg',
-                    )}
-                  >
-                    {activeConfig.key === 'vibe' && option.value !== 'all' ? vibeIcon(option.value) : null}
-                    {option.label}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={onClear}
-                className="inline-flex h-9 items-center rounded-lg border border-app-border px-3 text-xs font-medium text-app-muted"
-              >
-                Clear all
-              </button>
-              <button
-                type="button"
-                onClick={() => setSheetOpen(false)}
-                className="inline-flex h-9 items-center rounded-lg bg-app-primary px-3 text-xs font-medium text-app-primary-text"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </section>
   );
 }
