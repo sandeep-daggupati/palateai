@@ -352,7 +352,8 @@ export default function HangoutsPage() {
   }, [allItems, filters]);
 
   return (
-    <div className="space-y-3 pb-5">`n      <div className="flex items-center justify-between gap-2">
+    <div className="space-y-3 pb-5">
+      <div className="flex items-center justify-between gap-2">
         <HangoutViewToggle view={view} onChange={setView} />
       </div>
 
@@ -380,6 +381,8 @@ export default function HangoutsPage() {
     </div>
   );
 }
+
+
 
 
 
