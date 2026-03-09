@@ -56,7 +56,8 @@ function cleanFlavorTags(value: unknown): string[] | null {
 
   for (const item of value) {
     if (typeof item !== 'string') continue;
-    const tag = sanitizeText(item).toLowerCase()
+    const tag = sanitizeText(item)
+      .toLowerCase()
       .replace(/[^a-z0-9- ]+/g, '')
       .replace(/\s+/g, '-');
 
@@ -100,30 +101,47 @@ export async function POST(request: Request) {
     },
   );
 
-  const { data: item } = await userClient
+  const { data: hangout } = await userClient.from('hangouts').select('id,restaurant_id').eq('id', hangoutId).maybeSingle();
+  if (!hangout) {
+    return NextResponse.json({ ok: false, error: 'Hangout not found' }, { status: 404 });
+  }
+
+  const { data: hangoutItem } = await userClient
     .from('hangout_items')
     .select('id,hangout_id,name_raw,name_final')
     .eq('id', hangoutItemId)
     .eq('hangout_id', hangoutId)
     .maybeSingle();
 
-  if (!item) {
+  const { data: dishEntry } = hangoutItem
+    ? { data: null as null }
+    : await userClient
+        .from('dish_entries')
+        .select('id,hangout_id,dish_name,dish_key,restaurant_id')
+        .eq('id', hangoutItemId)
+        .eq('hangout_id', hangoutId)
+        .maybeSingle();
+
+  if (!hangoutItem && !dishEntry) {
     return NextResponse.json({ ok: false, error: 'Dish not found' }, { status: 404 });
   }
 
-  const { data: hangout } = await userClient.from('hangouts').select('id,restaurant_id').eq('id', hangoutId).maybeSingle();
-  if (!hangout) {
-    return NextResponse.json({ ok: false, error: 'Hangout not found' }, { status: 404 });
+  const sourceDishName = sanitizeText(
+    hangoutItem ? hangoutItem.name_final || hangoutItem.name_raw : dishEntry?.dish_name ?? '',
+  );
+  if (!sourceDishName) {
+    return NextResponse.json({ ok: false, error: 'Dish not found' }, { status: 404 });
   }
+
+  const restaurantId = hangout.restaurant_id ?? dishEntry?.restaurant_id ?? null;
 
   let restaurantName: string | null = null;
-  if (hangout.restaurant_id) {
-    const { data: restaurant } = await userClient.from('restaurants').select('name').eq('id', hangout.restaurant_id).maybeSingle();
-    restaurantName = restaurant?.name ?? null;
+  if (restaurantId) {
+    const { data: restaurant } = await userClient.from('restaurants').select('name').eq('id', restaurantId).maybeSingle();
+    restaurantName = sanitizeText(restaurant?.name ?? '') || null;
   }
 
-  const sourceDishName = item.name_final || item.name_raw;
-  const dishKey = toDishKey(`${restaurantName ?? 'unknown-restaurant'} ${sourceDishName}`);
+  const dishKey = dishEntry?.dish_key || toDishKey(`${restaurantName ?? 'unknown-restaurant'} ${sourceDishName}`);
 
   const nameCanonical = cleanText(body?.nameCanonical, 80) ?? sourceDishName;
   const description = cleanText(body?.description, 220);
@@ -151,4 +169,3 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ ok: true, catalog: data });
 }
-
