@@ -27,7 +27,7 @@ type InsightPayload = {
 type ProfileState = {
   id: string;
   display_name: string | null;
-  onboarded: boolean;
+  onboarding_completed: boolean;
 };
 
 const FALLBACK_HIGHLIGHTS: HighlightCard[] = [
@@ -110,8 +110,9 @@ function DisplayNameGate({
 }
 
 export default function HomePage() {
+  const [loadingHome, setLoadingHome] = useState(true);
   const [hasFoodEntries, setHasFoodEntries] = useState(false);
-  const [hasHangouts, setHasHangouts] = useState(false);
+  const [hasCreatedHangouts, setHasCreatedHangouts] = useState(false);
   const [insight, setInsight] = useState<InsightPayload | null>(null);
   const [highlights, setHighlights] = useState<HighlightCard[]>(FALLBACK_HIGHLIGHTS);
   const [hangoutChips, setHangoutChips] = useState<HangoutChip[]>([]);
@@ -122,73 +123,103 @@ export default function HomePage() {
 
   useEffect(() => {
     const load = async () => {
-      const supabase = getBrowserSupabaseClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      try {
+        const supabase = getBrowserSupabaseClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
 
-      if (!user) {
-        setHasFoodEntries(false);
-        setHasHangouts(false);
-        setInsight(null);
-        setHighlights(FALLBACK_HIGHLIGHTS);
-        setHangoutChips([]);
-        setProfile(null);
-        setGoogleNameSuggestion('');
-        setSetupDismissed(false);
-        return;
-      }
-
-      const metadataNameCandidates = [user.user_metadata?.full_name, user.user_metadata?.name, user.user_metadata?.user_name]
-        .map((value) => (typeof value === 'string' ? value.trim() : ''))
-        .filter((value) => value.length > 0);
-      setGoogleNameSuggestion(metadataNameCandidates[0] ?? '');
-
-      await ensureProfile();
-
-      const { data: profileRow } = await supabase
-        .from('profiles')
-        .select('id,display_name,onboarded')
-        .eq('id', user.id)
-        .maybeSingle();
-
-      setProfile((profileRow ?? null) as ProfileState | null);
-
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (session?.access_token) {
-        await fetch('/api/visits/claim', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        }).catch(() => undefined);
-
-        const insightResponse = await fetch('/api/insight', {
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        }).catch(() => null);
-
-        if (insightResponse?.ok) {
-          const payload = (await insightResponse.json().catch(() => null)) as { insight?: InsightPayload } | null;
-          setInsight(payload?.insight ?? null);
+        if (!user) {
+          setHasFoodEntries(false);
+          setHasCreatedHangouts(false);
+          setInsight(null);
+          setHighlights(FALLBACK_HIGHLIGHTS);
+          setHangoutChips([]);
+          setProfile(null);
+          setGoogleNameSuggestion('');
+          setSetupDismissed(false);
+          return;
         }
+
+        const metadataNameCandidates = [user.user_metadata?.full_name, user.user_metadata?.name, user.user_metadata?.user_name]
+          .map((value) => (typeof value === 'string' ? value.trim() : ''))
+          .filter((value) => value.length > 0);
+        setGoogleNameSuggestion(metadataNameCandidates[0] ?? '');
+
+        await ensureProfile();
+
+        const { data: profileRow } = await supabase
+          .from('profiles')
+          .select('id,display_name,onboarding_completed,onboarded')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        const nextProfile = profileRow
+          ? {
+              id: profileRow.id,
+              display_name: profileRow.display_name,
+              onboarding_completed: Boolean(
+                (profileRow as { onboarding_completed?: boolean | null }).onboarding_completed ??
+                  (profileRow as { onboarded?: boolean | null }).onboarded ??
+                  false,
+              ),
+            }
+          : null;
+
+        setProfile(nextProfile);
+
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (session?.access_token) {
+          await fetch('/api/visits/claim', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+            },
+          }).catch(() => undefined);
+
+          const insightResponse = await fetch('/api/insight', {
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+            },
+          }).catch(() => null);
+
+          if (insightResponse?.ok) {
+            const payload = (await insightResponse.json().catch(() => null)) as { insight?: InsightPayload } | null;
+            setInsight(payload?.insight ?? null);
+          }
+        }
+
+        const [highlightCards, chipPayload, entryProbe, createdHangoutProbe] = await Promise.all([
+          getHighlights(supabase, user.id),
+          getHangoutChips(supabase, user.id),
+          supabase.from('dish_entries').select('id').eq('user_id', user.id).limit(1),
+          supabase.from('receipt_uploads').select('id').eq('user_id', user.id).limit(1),
+        ]);
+
+        const foodCount = ((entryProbe.data ?? []) as Array<{ id: string }>).length;
+        const createdHangoutCount = ((createdHangoutProbe.data ?? []) as Array<{ id: string }>).length;
+
+        setHighlights(highlightCards.slice(0, 3));
+        setHangoutChips(chipPayload.chips);
+        setHasFoodEntries(foodCount > 0);
+        setHasCreatedHangouts(createdHangoutCount > 0);
+
+        if (nextProfile && !nextProfile.onboarding_completed && (createdHangoutCount > 0 || foodCount > 0)) {
+          const { error } = await supabase
+            .from('profiles')
+            .update({ onboarding_completed: true, onboarded: true, updated_at: new Date().toISOString() })
+            .eq('id', nextProfile.id);
+
+          if (!error) {
+            setProfile((current) => (current ? { ...current, onboarding_completed: true } : current));
+          }
+        }
+      } finally {
+        setLoadingHome(false);
       }
-
-      const [highlightCards, chipPayload, entryProbe, hangoutProbe] = await Promise.all([
-        getHighlights(supabase, user.id),
-        getHangoutChips(supabase, user.id),
-        supabase.from('dish_entries').select('id').eq('user_id', user.id).limit(1),
-        supabase.from('hangout_participants').select('hangout_id').eq('user_id', user.id).limit(1),
-      ]);
-
-      setHighlights(highlightCards.slice(0, 3));
-      setHangoutChips(chipPayload.chips);
-      setHasFoodEntries(((entryProbe.data ?? []) as Array<{ id: string }>).length > 0);
-      setHasHangouts(((hangoutProbe.data ?? []) as Array<{ hangout_id: string }>).length > 0);
     };
 
     void load();
@@ -204,11 +235,11 @@ export default function HomePage() {
     const supabase = getBrowserSupabaseClient();
     const { error } = await supabase
       .from('profiles')
-      .update({ display_name: next, onboarded: true, updated_at: new Date().toISOString() })
+      .update({ display_name: next, onboarding_completed: true, onboarded: true, updated_at: new Date().toISOString() })
       .eq('id', profile.id);
 
     if (!error) {
-      setProfile((current) => (current ? { ...current, display_name: next, onboarded: true } : current));
+      setProfile((current) => (current ? { ...current, display_name: next, onboarding_completed: true } : current));
     }
     setSavingDisplayName(false);
   };
@@ -220,25 +251,36 @@ export default function HomePage() {
     const supabase = getBrowserSupabaseClient();
     void supabase
       .from('profiles')
-      .update({ onboarded: true, updated_at: new Date().toISOString() })
+      .update({ onboarding_completed: true, onboarded: true, updated_at: new Date().toISOString() })
       .eq('id', profile.id)
       .then(({ error }) => {
         if (!error) {
-          setProfile((current) => (current ? { ...current, onboarded: true } : current));
+          setProfile((current) => (current ? { ...current, onboarding_completed: true } : current));
         }
       });
   };
 
   const displayName = profile?.display_name?.trim() ?? '';
   const setupInitialValue = displayName || googleNameSuggestion;
-  const showDisplayNameGate = Boolean(profile) && !setupDismissed && (!displayName || !(profile?.onboarded ?? true));
-  const showZeroStateHome = !hasFoodEntries && !hasHangouts;
+  const showDisplayNameGate = Boolean(profile) && !setupDismissed && (!displayName || !(profile?.onboarding_completed ?? true));
+  const isFirstTimeUser = Boolean(profile) && !(profile?.onboarding_completed ?? true) && !hasCreatedHangouts && !hasFoodEntries;
+  const showZeroStateHome = isFirstTimeUser;
 
   const heroHeading = useMemo(() => {
     if (hasFoodEntries && displayName) return `Welcome back, ${displayName}.`;
     if (hasFoodEntries) return 'Welcome back.';
     return 'Welcome to PalateAI';
   }, [displayName, hasFoodEntries]);
+
+  if (loadingHome) {
+    return (
+      <div className="space-y-3 pb-4">
+        <section className="card-surface h-24 animate-pulse" />
+        <section className="card-surface h-40 animate-pulse" />
+        <section className="card-surface h-24 animate-pulse" />
+      </div>
+    );
+  }
 
   return (
     <>

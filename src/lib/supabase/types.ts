@@ -76,6 +76,7 @@ export type Database = {
           avatar_url: string | null;
           email: string | null;
           onboarded: boolean;
+          onboarding_completed: boolean;
           updated_at: string;
           created_at: string;
         };
@@ -85,6 +86,7 @@ export type Database = {
           avatar_url?: string | null;
           email?: string | null;
           onboarded?: boolean;
+          onboarding_completed?: boolean;
           updated_at?: string;
           created_at?: string;
         };
@@ -94,6 +96,7 @@ export type Database = {
           avatar_url?: string | null;
           email?: string | null;
           onboarded?: boolean;
+          onboarding_completed?: boolean;
           updated_at?: string;
           created_at?: string;
         };
