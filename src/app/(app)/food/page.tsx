@@ -1,10 +1,9 @@
 'use client';
 
 import Image from 'next/image';
-import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams, useSelectedLayoutSegments } from 'next/navigation';
-import { ChevronDown, Search, X } from 'lucide-react';
+import { ChevronDown, LayoutGrid, Rows3, Search } from 'lucide-react';
 import { IdentityTagPill } from '@/components/IdentityTagPill';
 import { cn } from '@/lib/utils';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
@@ -40,6 +39,8 @@ type FilterOption = {
   value: string;
   label: string;
 };
+
+type FoodViewMode = 'grid' | 'timeline';
 
 function parseTime(value: string | null | undefined): number {
   if (!value) return 0;
@@ -95,7 +96,6 @@ function FilterDropdown({
   onSelect: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -121,44 +121,29 @@ function FilterDropdown({
   }, [open]);
 
   const selected = options.find((option) => option.value === selectedValue)?.label ?? 'All';
-  const filteredOptions = useMemo(() => {
-    const normalized = normalizeToken(query);
-    if (!normalized) return options;
-    return options.filter((option) => normalizeToken(option.label).includes(normalized));
-  }, [options, query]);
+  const selectedLabel = selectedValue === 'all' ? label : `${label}: ${selected}`;
 
   return (
     <div ref={rootRef} className="relative min-w-[108px]">
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="inline-flex h-8 w-full items-center justify-between gap-1 rounded-lg border border-app-border bg-app-card px-2 text-[11px] font-medium text-app-text"
+        className="inline-flex h-8 w-full items-center justify-between gap-1 rounded-full border border-app-border bg-app-card px-3 text-xs font-medium text-app-text"
       >
-        <span className="truncate">{label}: {selected}</span>
+        <span className="truncate">{selectedLabel}</span>
         <ChevronDown size={13} className="shrink-0 text-app-muted" />
       </button>
 
       {open ? (
-        <div className="absolute left-0 top-9 z-30 w-56 max-w-[85vw] rounded-xl border border-app-border bg-app-card p-2 shadow-sm">
-          <div className="relative mb-1.5">
-            <Search size={12} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-app-muted" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={`Search ${label.toLowerCase()}`}
-              className="h-8 w-full rounded-lg border border-app-border bg-app-bg pl-7 pr-2 text-xs text-app-text"
-            />
-          </div>
-
+        <div className="absolute left-0 top-9 z-30 w-56 max-w-[85vw] rounded-xl border border-app-border bg-app-card p-1.5 shadow-sm">
           <div className="max-h-56 space-y-0.5 overflow-y-auto">
-            {filteredOptions.map((option) => (
+            {options.map((option) => (
               <button
                 key={option.value}
                 type="button"
                 onClick={() => {
                   onSelect(option.value);
                   setOpen(false);
-                  setQuery('');
                 }}
                 className={cn(
                   'flex h-8 w-full items-center rounded-lg px-2 text-left text-xs',
@@ -187,6 +172,8 @@ export default function FoodPage() {
   const isFoodGridPath = pathname === '/food';
 
   const [rows, setRows] = useState<DishEntry[]>([]);
+  const [view, setView] = useState<FoodViewMode>('grid');
+  const [searchText, setSearchText] = useState(queryParam);
   const [restaurantsById, setRestaurantsById] = useState<Record<string, RestaurantLookup>>({});
   const [identityFilter, setIdentityFilter] = useState<'all' | DishIdentityTag>(identityParam);
   const [cuisineFilter, setCuisineFilter] = useState<string>(cuisineParam || 'all');
@@ -297,7 +284,13 @@ export default function FoodPage() {
 
   useEffect(() => {
     if (!isFoodGridPath) return;
+    setSearchText(queryParam);
+  }, [isFoodGridPath, queryParam]);
+
+  useEffect(() => {
+    if (!isFoodGridPath) return;
     const nextParams = new URLSearchParams(searchParams.toString());
+    const normalizedSearch = normalizeToken(searchText);
 
     if (identityFilter === 'all') nextParams.delete('identity');
     else nextParams.set('identity', identityFilter);
@@ -308,11 +301,14 @@ export default function FoodPage() {
     if (flavorFilter === 'all') nextParams.delete('flavor');
     else nextParams.set('flavor', flavorFilter);
 
+    if (!normalizedSearch) nextParams.delete('query');
+    else nextParams.set('query', normalizedSearch);
+
     const current = searchParams.toString();
     const next = nextParams.toString();
     if (current === next) return;
     router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
-  }, [cuisineFilter, flavorFilter, identityFilter, isFoodGridPath, pathname, router, searchParams]);
+  }, [cuisineFilter, flavorFilter, identityFilter, isFoodGridPath, pathname, router, searchParams, searchText]);
 
   const cuisineOptions = useMemo<FilterOption[]>(() => {
     const values = new Set<string>();
@@ -394,26 +390,51 @@ export default function FoodPage() {
 
   return (
     <div className={cn('space-y-3 pb-5', isFoodDetailOpen && 'select-none')}>
-      <section className="card-surface space-y-1.5">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="text-xl font-semibold text-app-text">Food</h1>
-          <Link href="/" className="text-xs font-medium text-app-link">
-            Back to Home
-          </Link>
+      <section className="card-surface space-y-2 p-3">
+        <div className="inline-flex h-9 items-center rounded-xl border border-app-border bg-app-card p-1">
+          <button
+            type="button"
+            onClick={() => setView('grid')}
+            className={cn(
+              'inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs font-medium',
+              view === 'grid' ? 'bg-app-primary text-app-primary-text' : 'text-app-muted',
+            )}
+          >
+            <LayoutGrid size={13} />
+            Grid
+          </button>
+          <button
+            type="button"
+            onClick={() => setView('timeline')}
+            className={cn(
+              'inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs font-medium',
+              view === 'timeline' ? 'bg-app-primary text-app-primary-text' : 'text-app-muted',
+            )}
+          >
+            <Rows3 size={13} />
+            Timeline
+          </button>
         </div>
-        <p className="text-sm text-app-muted">Photo-first timeline of what you logged.</p>
-      </section>
 
-      <section className="space-y-2">
-        <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-app-border bg-app-card p-1.5">
+        <div className="relative">
+          <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-muted" />
+          <input
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
+            placeholder="Search places, people, or dishes"
+            className="h-11 w-full rounded-xl border border-app-border bg-app-bg pl-9 pr-3 text-sm text-app-text"
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          <FilterDropdown label="Cuisine" selectedValue={cuisineFilter} onSelect={setCuisineFilter} options={cuisineOptions} />
+          <FilterDropdown label="Flavor" selectedValue={flavorFilter} onSelect={setFlavorFilter} options={flavorOptions} />
           <FilterDropdown
             label="Vibe"
             selectedValue={identityFilter}
             onSelect={(value) => setIdentityFilter(value as 'all' | DishIdentityTag)}
             options={IDENTITY_OPTIONS}
           />
-          <FilterDropdown label="Cuisine" selectedValue={cuisineFilter} onSelect={setCuisineFilter} options={cuisineOptions} />
-          <FilterDropdown label="Flavor" selectedValue={flavorFilter} onSelect={setFlavorFilter} options={flavorOptions} />
           {hasActiveFilters ? (
             <button
               type="button"
@@ -422,70 +443,114 @@ export default function FoodPage() {
                 setCuisineFilter('all');
                 setFlavorFilter('all');
               }}
-              className="inline-flex h-8 items-center gap-1 rounded-lg border border-app-border px-2 text-[11px] text-app-muted"
+              className="inline-flex h-8 items-center rounded-full border border-app-border px-3 text-xs font-medium text-app-muted"
             >
-              <X size={12} />
-              Clear
+              Clear all
             </button>
           ) : null}
         </div>
+      </section>
 
-        {groupedRows.length === 0 ? (
-          <p className="empty-surface">No food yet.</p>
-        ) : (
-          groupedRows.map((group) => (
-            <section key={group.key} className="space-y-1.5">
-              <h2 className="px-0.5 text-xs font-semibold uppercase tracking-wide text-app-muted">{group.label}</h2>
+      {groupedRows.length === 0 ? (
+        <p className="empty-surface">No food yet.</p>
+      ) : view === 'grid' ? (
+        groupedRows.map((group) => (
+          <section key={group.key} className="space-y-1.5">
+            <h2 className="px-0.5 text-xs font-semibold uppercase tracking-wide text-app-muted">{group.label}</h2>
 
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {group.rows.map((row) => {
-                  const target = row.dish_key ? `/food/${row.dish_key}` : `/uploads/${row.source_upload_id}`;
-                  return (
-                    <button
-                      key={row.id}
-                      type="button"
-                      onClick={() => {
-                        if (row.dish_key) {
-                          window.sessionStorage.setItem(GRID_KEYS_STORAGE, JSON.stringify(visibleFoodKeys));
-                          const currentParams = searchParams.toString();
-                          const nextHref = currentParams ? `/food/${row.dish_key}?${currentParams}` : `/food/${row.dish_key}`;
-                          router.push(nextHref, { scroll: false });
-                          return;
-                        }
-                        router.push(target, { scroll: false });
-                      }}
-                      className="overflow-hidden rounded-xl border border-app-border bg-app-card text-left"
-                    >
-                      {row.photo?.signedUrls.thumb ? (
-                        <Image
-                          src={row.photo.signedUrls.thumb}
-                          alt={`${row.dish_name} thumbnail`}
-                          width={360}
-                          height={280}
-                          className="h-36 w-full object-cover"
-                          unoptimized
-                        />
-                      ) : (
-                        <div className="flex h-36 w-full items-center justify-center bg-gradient-to-br from-emerald-100 to-lime-100 text-xs font-medium text-emerald-800">
-                          Add a dish photo
-                        </div>
-                      )}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {group.rows.map((row) => {
+                const target = row.dish_key ? `/food/${row.dish_key}` : `/uploads/${row.source_upload_id}`;
+                return (
+                  <button
+                    key={row.id}
+                    type="button"
+                    onClick={() => {
+                      if (row.dish_key) {
+                        window.sessionStorage.setItem(GRID_KEYS_STORAGE, JSON.stringify(visibleFoodKeys));
+                        const currentParams = searchParams.toString();
+                        const nextHref = currentParams ? `/food/${row.dish_key}?${currentParams}` : `/food/${row.dish_key}`;
+                        router.push(nextHref, { scroll: false });
+                        return;
+                      }
+                      router.push(target, { scroll: false });
+                    }}
+                    className="overflow-hidden rounded-xl border border-app-border bg-app-card text-left"
+                  >
+                    {row.photo?.signedUrls.thumb ? (
+                      <Image
+                        src={row.photo.signedUrls.thumb}
+                        alt={`${row.dish_name} thumbnail`}
+                        width={360}
+                        height={280}
+                        className="h-36 w-full object-cover"
+                        unoptimized
+                      />
+                    ) : (
+                      <div className="flex h-36 w-full items-center justify-center bg-gradient-to-br from-emerald-100 to-lime-100 text-xs font-medium text-emerald-800">
+                        Add a dish photo
+                      </div>
+                    )}
 
-                      <div className="space-y-1 px-2 py-2">
+                    <div className="space-y-1 px-2 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-sm font-medium text-app-text">{row.dish_name}</p>
+                        {row.identity_tag ? <IdentityTagPill tag={row.identity_tag} /> : null}
+                      </div>
+                      <p className="truncate text-xs text-app-muted">{row.restaurantName}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ))
+      ) : (
+        groupedRows.map((group) => (
+          <section key={group.key} className="space-y-1.5">
+            <h2 className="px-0.5 text-xs font-semibold uppercase tracking-wide text-app-muted">{group.label}</h2>
+            <div className="space-y-1.5">
+              {group.rows.map((row) => {
+                const target = row.dish_key ? `/food/${row.dish_key}` : `/uploads/${row.source_upload_id}`;
+                return (
+                  <button
+                    key={`timeline-${row.id}`}
+                    type="button"
+                    onClick={() => {
+                      if (row.dish_key) {
+                        window.sessionStorage.setItem(GRID_KEYS_STORAGE, JSON.stringify(visibleFoodKeys));
+                        const currentParams = searchParams.toString();
+                        const nextHref = currentParams ? `/food/${row.dish_key}?${currentParams}` : `/food/${row.dish_key}`;
+                        router.push(nextHref, { scroll: false });
+                        return;
+                      }
+                      router.push(target, { scroll: false });
+                    }}
+                    className="w-full rounded-xl border border-app-border bg-app-card p-3 text-left"
+                  >
+                    <div className="flex items-start gap-2">
+                      <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-app-border bg-app-bg">
+                        {row.photo?.signedUrls.thumb ? (
+                          <Image src={row.photo.signedUrls.thumb} alt={`${row.dish_name} thumbnail`} width={56} height={56} className="h-full w-full object-cover" unoptimized />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-[10px] text-app-muted">No photo</div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-0.5">
                         <div className="flex items-center justify-between gap-2">
                           <p className="truncate text-sm font-medium text-app-text">{row.dish_name}</p>
                           {row.identity_tag ? <IdentityTagPill tag={row.identity_tag} /> : null}
                         </div>
                         <p className="truncate text-xs text-app-muted">{row.restaurantName}</p>
                       </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-          ))
-        )}
-      </section>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ))
+      )}
     </div>
   );
 }
