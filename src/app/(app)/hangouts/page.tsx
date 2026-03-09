@@ -1,15 +1,15 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { Briefcase, Coffee, Gem, MapPin, Moon, Sparkles, Star, Users } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
-import { HangoutFilters, HangoutFilterState } from '@/components/hangouts/HangoutFilters';
+import { SearchControlFilterConfig, SearchControlsCard } from '@/components/controls/SearchControlsCard';
 import { HangoutGrid } from '@/components/hangouts/HangoutGrid';
 import { HangoutTimeline } from '@/components/hangouts/HangoutTimeline';
 import { HangoutCardItem, HangoutCrewMember } from '@/components/hangouts/types';
-import { HangoutViewMode, HangoutViewToggle } from '@/components/hangouts/HangoutViewToggle';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { Photo, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
-import { hangoutMatchesVibeFilter, hangoutVibeLabel, normalizeHangoutVibeTags } from '@/lib/hangouts/vibes';
+import { HANGOUT_VIBE_OPTIONS, HangoutVibeKey, hangoutVibeLabel, normalizeHangoutVibeTags } from '@/lib/hangouts/vibes';
 
 const LIST_LIMIT = 80;
 
@@ -31,6 +31,24 @@ type EnrichedHangout = HangoutCardItem & {
   dishSearch: string;
   rawVibeTags: string[];
 };
+
+type HangoutViewMode = 'grid' | 'timeline';
+
+type HangoutFilterState = {
+  search: string;
+  crew: string[];
+  placeType: string[];
+  vibe: string[];
+};
+
+const PLACE_TYPE_OPTIONS = [
+  { value: 'restaurant', label: 'Restaurant' },
+  { value: 'cafe', label: 'Cafe' },
+  { value: 'bar', label: 'Bar' },
+  { value: 'dessert', label: 'Dessert' },
+  { value: 'home', label: 'Home' },
+  { value: 'food_truck', label: 'Food Truck' },
+];
 
 function normalizeToken(value: string | null | undefined): string {
   return (value ?? '').trim().toLowerCase();
@@ -58,6 +76,32 @@ function inferPlaceType(name: string): string {
   return 'restaurant';
 }
 
+function vibeIcon(value: HangoutVibeKey) {
+  switch (value) {
+    case 'quick_bite':
+      return <Coffee size={13} strokeWidth={1.5} />;
+    case 'go_to_spot':
+      return <Star size={13} strokeWidth={1.5} />;
+    case 'celebration':
+      return <Sparkles size={13} strokeWidth={1.5} />;
+    case 'work_hangout':
+      return <Briefcase size={13} strokeWidth={1.5} />;
+    case 'with_friends':
+      return <Users size={13} strokeWidth={1.5} />;
+    case 'night_out':
+      return <Moon size={13} strokeWidth={1.5} />;
+    case 'hidden_gem':
+      return <Gem size={13} strokeWidth={1.5} />;
+    default:
+      return <Sparkles size={13} strokeWidth={1.5} />;
+  }
+}
+
+function toggleListValue(list: string[], value: string): string[] {
+  if (list.includes(value)) return list.filter((entry) => entry !== value);
+  return [...list, value];
+}
+
 export default function HangoutsPage() {
   const searchParams = useSearchParams();
   const restaurantParam = (searchParams.get('restaurant_id') ?? '').trim();
@@ -68,9 +112,9 @@ export default function HangoutsPage() {
   const [view, setView] = useState<HangoutViewMode>('grid');
   const [filters, setFilters] = useState<HangoutFilterState>({
     search: queryParam,
-    crew: 'all',
-    placeType: 'all',
-    vibe: 'all',
+    crew: [],
+    placeType: [],
+    vibe: [],
   });
 
   useEffect(() => {
@@ -317,8 +361,37 @@ export default function HangoutsPage() {
       ),
     ).sort((a, b) => a.localeCompare(b));
 
-    return [{ value: 'all', label: 'All' }, ...values.map((value) => ({ value: normalizeToken(value), label: value }))];
+    return values.map((value) => ({ value: normalizeToken(value), label: value }));
   }, [allItems]);
+
+  const filterConfigs = useMemo<SearchControlFilterConfig[]>(() => {
+    return [
+      {
+        key: 'crew',
+        label: 'Crew',
+        icon: <Users size={12} className="text-app-muted" />,
+        options: crewOptions,
+        selectedValues: filters.crew,
+        onToggle: (value) => setFilters((current) => ({ ...current, crew: toggleListValue(current.crew, value) })),
+      },
+      {
+        key: 'place',
+        label: 'Place',
+        icon: <MapPin size={12} className="text-app-muted" />,
+        options: PLACE_TYPE_OPTIONS,
+        selectedValues: filters.placeType,
+        onToggle: (value) => setFilters((current) => ({ ...current, placeType: toggleListValue(current.placeType, value) })),
+      },
+      {
+        key: 'vibe',
+        label: 'Vibe',
+        icon: <Sparkles size={12} className="text-app-muted" />,
+        options: HANGOUT_VIBE_OPTIONS.map((option) => ({ value: option.key, label: option.label, icon: vibeIcon(option.key) })),
+        selectedValues: filters.vibe,
+        onToggle: (value) => setFilters((current) => ({ ...current, vibe: toggleListValue(current.vibe, value) })),
+      },
+    ];
+  }, [crewOptions, filters.crew, filters.placeType, filters.vibe]);
 
   const filteredItems = useMemo(() => {
     const textQuery = normalizeToken(filters.search);
@@ -332,41 +405,33 @@ export default function HangoutsPage() {
           item.crewSearch.includes(textQuery) ||
           item.dishSearch.includes(textQuery);
 
-        const crewMatch = filters.crew === 'all' || item.crew.some((member) => normalizeToken(member.displayName) === filters.crew);
-        const placeTypeMatch = filters.placeType === 'all' || item.placeType === filters.placeType;
-        const vibeMatch = hangoutMatchesVibeFilter(item.vibeKeys, filters.vibe);
-
-        if (process.env.NODE_ENV !== 'production' && filters.vibe !== 'all') {
-          console.debug('[hangouts:vibe-filter]', {
-            hangout_id: item.id,
-            selected_vibe: filters.vibe,
-            stored_vibe_tags: item.rawVibeTags,
-            normalized_vibe_keys: item.vibeKeys,
-            vibe_match: vibeMatch,
-          });
-        }
+        const crewMatch = filters.crew.length === 0 || item.crew.some((member) => filters.crew.includes(normalizeToken(member.displayName)));
+        const placeTypeMatch = filters.placeType.length === 0 || filters.placeType.includes(item.placeType);
+        const vibeMatch = filters.vibe.length === 0 || filters.vibe.some((value) => item.vibeKeys.includes(value as HangoutVibeKey));
 
         return searchMatch && crewMatch && placeTypeMatch && vibeMatch;
       })
       .sort((a, b) => b.timestamp - a.timestamp);
   }, [allItems, filters]);
 
+  const hasActiveFilters = Boolean(filters.search.trim()) || filters.crew.length > 0 || filters.placeType.length > 0 || filters.vibe.length > 0;
+
   return (
     <div className="space-y-3 pb-5">
-      <div className="flex items-center justify-between gap-2">
-        <HangoutViewToggle view={view} onChange={setView} />
-      </div>
-
-      <HangoutFilters
-        state={filters}
-        onChange={(next) => setFilters((current) => ({ ...current, ...next }))}
-        crewOptions={crewOptions}
-        onClear={() =>
+      <SearchControlsCard
+        view={view}
+        onViewChange={(next) => setView(next as HangoutViewMode)}
+        searchValue={filters.search}
+        onSearchChange={(next) => setFilters((current) => ({ ...current, search: next }))}
+        searchPlaceholder="Search places, people, or dishes"
+        filters={filterConfigs}
+        hasActiveFilters={hasActiveFilters}
+        onClearAll={() =>
           setFilters({
             search: '',
-            crew: 'all',
-            placeType: 'all',
-            vibe: 'all',
+            crew: [],
+            placeType: [],
+            vibe: [],
           })
         }
       />
@@ -381,11 +446,3 @@ export default function HangoutsPage() {
     </div>
   );
 }
-
-
-
-
-
-
-
-

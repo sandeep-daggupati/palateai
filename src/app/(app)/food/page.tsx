@@ -1,9 +1,10 @@
 'use client';
 
 import Image from 'next/image';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { DollarSign, Flame, Sparkles, UtensilsCrossed } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams, useSelectedLayoutSegments } from 'next/navigation';
-import { ChevronDown, LayoutGrid, Rows3, Search } from 'lucide-react';
+import { SearchControlFilterConfig, SearchControlsCard } from '@/components/controls/SearchControlsCard';
 import { IdentityTagPill } from '@/components/IdentityTagPill';
 import { cn } from '@/lib/utils';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
@@ -13,14 +14,22 @@ import { SignedPhoto } from '@/lib/photos/types';
 const LIST_LIMIT = 120;
 const GRID_KEYS_STORAGE = 'palate.food.grid.keys';
 
-const IDENTITY_OPTIONS: Array<{ value: 'all' | DishIdentityTag; label: string }> = [
-  { value: 'all', label: 'All' },
+const VIBE_OPTIONS: Array<{ value: DishIdentityTag; label: string }> = [
   { value: 'go_to', label: 'Go-to' },
   { value: 'hidden_gem', label: 'Hidden gem' },
   { value: 'special_occasion', label: 'Special occasion' },
   { value: 'try_again', label: 'Try again' },
   { value: 'never_again', label: 'Never again' },
 ];
+
+const PRICE_OPTIONS = [
+  { value: 'under_10', label: '$ Under $10' },
+  { value: '10_20', label: '$$ $10-$20' },
+  { value: '20_40', label: '$$$ $20-$40' },
+  { value: 'over_40', label: '$$$$ $40+' },
+] as const;
+
+type PriceBucket = (typeof PRICE_OPTIONS)[number]['value'];
 
 type RestaurantLookup = {
   name: string;
@@ -76,88 +85,30 @@ function titleCase(value: string): string {
     .join(' ');
 }
 
-function parseIdentityFilter(value: string | null): 'all' | DishIdentityTag {
-  if (!value) return 'all';
-  const normalized = normalizeToken(value);
-  const valid = new Set<DishIdentityTag>(['go_to', 'hidden_gem', 'special_occasion', 'try_again', 'never_again']);
-  if (valid.has(normalized as DishIdentityTag)) return normalized as DishIdentityTag;
-  return 'all';
+function parseListParam(searchParams: URLSearchParams, key: string): string[] {
+  const raw = searchParams.get(key);
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((part) => normalizeToken(part))
+    .filter(Boolean);
 }
 
-function FilterDropdown({
-  label,
-  options,
-  selectedValue,
-  onSelect,
-}: {
-  label: string;
-  options: FilterOption[];
-  selectedValue: string;
-  onSelect: (value: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement | null>(null);
+function toggleListValue(list: string[], value: string): string[] {
+  if (list.includes(value)) return list.filter((entry) => entry !== value);
+  return [...list, value];
+}
 
-  useEffect(() => {
-    if (!open) return;
+function serializeList(values: string[]): string {
+  return values.join(',');
+}
 
-    const onPointerDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (rootRef.current && !rootRef.current.contains(target)) {
-        setOpen(false);
-      }
-    };
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-
-    document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open]);
-
-  const selected = options.find((option) => option.value === selectedValue)?.label ?? 'All';
-  const selectedLabel = selectedValue === 'all' ? label : `${label}: ${selected}`;
-
-  return (
-    <div ref={rootRef} className="relative min-w-[108px]">
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        className="inline-flex h-8 w-full items-center justify-between gap-1 rounded-full border border-app-border bg-app-card px-3 text-xs font-medium text-app-text"
-      >
-        <span className="truncate">{selectedLabel}</span>
-        <ChevronDown size={13} className="shrink-0 text-app-muted" />
-      </button>
-
-      {open ? (
-        <div className="absolute left-0 top-9 z-30 w-56 max-w-[85vw] rounded-xl border border-app-border bg-app-card p-1.5 shadow-sm">
-          <div className="max-h-56 space-y-0.5 overflow-y-auto">
-            {options.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => {
-                  onSelect(option.value);
-                  setOpen(false);
-                }}
-                className={cn(
-                  'flex h-8 w-full items-center rounded-lg px-2 text-left text-xs',
-                  option.value === selectedValue ? 'bg-app-primary text-app-primary-text' : 'text-app-text hover:bg-app-bg',
-                )}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
+function priceBucket(value: number | null | undefined): PriceBucket | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
+  if (value < 10) return 'under_10';
+  if (value < 20) return '10_20';
+  if (value < 40) return '20_40';
+  return 'over_40';
 }
 
 export default function FoodPage() {
@@ -165,19 +116,32 @@ export default function FoodPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const modalSegments = useSelectedLayoutSegments('modal');
-  const queryParam = (searchParams.get('query') ?? '').trim().toLowerCase();
-  const identityParam = parseIdentityFilter(searchParams.get('identity'));
-  const cuisineParam = normalizeToken(searchParams.get('cuisine'));
-  const flavorParam = normalizeToken(searchParams.get('flavor'));
   const isFoodGridPath = pathname === '/food';
+
+  const parsedParams = useMemo(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    const query = normalizeToken(params.get('query'));
+    const cuisine = parseListParam(params, 'cuisine');
+    const flavor = parseListParam(params, 'flavor');
+    const price = parseListParam(params, 'price');
+    const vibe = parseListParam(params, 'vibe');
+    const legacyIdentityValue = normalizeToken(params.get('identity'));
+    const mergedVibe = vibe.length > 0 ? vibe : legacyIdentityValue ? [legacyIdentityValue] : [];
+    return { query, cuisine, flavor, price, mergedVibe };
+  }, [searchParams]);
 
   const [rows, setRows] = useState<DishEntry[]>([]);
   const [view, setView] = useState<FoodViewMode>('grid');
-  const [searchText, setSearchText] = useState(queryParam);
+  const [searchText, setSearchText] = useState(parsedParams.query);
   const [restaurantsById, setRestaurantsById] = useState<Record<string, RestaurantLookup>>({});
-  const [identityFilter, setIdentityFilter] = useState<'all' | DishIdentityTag>(identityParam);
-  const [cuisineFilter, setCuisineFilter] = useState<string>(cuisineParam || 'all');
-  const [flavorFilter, setFlavorFilter] = useState<string>(flavorParam || 'all');
+  const [cuisineFilters, setCuisineFilters] = useState<string[]>(parsedParams.cuisine);
+  const [flavorFilters, setFlavorFilters] = useState<string[]>(parsedParams.flavor);
+  const [priceFilters, setPriceFilters] = useState<PriceBucket[]>(
+    parsedParams.price.filter((value): value is PriceBucket => PRICE_OPTIONS.some((entry) => entry.value === value)),
+  );
+  const [vibeFilters, setVibeFilters] = useState<DishIdentityTag[]>(
+    parsedParams.mergedVibe.filter((value): value is DishIdentityTag => VIBE_OPTIONS.some((entry) => entry.value === value)),
+  );
   const [photoByDishEntryId, setPhotoByDishEntryId] = useState<Record<string, SignedPhoto>>({});
   const [catalogByDishKey, setCatalogByDishKey] = useState<Record<string, DishCatalogLookup>>({});
 
@@ -198,7 +162,7 @@ export default function FoodPage() {
 
       const query = supabase
         .from('dish_entries')
-        .select('id,dish_name,dish_key,restaurant_id,identity_tag,cuisine,flavor_tags,eaten_at,created_at,source_upload_id')
+        .select('id,dish_name,dish_key,restaurant_id,identity_tag,cuisine,flavor_tags,comment,price_original,eaten_at,created_at,source_upload_id')
         .eq('user_id', user.id)
         .not('hangout_id', 'is', null)
         .order('eaten_at', { ascending: false, nullsFirst: false })
@@ -273,42 +237,46 @@ export default function FoodPage() {
 
   useEffect(() => {
     if (!isFoodGridPath) return;
-    const nextIdentity = identityParam;
-    const nextCuisine = cuisineParam || 'all';
-    const nextFlavor = flavorParam || 'all';
 
-    setIdentityFilter((prev) => (prev === nextIdentity ? prev : nextIdentity));
-    setCuisineFilter((prev) => (prev === nextCuisine ? prev : nextCuisine));
-    setFlavorFilter((prev) => (prev === nextFlavor ? prev : nextFlavor));
-  }, [cuisineParam, flavorParam, identityParam, isFoodGridPath]);
-
-  useEffect(() => {
-    if (!isFoodGridPath) return;
-    setSearchText(queryParam);
-  }, [isFoodGridPath, queryParam]);
+    setSearchText(parsedParams.query);
+    setCuisineFilters(parsedParams.cuisine);
+    setFlavorFilters(parsedParams.flavor);
+    setPriceFilters(parsedParams.price.filter((value): value is PriceBucket => PRICE_OPTIONS.some((entry) => entry.value === value)));
+    setVibeFilters(parsedParams.mergedVibe.filter((value): value is DishIdentityTag => VIBE_OPTIONS.some((entry) => entry.value === value)));
+  }, [isFoodGridPath, parsedParams]);
 
   useEffect(() => {
     if (!isFoodGridPath) return;
+
     const nextParams = new URLSearchParams(searchParams.toString());
     const normalizedSearch = normalizeToken(searchText);
 
-    if (identityFilter === 'all') nextParams.delete('identity');
-    else nextParams.set('identity', identityFilter);
-
-    if (cuisineFilter === 'all') nextParams.delete('cuisine');
-    else nextParams.set('cuisine', cuisineFilter);
-
-    if (flavorFilter === 'all') nextParams.delete('flavor');
-    else nextParams.set('flavor', flavorFilter);
-
     if (!normalizedSearch) nextParams.delete('query');
     else nextParams.set('query', normalizedSearch);
+
+    if (cuisineFilters.length === 0) nextParams.delete('cuisine');
+    else nextParams.set('cuisine', serializeList(cuisineFilters));
+
+    if (flavorFilters.length === 0) nextParams.delete('flavor');
+    else nextParams.set('flavor', serializeList(flavorFilters));
+
+    if (priceFilters.length === 0) nextParams.delete('price');
+    else nextParams.set('price', serializeList(priceFilters));
+
+    if (vibeFilters.length === 0) {
+      nextParams.delete('vibe');
+      nextParams.delete('identity');
+    } else {
+      nextParams.set('vibe', serializeList(vibeFilters));
+      if (vibeFilters.length === 1) nextParams.set('identity', vibeFilters[0]);
+      else nextParams.delete('identity');
+    }
 
     const current = searchParams.toString();
     const next = nextParams.toString();
     if (current === next) return;
     router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
-  }, [cuisineFilter, flavorFilter, identityFilter, isFoodGridPath, pathname, router, searchParams, searchText]);
+  }, [cuisineFilters, flavorFilters, isFoodGridPath, pathname, priceFilters, router, searchParams, searchText, vibeFilters]);
 
   const cuisineOptions = useMemo<FilterOption[]>(() => {
     const values = new Set<string>();
@@ -318,7 +286,9 @@ export default function FoodPage() {
       if (normalized) values.add(normalized);
     }
 
-    return [{ value: 'all', label: 'All' }, ...Array.from(values).sort().map((value) => ({ value, label: titleCase(value) }))];
+    return Array.from(values)
+      .sort()
+      .map((value) => ({ value, label: titleCase(value) }));
   }, [catalogByDishKey, rows]);
 
   const flavorOptions = useMemo<FilterOption[]>(() => {
@@ -331,10 +301,51 @@ export default function FoodPage() {
       }
     }
 
-    return [{ value: 'all', label: 'All' }, ...Array.from(values).sort().map((value) => ({ value, label: titleCase(value) }))];
+    return Array.from(values)
+      .sort()
+      .map((value) => ({ value, label: titleCase(value) }));
   }, [catalogByDishKey, rows]);
 
+  const filterConfigs = useMemo<SearchControlFilterConfig[]>(() => {
+    return [
+      {
+        key: 'cuisine',
+        label: 'Cuisine',
+        icon: <UtensilsCrossed size={12} className="text-app-muted" />,
+        options: cuisineOptions,
+        selectedValues: cuisineFilters,
+        onToggle: (value) => setCuisineFilters((current) => toggleListValue(current, value)),
+      },
+      {
+        key: 'flavor',
+        label: 'Flavor',
+        icon: <Flame size={12} className="text-app-muted" />,
+        options: flavorOptions,
+        selectedValues: flavorFilters,
+        onToggle: (value) => setFlavorFilters((current) => toggleListValue(current, value)),
+      },
+      {
+        key: 'price',
+        label: 'Price',
+        icon: <DollarSign size={12} className="text-app-muted" />,
+        options: PRICE_OPTIONS.map((entry) => ({ value: entry.value, label: entry.label })),
+        selectedValues: priceFilters,
+        onToggle: (value) => setPriceFilters((current) => toggleListValue(current, value) as PriceBucket[]),
+      },
+      {
+        key: 'vibe',
+        label: 'Vibe',
+        icon: <Sparkles size={12} className="text-app-muted" />,
+        options: VIBE_OPTIONS.map((entry) => ({ value: entry.value, label: entry.label })),
+        selectedValues: vibeFilters,
+        onToggle: (value) => setVibeFilters((current) => toggleListValue(current, value) as DishIdentityTag[]),
+      },
+    ];
+  }, [cuisineFilters, cuisineOptions, flavorFilters, flavorOptions, priceFilters, vibeFilters]);
+
   const filteredRows = useMemo<GridRow[]>(() => {
+    const searchQuery = normalizeToken(searchText);
+
     const base = rows
       .map((entry) => {
         const stamp = entry.eaten_at ?? entry.created_at;
@@ -350,18 +361,32 @@ export default function FoodPage() {
       .sort((a, b) => parseTime(b.eaten_at ?? b.created_at) - parseTime(a.eaten_at ?? a.created_at));
 
     return base.filter((row) => {
-      const queryMatch =
-        !queryParam || row.dish_name.toLowerCase().includes(queryParam) || row.restaurantName.toLowerCase().includes(queryParam);
-      const identityMatch = identityFilter === 'all' || row.identity_tag === identityFilter;
       const effectiveCuisine = row.cuisine ?? catalogByDishKey[row.dish_key]?.cuisine ?? null;
       const effectiveFlavorTags = row.flavor_tags ?? catalogByDishKey[row.dish_key]?.flavor_tags ?? [];
-      const cuisineMatch = cuisineFilter === 'all' || normalizeToken(effectiveCuisine) === cuisineFilter;
-      const flavorMatch =
-        flavorFilter === 'all' || (effectiveFlavorTags ?? []).some((tag) => normalizeToken(tag) === flavorFilter);
+      const bucket = priceBucket(row.price_original);
 
-      return queryMatch && identityMatch && cuisineMatch && flavorMatch;
+      const searchMatch =
+        !searchQuery ||
+        [
+          row.dish_name,
+          row.restaurantName,
+          effectiveCuisine,
+          ...(effectiveFlavorTags ?? []),
+          row.comment,
+        ]
+          .map((value) => normalizeToken(value))
+          .filter(Boolean)
+          .some((value) => value.includes(searchQuery));
+
+      const cuisineMatch = cuisineFilters.length === 0 || cuisineFilters.includes(normalizeToken(effectiveCuisine));
+      const flavorMatch =
+        flavorFilters.length === 0 || (effectiveFlavorTags ?? []).some((tag) => flavorFilters.includes(normalizeToken(tag)));
+      const priceMatch = priceFilters.length === 0 || (bucket !== null && priceFilters.includes(bucket));
+      const vibeMatch = vibeFilters.length === 0 || (row.identity_tag !== null && vibeFilters.includes(row.identity_tag));
+
+      return searchMatch && cuisineMatch && flavorMatch && priceMatch && vibeMatch;
     });
-  }, [catalogByDishKey, cuisineFilter, flavorFilter, identityFilter, photoByDishEntryId, queryParam, restaurantsById, rows]);
+  }, [catalogByDishKey, cuisineFilters, flavorFilters, photoByDishEntryId, priceFilters, restaurantsById, rows, searchText, vibeFilters]);
 
   const groupedRows = useMemo(() => {
     const map = new Map<string, { label: string; rows: GridRow[] }>();
@@ -386,125 +411,76 @@ export default function FoodPage() {
   );
 
   const isFoodDetailOpen = modalSegments[0] === 'food' && typeof modalSegments[1] === 'string';
-  const hasActiveFilters = identityFilter !== 'all' || cuisineFilter !== 'all' || flavorFilter !== 'all';
+  const hasActiveFilters =
+    Boolean(searchText.trim()) || cuisineFilters.length > 0 || flavorFilters.length > 0 || priceFilters.length > 0 || vibeFilters.length > 0;
 
   return (
     <div className={cn('space-y-3 pb-5', isFoodDetailOpen && 'select-none')}>
-      <section className="card-surface space-y-2 p-3">
-        <div className="inline-flex h-9 items-center rounded-xl border border-app-border bg-app-card p-1">
-          <button
-            type="button"
-            onClick={() => setView('grid')}
-            className={cn(
-              'inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs font-medium',
-              view === 'grid' ? 'bg-app-primary text-app-primary-text' : 'text-app-muted',
-            )}
-          >
-            <LayoutGrid size={13} />
-            Grid
-          </button>
-          <button
-            type="button"
-            onClick={() => setView('timeline')}
-            className={cn(
-              'inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs font-medium',
-              view === 'timeline' ? 'bg-app-primary text-app-primary-text' : 'text-app-muted',
-            )}
-          >
-            <Rows3 size={13} />
-            Timeline
-          </button>
-        </div>
+      <SearchControlsCard
+        view={view}
+        onViewChange={(next) => setView(next as FoodViewMode)}
+        searchValue={searchText}
+        onSearchChange={setSearchText}
+        searchPlaceholder="Search dishes, cuisines, or restaurants"
+        filters={filterConfigs}
+        hasActiveFilters={hasActiveFilters}
+        onClearAll={() => {
+          setSearchText('');
+          setCuisineFilters([]);
+          setFlavorFilters([]);
+          setPriceFilters([]);
+          setVibeFilters([]);
+        }}
+      />
 
-        <div className="relative">
-          <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-muted" />
-          <input
-            value={searchText}
-            onChange={(event) => setSearchText(event.target.value)}
-            placeholder="Search places, people, or dishes"
-            className="h-11 w-full rounded-xl border border-app-border bg-app-bg pl-9 pr-3 text-sm text-app-text"
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          <FilterDropdown label="Cuisine" selectedValue={cuisineFilter} onSelect={setCuisineFilter} options={cuisineOptions} />
-          <FilterDropdown label="Flavor" selectedValue={flavorFilter} onSelect={setFlavorFilter} options={flavorOptions} />
-          <FilterDropdown
-            label="Vibe"
-            selectedValue={identityFilter}
-            onSelect={(value) => setIdentityFilter(value as 'all' | DishIdentityTag)}
-            options={IDENTITY_OPTIONS}
-          />
-          {hasActiveFilters ? (
-            <button
-              type="button"
-              onClick={() => {
-                setIdentityFilter('all');
-                setCuisineFilter('all');
-                setFlavorFilter('all');
-              }}
-              className="inline-flex h-8 items-center rounded-full border border-app-border px-3 text-xs font-medium text-app-muted"
-            >
-              Clear all
-            </button>
-          ) : null}
-        </div>
-      </section>
-
-      {groupedRows.length === 0 ? (
+      {filteredRows.length === 0 ? (
         <p className="empty-surface">No food yet.</p>
       ) : view === 'grid' ? (
-        groupedRows.map((group) => (
-          <section key={group.key} className="space-y-1.5">
-            <h2 className="px-0.5 text-xs font-semibold uppercase tracking-wide text-app-muted">{group.label}</h2>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {filteredRows.map((row) => {
+            const target = row.dish_key ? `/food/${row.dish_key}` : `/uploads/${row.source_upload_id}`;
+            return (
+              <button
+                key={row.id}
+                type="button"
+                onClick={() => {
+                  if (row.dish_key) {
+                    window.sessionStorage.setItem(GRID_KEYS_STORAGE, JSON.stringify(visibleFoodKeys));
+                    const currentParams = searchParams.toString();
+                    const nextHref = currentParams ? `/food/${row.dish_key}?${currentParams}` : `/food/${row.dish_key}`;
+                    router.push(nextHref, { scroll: false });
+                    return;
+                  }
+                  router.push(target, { scroll: false });
+                }}
+                className="overflow-hidden rounded-xl border border-app-border bg-app-card text-left"
+              >
+                {row.photo?.signedUrls.thumb ? (
+                  <Image
+                    src={row.photo.signedUrls.thumb}
+                    alt={`${row.dish_name} thumbnail`}
+                    width={360}
+                    height={280}
+                    className="h-36 w-full object-cover"
+                    unoptimized
+                  />
+                ) : (
+                  <div className="flex h-36 w-full items-center justify-center bg-gradient-to-br from-emerald-100 to-lime-100 text-xs font-medium text-emerald-800">
+                    Add a food photo
+                  </div>
+                )}
 
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {group.rows.map((row) => {
-                const target = row.dish_key ? `/food/${row.dish_key}` : `/uploads/${row.source_upload_id}`;
-                return (
-                  <button
-                    key={row.id}
-                    type="button"
-                    onClick={() => {
-                      if (row.dish_key) {
-                        window.sessionStorage.setItem(GRID_KEYS_STORAGE, JSON.stringify(visibleFoodKeys));
-                        const currentParams = searchParams.toString();
-                        const nextHref = currentParams ? `/food/${row.dish_key}?${currentParams}` : `/food/${row.dish_key}`;
-                        router.push(nextHref, { scroll: false });
-                        return;
-                      }
-                      router.push(target, { scroll: false });
-                    }}
-                    className="overflow-hidden rounded-xl border border-app-border bg-app-card text-left"
-                  >
-                    {row.photo?.signedUrls.thumb ? (
-                      <Image
-                        src={row.photo.signedUrls.thumb}
-                        alt={`${row.dish_name} thumbnail`}
-                        width={360}
-                        height={280}
-                        className="h-36 w-full object-cover"
-                        unoptimized
-                      />
-                    ) : (
-                      <div className="flex h-36 w-full items-center justify-center bg-gradient-to-br from-emerald-100 to-lime-100 text-xs font-medium text-emerald-800">
-                        Add a dish photo
-                      </div>
-                    )}
-
-                    <div className="space-y-1 px-2 py-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="truncate text-sm font-medium text-app-text">{row.dish_name}</p>
-                        {row.identity_tag ? <IdentityTagPill tag={row.identity_tag} /> : null}
-                      </div>
-                      <p className="truncate text-xs text-app-muted">{row.restaurantName}</p>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-        ))
+                <div className="space-y-1 px-2 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="truncate text-sm font-medium text-app-text">{row.dish_name}</p>
+                    {row.identity_tag ? <IdentityTagPill tag={row.identity_tag} /> : null}
+                  </div>
+                  <p className="truncate text-xs text-app-muted">{row.restaurantName}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
       ) : (
         groupedRows.map((group) => (
           <section key={group.key} className="space-y-1.5">
