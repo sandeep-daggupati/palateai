@@ -24,6 +24,7 @@ export type HangoutCardItem = {
   timestamp: number;
   href: string;
   coverPhotoUrl: string | null;
+  participantCount: number;
   crew: HangoutCrewMember[];
   vibeKeys: HangoutVibeKey[];
   vibeBadges: string[];

@@ -7,8 +7,6 @@ import { HangoutCardItem } from '@/components/hangouts/types';
 import { hangoutVibeLabel } from '@/lib/hangouts/vibes';
 
 export function HangoutCard({ item }: { item: HangoutCardItem }) {
-  const shownCrew = item.crew.slice(0, 3);
-  const extraCrew = item.crew.length - shownCrew.length;
   const visibleVibes = item.vibeKeys.map(hangoutVibeLabel);
 
   return (
@@ -51,19 +49,11 @@ export function HangoutCard({ item }: { item: HangoutCardItem }) {
         </div>
 
         <div className="flex items-center justify-between gap-2 pt-0.5">
-          <div className="flex items-center gap-1">
-            <Users size={12} className="text-app-muted" />
-            <div className="flex items-center gap-1">
-              {shownCrew.map((member) => (
-                <span key={member.id} className="inline-flex h-5 items-center rounded-full border border-app-border bg-app-bg px-1.5 text-[10px] text-app-muted">
-                  {member.displayName}
-                </span>
-              ))}
-              {extraCrew > 0 ? <span className="text-[10px] text-app-muted">+{extraCrew}</span> : null}
-            </div>
-          </div>
-
           <div className="flex items-center gap-2 text-[11px] text-app-muted">
+            <span className="inline-flex items-center gap-1">
+              <Users size={12} />
+              {item.participantCount}
+            </span>
             <span className="inline-flex items-center gap-1">
               <Camera size={12} />
               {item.photoCount}
