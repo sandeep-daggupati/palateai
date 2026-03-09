@@ -37,18 +37,17 @@ export function HangoutCard({ item }: { item: HangoutCardItem }) {
           ) : null}
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="inline-flex h-6 items-center rounded-full border border-app-border bg-app-bg px-2 text-[11px] text-app-muted">
-            {item.ownershipLabel}
-          </span>
-          {visibleVibes.map((badge) => (
-            <span key={badge} className="inline-flex h-6 items-center rounded-full border border-app-border bg-app-bg px-2 text-[11px] font-medium text-app-muted">
-              {badge}
-            </span>
-          ))}
-          <span className="inline-flex h-6 items-center rounded-full border border-app-border bg-app-bg px-2 text-[11px] text-app-muted">
-            {item.dateLabel}
-          </span>
+        <div className="space-y-1">
+          <p className="text-xs text-app-muted">
+            {item.dateLabel} · {item.ownershipLabel}
+          </p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {visibleVibes.map((badge) => (
+              <span key={badge} className="inline-flex h-6 items-center rounded-full border border-app-border bg-app-bg px-2 text-[11px] font-medium text-app-muted">
+                {badge}
+              </span>
+            ))}
+          </div>
         </div>
 
         <div className="flex items-center justify-between gap-2 pt-0.5">
