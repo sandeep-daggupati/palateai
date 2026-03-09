@@ -27,6 +27,10 @@ type CrewMember = VisitParticipant & {
   display_name: string | null;
   avatar_url: string | null;
 };
+type CreatorProfile = {
+  display_name: string | null;
+  email: string | null;
+};
 
 type ShareUserSuggestion = {
   id: string;
@@ -225,6 +229,7 @@ export default function UploadDetailPage() {
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [upload, setUpload] = useState<ReceiptUpload | null>(null);
+  const [creatorProfile, setCreatorProfile] = useState<CreatorProfile | null>(null);
   const [restaurant, setRestaurant] = useState<RestaurantDirectory | null>(null);
 
   const [dishes, setFood] = useState<UnifiedDishRow[]>([]);
@@ -438,6 +443,7 @@ export default function UploadDetailPage() {
 
     if (!typedUpload || !user) {
       setRestaurant(null);
+      setCreatorProfile(null);
       setFood([]);
       setVibeTags([]);
       setDetectedMerchant(null);
@@ -449,6 +455,13 @@ export default function UploadDetailPage() {
       setParticipants([]);
       return;
     }
+
+    const { data: creatorProfileData } = await supabase
+      .from('profiles')
+      .select('display_name,email')
+      .eq('id', typedUpload.user_id)
+      .maybeSingle();
+    setCreatorProfile((creatorProfileData ?? null) as CreatorProfile | null);
 
     const restaurantPromise = typedUpload.restaurant_id
       ? supabase.from('restaurants').select('id,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync').eq('id', typedUpload.restaurant_id).single()
@@ -1458,6 +1471,10 @@ export default function UploadDetailPage() {
   const openNow = getOpenNowStatus(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
   const showUnsavedIndicator = hasUnsavedChanges || (savedFoodFingerprint.length > 0 && savedFoodFingerprint !== draftFoodFingerprint);
   const showFromReceiptHint = draftOccurredAtSource === 'receipt';
+  const creatorLabel =
+    currentUserId && upload.user_id === currentUserId
+      ? 'You created'
+      : `Added by ${creatorProfile?.display_name || creatorProfile?.email?.split('@')[0] || 'a friend'}`;
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-3 pb-4">
@@ -1561,6 +1578,7 @@ export default function UploadDetailPage() {
                 ) : null}
               </>
             )}
+            <span>· {creatorLabel}</span>
             <span>· With {withLabel}</span>
           </div>
           <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -2431,7 +2449,6 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
 
 
 
