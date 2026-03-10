@@ -17,6 +17,9 @@ export type Database = {
           name: string;
           place_id: string | null;
           address: string | null;
+          custom_name: string | null;
+          approx_address: string | null;
+          accuracy_meters: number | null;
           lat: number | null;
           lng: number | null;
           phone_number: string | null;
@@ -37,6 +40,9 @@ export type Database = {
           name: string;
           place_id?: string | null;
           address?: string | null;
+          custom_name?: string | null;
+          approx_address?: string | null;
+          accuracy_meters?: number | null;
           lat?: number | null;
           lng?: number | null;
           phone_number?: string | null;
@@ -57,6 +63,9 @@ export type Database = {
           name?: string;
           place_id?: string | null;
           address?: string | null;
+          custom_name?: string | null;
+          approx_address?: string | null;
+          accuracy_meters?: number | null;
           lat?: number | null;
           lng?: number | null;
           phone_number?: string | null;

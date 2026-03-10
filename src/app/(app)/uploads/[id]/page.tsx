@@ -73,6 +73,9 @@ type RestaurantDirectory = Pick<
   | 'place_type'
   | 'name'
   | 'address'
+  | 'custom_name'
+  | 'approx_address'
+  | 'accuracy_meters'
   | 'lat'
   | 'lng'
   | 'place_id'
@@ -523,7 +526,7 @@ export default function UploadDetailPage() {
     setCreatorProfile((creatorProfileData ?? null) as CreatorProfile | null);
 
     const restaurantPromise = typedUpload.restaurant_id
-      ? supabase.from('restaurants').select('id,place_type,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync').eq('id', typedUpload.restaurant_id).single()
+      ? supabase.from('restaurants').select('id,place_type,name,address,custom_name,approx_address,accuracy_meters,lat,lng,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync').eq('id', typedUpload.restaurant_id).single()
       : Promise.resolve({ data: null });
 
     const myEntriesPrimary = await supabase
@@ -1094,7 +1097,7 @@ export default function UploadDetailPage() {
         .from('restaurants')
         .update({ name: nextName })
         .eq('id', restaurant.id)
-        .select('id,place_type,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
+        .select('id,place_type,name,address,custom_name,approx_address,accuracy_meters,lat,lng,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
         .single();
       if (error) throw error;
 
@@ -1136,7 +1139,7 @@ export default function UploadDetailPage() {
                 maps_url: detailsPayload.googleMapsUrl ?? null,
               })
               .eq('id', existingRestaurant.id)
-              .select('id,place_type,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
+              .select('id,place_type,name,address,custom_name,approx_address,accuracy_meters,lat,lng,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
               .single()
           : await supabase
               .from('restaurants')
@@ -1150,7 +1153,7 @@ export default function UploadDetailPage() {
                 lng: detailsPayload.lng,
                 maps_url: detailsPayload.googleMapsUrl ?? null,
               })
-              .select('id,place_type,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
+              .select('id,place_type,name,address,custom_name,approx_address,accuracy_meters,lat,lng,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
               .single();
 
         if (restaurantMutation.error || !restaurantMutation.data) throw restaurantMutation.error ?? new Error('Could not save restaurant');
@@ -1213,7 +1216,7 @@ export default function UploadDetailPage() {
           name,
           address: manualRestaurantAddress.trim() || null,
         })
-        .select('id,place_type,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
+        .select('id,place_type,name,address,custom_name,approx_address,accuracy_meters,lat,lng,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
         .single();
       if (restaurantError) throw restaurantError;
 
@@ -1248,12 +1251,15 @@ export default function UploadDetailPage() {
           user_id: currentUserId,
           place_type: 'pinned',
           name,
+          custom_name: pinnedRestaurantName.trim() || null,
+          approx_address: pinnedRestaurantAddress.trim() || null,
           place_id: null,
           address: pinnedRestaurantAddress.trim() || null,
+          accuracy_meters: null,
           lat: pinnedRestaurantCoords.lat,
           lng: pinnedRestaurantCoords.lng,
         })
-        .select('id,place_type,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
+        .select('id,place_type,name,address,custom_name,approx_address,accuracy_meters,lat,lng,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
         .single();
       if (restaurantError) throw restaurantError;
 
@@ -1581,7 +1587,7 @@ export default function UploadDetailPage() {
     .filter((participant) => participant.status === 'active')
     .map((participant) => participant);
   const isSavedHangout = upload.status === 'approved';
-  const directionsHref = getGoogleMapsLink(restaurant?.place_id, restaurant?.address, restaurant?.lat, restaurant?.lng, restaurant?.name);
+  const directionsHref = getGoogleMapsLink(restaurant?.place_id, restaurant?.address, restaurant?.lat, restaurant?.lng, restaurant?.name, restaurant?.place_type);
   const todayHours = getTodayHours(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
   const openNow = getOpenNowStatus(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
   const showUnsavedIndicator = hasUnsavedChanges || (savedFoodFingerprint.length > 0 && savedFoodFingerprint !== draftFoodFingerprint);
@@ -2626,7 +2632,6 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
 
 
 
