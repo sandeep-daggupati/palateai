@@ -61,16 +61,20 @@ export async function uploadHangoutPhoto(hangoutId: string, file: File): Promise
 }
 
 export async function uploadDishPhoto(hangoutId: string, dishEntryId: string, file: File): Promise<SignedPhoto | null> {
-  const form = new FormData();
-  form.append('dish_entry_id', dishEntryId);
-  form.append('file', file);
+  const storageOriginal = await uploadOriginalPhotoDirect({ file, kind: 'dish' });
 
-  const response = await fetch('/api/photos/dish', {
+  const response = await fetch('/api/photos/upload', {
     method: 'POST',
     headers: {
+      'Content-Type': 'application/json',
       ...(await authHeaders()),
     },
-    body: form,
+    body: JSON.stringify({
+      kind: 'dish',
+      hangout_id: hangoutId,
+      dish_entry_id: dishEntryId,
+      storage_original: storageOriginal,
+    }),
   });
   if (!response.ok) return null;
   const payload = (await response.json()) as { photo?: SignedPhoto };
