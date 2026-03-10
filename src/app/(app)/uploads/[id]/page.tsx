@@ -262,7 +262,7 @@ function normalizedDraftKey(name: string, unitPrice: number | null): string {
 
 function initialsFromName(value: string | null): string {
   const cleaned = (value ?? '').trim();
-  if (!cleaned) return '?';
+  if (!cleaned) return 'U';
   const parts = cleaned.split(/\s+/).filter(Boolean);
   if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
   return `${parts[0]?.slice(0, 1) ?? ''}${parts[1]?.slice(0, 1) ?? ''}`.toUpperCase();
@@ -300,6 +300,7 @@ export default function UploadDetailPage() {
   const [dishTriedByByEntryId, setDishTriedByByEntryId] = useState<Record<string, DishTriedBy[]>>({});
   const [myDishHadByEntryId, setMyDishHadByEntryId] = useState<Record<string, boolean>>({});
   const [savedMyDishHadByEntryId, setSavedMyDishHadByEntryId] = useState<Record<string, boolean>>({});
+  const [triedBySheet, setTriedBySheet] = useState<{ dishName: string; entries: DishTriedBy[] } | null>(null);
   const [entryMetaById, setEntryMetaById] = useState<Record<string, { hangout_item_id: string | null; dish_name: string }>>({});
   const [lightboxPhotos, setLightboxPhotos] = useState<SignedPhoto[]>([]);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -919,6 +920,14 @@ export default function UploadDetailPage() {
     void runExtraction();
   }, [canEditVisit, hasAnyExtractedItems, isReceiptCapture, runExtraction, upload]);
 
+  const hasParticipationDraftChanges = useMemo(() => {
+    const entryIds = dishes
+      .map((row) => row.myEntry?.id)
+      .filter((value): value is string => Boolean(value && !value.startsWith('draft-') && !value.startsWith('tmp-')));
+    if (entryIds.length === 0) return false;
+    return entryIds.some((entryId) => (myDishHadByEntryId[entryId] ?? false) !== (savedMyDishHadByEntryId[entryId] ?? false));
+  }, [dishes, myDishHadByEntryId, savedMyDishHadByEntryId]);
+
   useEffect(() => {
     const currentFingerprint = JSON.stringify(
       dishes
@@ -934,7 +943,8 @@ export default function UploadDetailPage() {
         })
         .sort((a, b) => (a.key < b.key ? -1 : 1)),
     );
-    const dirty = hasUnsavedChanges || (savedFoodFingerprint.length > 0 && savedFoodFingerprint !== currentFingerprint);
+    const dirty =
+      hasUnsavedChanges || hasParticipationDraftChanges || (savedFoodFingerprint.length > 0 && savedFoodFingerprint !== currentFingerprint);
     if (!dirty) return;
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
@@ -942,7 +952,7 @@ export default function UploadDetailPage() {
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [dishes, hasUnsavedChanges, savedFoodFingerprint]);
+  }, [dishes, hasParticipationDraftChanges, hasUnsavedChanges, savedFoodFingerprint]);
 
   const ensureDishEntryForRow = useCallback(
     async (row: UnifiedDishRow): Promise<Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'> | null> => {
@@ -991,7 +1001,6 @@ export default function UploadDetailPage() {
       const dishEntryId = row.myEntry?.id;
       if (!dishEntryId || dishEntryId.startsWith('draft-')) return;
       setMyDishHadByEntryId((prev) => ({ ...prev, [dishEntryId]: nextHadIt }));
-      setHasUnsavedChanges(true);
     },
     [currentUserId],
   );
@@ -1703,7 +1712,8 @@ export default function UploadDetailPage() {
   const directionsHref = getGoogleMapsLink(restaurant?.place_id, restaurant?.address, restaurant?.lat, restaurant?.lng, restaurant?.name, restaurant?.place_type);
   const todayHours = getTodayHours(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
   const openNow = getOpenNowStatus(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
-  const showUnsavedIndicator = hasUnsavedChanges || (savedFoodFingerprint.length > 0 && savedFoodFingerprint !== draftFoodFingerprint);
+  const showUnsavedIndicator =
+    hasUnsavedChanges || hasParticipationDraftChanges || (savedFoodFingerprint.length > 0 && savedFoodFingerprint !== draftFoodFingerprint);
   const showFromReceiptHint = draftOccurredAtSource === 'receipt';
   const creatorLabel =
     currentUserId && upload.user_id === currentUserId
@@ -2408,6 +2418,49 @@ export default function UploadDetailPage() {
         </div>
       ) : null}
 
+      {triedBySheet ? (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/35 sm:items-center">
+          <button
+            type="button"
+            className="absolute inset-0"
+            aria-label="Close tried by list"
+            onClick={() => setTriedBySheet(null)}
+          />
+          <div className="relative w-full max-w-md rounded-t-2xl border border-app-border bg-app-card p-3 sm:rounded-2xl">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-app-text">Who tried this</p>
+                <p className="text-xs text-app-muted">{triedBySheet.dishName}</p>
+              </div>
+              <Button type="button" variant="secondary" size="sm" fullWidth={false} onClick={() => setTriedBySheet(null)}>
+                Close
+              </Button>
+            </div>
+            {triedBySheet.entries.length > 0 ? (
+              <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
+                {triedBySheet.entries.map((entry) => {
+                  const name = entry.display_name?.trim() || 'User';
+                  return (
+                    <div key={entry.id} className="flex items-center gap-2 rounded-lg border border-app-border/70 bg-app-card/60 px-2 py-1.5">
+                      {entry.avatar_url ? (
+                        <Image src={entry.avatar_url} alt={name} width={24} height={24} className="h-6 w-6 rounded-full object-cover" unoptimized />
+                      ) : (
+                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-app-bg text-[10px] font-semibold text-app-muted">
+                          {initialsFromName(name)}
+                        </span>
+                      )}
+                      <span className="text-xs font-medium text-app-text">{name}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-app-muted">No one marked yet.</p>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       <div className="card-surface p-3 space-y-2.5">
         <div className="flex items-center justify-between gap-2">
           <h2 className="section-label">Food</h2>
@@ -2499,7 +2552,7 @@ export default function UploadDetailPage() {
               const catalog = catalogByDishKey[dishKey] ?? null;
 
               return (
-                <div key={row.hangoutItem.id} className={`space-y-1 p-2 ${isNeverAgain ? 'opacity-60' : ''}`}>
+                <div key={dishEntryId ?? row.hangoutItem.id} className={`space-y-1 p-2 ${isNeverAgain ? 'opacity-60' : ''}`}>
                   <div className="flex items-start gap-2">
                     <button
                       type="button"
@@ -2551,7 +2604,23 @@ export default function UploadDetailPage() {
                         <div className="mr-auto flex min-w-0 items-center gap-2">
                           <span className="text-[11px] text-app-muted">Tried by</span>
                           {triedBy.length > 0 ? (
-                            <div className="flex items-center">
+                            <button
+                              type="button"
+                              className="flex items-center rounded-full border border-transparent px-0.5 py-0.5 hover:border-app-border/70"
+                              onClick={() =>
+                                setTriedBySheet({
+                                  dishName,
+                                  entries: triedBy.map((entry) => {
+                                    const fallbackName = participants.find((row) => row.user_id === entry.user_id)?.display_name ?? 'User';
+                                    return {
+                                      ...entry,
+                                      display_name: entry.display_name ?? fallbackName,
+                                    };
+                                  }),
+                                })
+                              }
+                              aria-label={`View who tried ${dishName}`}
+                            >
                               {triedBy.slice(0, 4).map((entry, index) => (
                                 <span
                                   key={entry.id}
@@ -2573,7 +2642,7 @@ export default function UploadDetailPage() {
                                 </span>
                               ))}
                               {triedBy.length > 4 ? <span className="ml-1 text-[11px] text-app-muted">+{triedBy.length - 4}</span> : null}
-                            </div>
+                            </button>
                           ) : (
                             <span className="text-[11px] text-app-muted">No one marked yet</span>
                           )}
