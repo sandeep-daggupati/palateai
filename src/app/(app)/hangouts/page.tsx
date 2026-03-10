@@ -233,7 +233,7 @@ export default function HangoutsPage() {
           .select('id,visit_id,user_id,invited_email,status')
           .in('visit_id', visitIds)
           .neq('status', 'removed'),
-        supabase.from('dish_entries').select('id,hangout_id,dish_name').in('hangout_id', visitIds),
+        supabase.from('dish_entries').select('id,hangout_id,source_upload_id,dish_name').in('hangout_id', visitIds),
         supabase
           .from('photos')
           .select('id,hangout_id,storage_thumb,created_at')
@@ -274,7 +274,19 @@ export default function HangoutsPage() {
         }
       }
 
-      const dishRows = ((dishResult.data ?? []) as Array<{ id: string; hangout_id: string | null; dish_name?: string | null }>);
+      const dishRows = ((dishResult.data ?? []) as Array<{ id: string; hangout_id: string | null; source_upload_id: string | null; dish_name?: string | null }>);
+
+      const dishEntryIds = dishRows.map((row) => row.id).filter(Boolean);
+      const { data: dishPhotoRowsRaw } =
+        dishEntryIds.length > 0
+          ? await supabase
+              .from('photos')
+              .select('id,dish_entry_id,storage_thumb,created_at')
+              .eq('kind', 'dish')
+              .in('dish_entry_id', dishEntryIds)
+              .order('created_at', { ascending: false })
+          : { data: [] as Array<Pick<Photo, 'id' | 'dish_entry_id' | 'storage_thumb' | 'created_at'>> };
+      const dishPhotoRows = (dishPhotoRowsRaw ?? []) as Array<Pick<Photo, 'id' | 'dish_entry_id' | 'storage_thumb' | 'created_at'>>;
 
       const dishCountByHangout = dishRows.reduce(
         (acc, row) => {
@@ -300,7 +312,24 @@ export default function HangoutsPage() {
         }
       }
 
-      const paths = Object.values(firstPhotoPathByHangout);
+      const hangoutIdByDishEntryId = dishRows.reduce((acc, row) => {
+        const hangoutId = row.source_upload_id ?? row.hangout_id;
+        if (!hangoutId) return acc;
+        acc[row.id] = hangoutId;
+        return acc;
+      }, {} as Record<string, string>);
+
+      const firstDishPhotoPathByHangout: Record<string, string> = {};
+      for (const row of dishPhotoRows) {
+        if (!row.dish_entry_id) continue;
+        const hangoutId = hangoutIdByDishEntryId[row.dish_entry_id];
+        if (!hangoutId) continue;
+        if (!firstDishPhotoPathByHangout[hangoutId]) {
+          firstDishPhotoPathByHangout[hangoutId] = row.storage_thumb;
+        }
+      }
+
+      const paths = Array.from(new Set([...Object.values(firstPhotoPathByHangout), ...Object.values(firstDishPhotoPathByHangout)]));
       const signedByPath: Record<string, string> = {};
       if (paths.length > 0) {
         const { data: signedUrls } = await supabase.storage.from('uploads').createSignedUrls(paths, 60 * 20);
@@ -380,7 +409,11 @@ export default function HangoutsPage() {
           isOwnedByCurrentUser: visit.user_id === user.id,
           timestamp: normalizedTimestamp,
           href: `/uploads/${visit.id}`,
-          coverPhotoUrl: firstPhotoPathByHangout[visit.id] ? signedByPath[firstPhotoPathByHangout[visit.id]] ?? null : null,
+          coverPhotoUrl: (() => {
+            const bestPath = firstPhotoPathByHangout[visit.id] ?? firstDishPhotoPathByHangout[visit.id] ?? null;
+            if (!bestPath) return null;
+            return signedByPath[bestPath] ?? null;
+          })(),
           participantCount: participantCountByVisitId[visit.id] ?? 1,
           crew,
           vibeKeys,
