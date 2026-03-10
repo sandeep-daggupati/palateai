@@ -191,14 +191,23 @@ export async function POST(request: Request) {
 
     const typedSavedEntries = (savedEntries ?? []) as Array<{ id: string; dish_key: string; dish_name: string }>;
     if (typedSavedEntries.length > 0) {
-      await supabase.from('dish_entry_participants').upsert(
-        typedSavedEntries.map((entry) => ({
-          dish_entry_id: entry.id,
-          user_id: upload.user_id,
-          had_it: true,
-        })),
-        { onConflict: 'dish_entry_id,user_id' },
-      );
+      const { count: activeParticipantCount } = await supabase
+        .from('visit_participants')
+        .select('id', { count: 'exact', head: true })
+        .eq('visit_id', upload.id)
+        .eq('status', 'active');
+
+      const isSoloHangout = (activeParticipantCount ?? 0) <= 1;
+      if (isSoloHangout) {
+        await supabase.from('dish_entry_participants').upsert(
+          typedSavedEntries.map((entry) => ({
+            dish_entry_id: entry.id,
+            user_id: upload.user_id,
+            had_it: true,
+          })),
+          { onConflict: 'dish_entry_id,user_id' },
+        );
+      }
       await Promise.all(
         typedSavedEntries.map(async (entry) => {
           if (!entry.dish_key) return;

@@ -298,6 +298,8 @@ export default function UploadDetailPage() {
   const [hangoutPhotos, setHangoutPhotos] = useState<SignedPhoto[]>([]);
   const [dishPhotosByItemId, setDishPhotosByItemId] = useState<Record<string, SignedPhoto[]>>({});
   const [dishTriedByByEntryId, setDishTriedByByEntryId] = useState<Record<string, DishTriedBy[]>>({});
+  const [myDishHadByEntryId, setMyDishHadByEntryId] = useState<Record<string, boolean>>({});
+  const [savedMyDishHadByEntryId, setSavedMyDishHadByEntryId] = useState<Record<string, boolean>>({});
   const [entryMetaById, setEntryMetaById] = useState<Record<string, { hangout_item_id: string | null; dish_name: string }>>({});
   const [lightboxPhotos, setLightboxPhotos] = useState<SignedPhoto[]>([]);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -514,6 +516,8 @@ export default function UploadDetailPage() {
       setCreatorProfile(null);
       setFood([]);
       setDishTriedByByEntryId({});
+      setMyDishHadByEntryId({});
+      setSavedMyDishHadByEntryId({});
       setVibeTags([]);
       setDetectedMerchant(null);
       setDraftOccurredAt(null);
@@ -556,16 +560,25 @@ export default function UploadDetailPage() {
 
     const entryIds = hangoutEntries.map((entry) => entry.id);
     let nextDishTriedByByEntryId: Record<string, DishTriedBy[]> = {};
+    let nextMyDishHadByEntryId: Record<string, boolean> = {};
     if (entryIds.length > 0) {
       const { data: triedRows } = await supabase
         .from('dish_entry_participants')
         .select('id,dish_entry_id,user_id,had_it')
-        .in('dish_entry_id', entryIds)
-        .eq('had_it', true);
+        .in('dish_entry_id', entryIds);
 
       const participantRows = ((triedRows ?? []) as Array<Pick<DishEntryParticipant, 'id' | 'dish_entry_id' | 'user_id' | 'had_it'>>).filter(
         (row) => row.user_id && row.dish_entry_id,
       );
+      nextMyDishHadByEntryId = participantRows
+        .filter((row) => row.user_id === user.id)
+        .reduce(
+          (acc, row) => {
+            acc[row.dish_entry_id] = row.had_it;
+            return acc;
+          },
+          {} as Record<string, boolean>,
+        );
       const participantUserIds = Array.from(new Set(participantRows.map((row) => row.user_id).filter(Boolean)));
       const { data: profileRows } =
         participantUserIds.length > 0
@@ -575,7 +588,9 @@ export default function UploadDetailPage() {
         ((profileRows ?? []) as Array<{ id: string; display_name: string | null; avatar_url: string | null }>).map((row) => [row.id, row]),
       );
 
-      nextDishTriedByByEntryId = participantRows.reduce(
+      nextDishTriedByByEntryId = participantRows
+        .filter((row) => row.had_it)
+        .reduce(
         (acc, row) => {
           const profile = profileById.get(row.user_id);
           if (!acc[row.dish_entry_id]) acc[row.dish_entry_id] = [];
@@ -663,6 +678,8 @@ export default function UploadDetailPage() {
     setHasUnsavedChanges(false);
     setCatalogByDishKey(nextCatalogByDishKey);
     setDishTriedByByEntryId(nextDishTriedByByEntryId);
+    setMyDishHadByEntryId(nextMyDishHadByEntryId);
+    setSavedMyDishHadByEntryId(nextMyDishHadByEntryId);
     setEntryMetaById(entryMap);
     setRestaurant((restaurantData.data ?? null) as RestaurantDirectory | null);
     setVibeTags(normalizeHangoutVibeTags(Array.isArray(typedUpload.vibe_tags) ? typedUpload.vibe_tags.filter((value): value is string => typeof value === 'string') : []));
@@ -969,47 +986,14 @@ export default function UploadDetailPage() {
   );
 
   const toggleMyDishHadIt = useCallback(
-    async (row: UnifiedDishRow, nextHadIt: boolean) => {
+    (row: UnifiedDishRow, nextHadIt: boolean) => {
       if (!currentUserId) return;
       const dishEntryId = row.myEntry?.id;
       if (!dishEntryId || dishEntryId.startsWith('draft-')) return;
-
-      const fallbackName = participants.find((entry) => entry.user_id === currentUserId)?.display_name ?? 'You';
-      setDishTriedByByEntryId((prev) => {
-        const existing = prev[dishEntryId] ?? [];
-        const withoutSelf = existing.filter((entry) => entry.user_id !== currentUserId);
-        const next = nextHadIt
-          ? [
-              ...withoutSelf,
-              {
-                id: `local-${dishEntryId}-${currentUserId}`,
-                dish_entry_id: dishEntryId,
-                user_id: currentUserId,
-                had_it: true,
-                display_name: fallbackName,
-                avatar_url: null,
-              },
-            ]
-          : withoutSelf;
-        return { ...prev, [dishEntryId]: next };
-      });
-
-      const supabase = getBrowserSupabaseClient();
-      const mutation = await supabase.from('dish_entry_participants').upsert(
-        {
-          dish_entry_id: dishEntryId,
-          user_id: currentUserId,
-          had_it: nextHadIt,
-        },
-        { onConflict: 'dish_entry_id,user_id' },
-      );
-
-      if (mutation.error) {
-        setSaveHangoutError(mutation.error.message);
-        await load();
-      }
+      setMyDishHadByEntryId((prev) => ({ ...prev, [dishEntryId]: nextHadIt }));
+      setHasUnsavedChanges(true);
     },
-    [currentUserId, load, participants],
+    [currentUserId],
   );
 
   const addManualDishItem = useCallback(async () => {
@@ -1494,6 +1478,7 @@ export default function UploadDetailPage() {
       const promotedImagePaths = await promoteTempReceiptImages();
       const supabase = getBrowserSupabaseClient();
       const preservedEntryIds = new Set<string>();
+      const resolvedDishEntryIdsByRowId: Record<string, string> = {};
       const effectiveRestaurantId = upload.restaurant_id;
 
       const effectiveOccurredAt = draftOccurredAt ?? upload.visited_at ?? upload.created_at ?? new Date().toISOString();
@@ -1539,15 +1524,7 @@ export default function UploadDetailPage() {
         if (saveResult.error || !saveResult.data) throw saveResult.error ?? new Error('Failed to save food entry');
         const typedSavedEntry = saveResult.data as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
         preservedEntryIds.add(typedSavedEntry.id);
-        const { error: hadItError } = await supabase.from('dish_entry_participants').upsert(
-          {
-            dish_entry_id: typedSavedEntry.id,
-            user_id: currentUserId,
-            had_it: true,
-          },
-          { onConflict: 'dish_entry_id,user_id' },
-        );
-        if (hadItError) throw hadItError;
+        resolvedDishEntryIdsByRowId[row.hangoutItem.id] = typedSavedEntry.id;
         setFood((prev) =>
           prev.map((entry) =>
             entry.hangoutItem.id === row.hangoutItem.id
@@ -1562,6 +1539,43 @@ export default function UploadDetailPage() {
               : entry,
           ),
         );
+      }
+
+      const activeParticipantCount = participants.filter((participant) => participant.status === 'active').length;
+      const isSoloHangout = activeParticipantCount <= 1;
+      const participationRows = activeFood
+        .map((row) => {
+          const persistedDishEntryId = resolvedDishEntryIdsByRowId[row.hangoutItem.id] ?? row.myEntry?.id ?? null;
+          if (!persistedDishEntryId || persistedDishEntryId.startsWith('draft-')) return null;
+          const explicitDraft = myDishHadByEntryId[persistedDishEntryId];
+          const priorValue = savedMyDishHadByEntryId[persistedDishEntryId];
+
+          if (typeof explicitDraft === 'boolean') {
+            if (explicitDraft === priorValue) return null;
+            return {
+              dish_entry_id: persistedDishEntryId,
+              user_id: currentUserId,
+              had_it: explicitDraft,
+            };
+          }
+
+          if (isSoloHangout && typeof priorValue !== 'boolean') {
+            return {
+              dish_entry_id: persistedDishEntryId,
+              user_id: currentUserId,
+              had_it: true,
+            };
+          }
+
+          return null;
+        })
+        .filter((row): row is { dish_entry_id: string; user_id: string; had_it: boolean } => Boolean(row));
+
+      if (participationRows.length > 0) {
+        const { error: participationError } = await supabase
+          .from('dish_entry_participants')
+          .upsert(participationRows, { onConflict: 'dish_entry_id,user_id' });
+        if (participationError) throw participationError;
       }
 
       const { data: existingEntries } = await supabase
@@ -1601,6 +1615,7 @@ export default function UploadDetailPage() {
 
       setSaveHangoutToast('Hangout saved');
       setSavedFoodFingerprint(nextFingerprint);
+      setSavedMyDishHadByEntryId(myDishHadByEntryId);
       setHasUnsavedChanges(false);
       window.setTimeout(() => setSaveHangoutToast(null), 1800);
       await new Promise((resolve) => window.setTimeout(resolve, 500));
@@ -1613,15 +1628,15 @@ export default function UploadDetailPage() {
     dishes,
     draftOccurredAt,
     draftOccurredAtSource,
-
-
+    myDishHadByEntryId,
+    savedMyDishHadByEntryId,
     manualVisitDateEdited,
+    participants,
     promoteTempReceiptImages,
     enrichDishCatalogForEntry,
     restaurant?.name,
     router,
     upload,
-
     vibeTags,
   ]);
 
@@ -2460,8 +2475,26 @@ export default function UploadDetailPage() {
               const isNeverAgain = identityValue === 'never_again';
               const dishPhoto = row.myEntry?.id ? (dishPhotosByItemId[row.myEntry.id]?.[0] ?? null) : null;
               const dishEntryId = row.myEntry?.id ?? null;
-              const triedBy = dishEntryId ? (dishTriedByByEntryId[dishEntryId] ?? []) : [];
-              const currentUserHadThis = Boolean(currentUserId && triedBy.some((entry) => entry.user_id === currentUserId));
+              const baseTriedBy = dishEntryId ? (dishTriedByByEntryId[dishEntryId] ?? []) : [];
+              const myHadThis = Boolean(dishEntryId && myDishHadByEntryId[dishEntryId]);
+              const selfProfile = participants.find((entry) => entry.user_id === currentUserId);
+              const triedBy = (() => {
+                if (!dishEntryId || !currentUserId) return baseTriedBy;
+                const withoutSelf = baseTriedBy.filter((entry) => entry.user_id !== currentUserId);
+                if (!myHadThis) return withoutSelf;
+                return [
+                  ...withoutSelf,
+                  {
+                    id: `self-${dishEntryId}-${currentUserId}`,
+                    dish_entry_id: dishEntryId,
+                    user_id: currentUserId,
+                    had_it: true,
+                    display_name: selfProfile?.display_name ?? creatorProfile?.display_name ?? 'You',
+                    avatar_url: selfProfile?.avatar_url ?? null,
+                  },
+                ];
+              })();
+              const currentUserHadThis = myHadThis;
               const dishKey = row.myEntry?.dish_key ?? toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`);
               const catalog = catalogByDishKey[dishKey] ?? null;
 
@@ -2523,12 +2556,19 @@ export default function UploadDetailPage() {
                                 <span
                                   key={entry.id}
                                   className={`inline-flex h-5 w-5 items-center justify-center overflow-hidden rounded-full border border-app-card bg-app-bg text-[10px] font-medium text-app-text ${index > 0 ? '-ml-1.5' : ''}`}
-                                  title={entry.display_name ?? 'Friend'}
+                                  title={entry.display_name ?? participants.find((row) => row.user_id === entry.user_id)?.display_name ?? 'User'}
                                 >
                                   {entry.avatar_url ? (
-                                    <Image src={entry.avatar_url} alt={entry.display_name ?? 'Friend'} width={20} height={20} className="h-5 w-5 object-cover" unoptimized />
+                                    <Image
+                                      src={entry.avatar_url}
+                                      alt={entry.display_name ?? participants.find((row) => row.user_id === entry.user_id)?.display_name ?? 'User'}
+                                      width={20}
+                                      height={20}
+                                      className="h-5 w-5 object-cover"
+                                      unoptimized
+                                    />
                                   ) : (
-                                    initialsFromName(entry.display_name)
+                                    initialsFromName(entry.display_name ?? participants.find((row) => row.user_id === entry.user_id)?.display_name ?? 'User')
                                   )}
                                 </span>
                               ))}
@@ -2769,11 +2809,3 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
-
-
-
-
-
-
-
