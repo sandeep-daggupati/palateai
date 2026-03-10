@@ -13,6 +13,7 @@ export type Database = {
         Row: {
           id: string;
           user_id: string;
+          place_type: 'google' | 'pinned';
           name: string;
           place_id: string | null;
           address: string | null;
@@ -32,6 +33,7 @@ export type Database = {
         Insert: {
           id?: string;
           user_id: string;
+          place_type?: 'google' | 'pinned';
           name: string;
           place_id?: string | null;
           address?: string | null;
@@ -51,6 +53,7 @@ export type Database = {
         Update: {
           id?: string;
           user_id?: string;
+          place_type?: 'google' | 'pinned';
           name?: string;
           place_id?: string | null;
           address?: string | null;
