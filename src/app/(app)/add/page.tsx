@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
+import { PinMapPicker } from '@/components/maps/PinMapPicker';
 import { uploadDishPhoto } from '@/lib/data/photosRepo';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { uploadImage } from '@/lib/storage/uploadImage';
@@ -42,6 +43,10 @@ export default function AddPage() {
   const [restaurantId, setRestaurantId] = useState<string>('');
   const [restaurantQuery, setRestaurantQuery] = useState('');
   const [selectedPlace, setSelectedPlace] = useState<PlaceDetails | null>(null);
+  const [placeSelectionMode, setPlaceSelectionMode] = useState<'search' | 'pinned'>('search');
+  const [pinnedCoords, setPinnedCoords] = useState<UserLocation | null>(null);
+  const [pinnedPlaceName, setPinnedPlaceName] = useState('');
+  const [pinnedAddress, setPinnedAddress] = useState('');
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [autocompleteLoading, setAutocompleteLoading] = useState(false);
   const [autocompleteError, setAutocompleteError] = useState<string | null>(null);
@@ -67,7 +72,7 @@ export default function AddPage() {
   }, [searchParams]);
 
   useEffect(() => {
-    if (!captureMode || captureMode !== 'food_photo') return;
+    if (!captureMode || captureMode !== 'food_photo' || placeSelectionMode !== 'search') return;
 
     if (restaurantQuery.trim().length < 2) {
       setSuggestions([]);
@@ -115,7 +120,7 @@ export default function AddPage() {
       controller.abort();
       window.clearTimeout(timeoutId);
     };
-  }, [captureMode, restaurantQuery, userLocation]);
+  }, [captureMode, placeSelectionMode, restaurantQuery, userLocation]);
 
   useEffect(() => {
     if (!imageFile) {
@@ -140,10 +145,18 @@ export default function AddPage() {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        setUserLocation({
+        const coords = {
           lat: position.coords.latitude,
           lng: position.coords.longitude,
-        });
+        };
+        if (placeSelectionMode === 'pinned') {
+          setPinnedCoords(coords);
+          if (!pinnedPlaceName.trim()) {
+            setRestaurantQuery('Pinned location');
+          }
+        } else {
+          setUserLocation(coords);
+        }
         setLocationLoading(false);
       },
       (error) => {
@@ -185,6 +198,7 @@ export default function AddPage() {
         .upsert(
           {
             user_id: user.id,
+            place_type: 'google',
             place_id: details.placeId,
             name: details.name,
             address: details.address,
@@ -201,6 +215,7 @@ export default function AddPage() {
       setSelectedPlace(details);
       setRestaurantId(upsertedRestaurant.id as string);
       setRestaurantQuery(details.name);
+      setPlaceSelectionMode('search');
       setSuggestions([]);
       setIsRestaurantFocused(false);
     } catch (error) {
@@ -212,12 +227,16 @@ export default function AddPage() {
     setRestaurantId('');
     setRestaurantQuery('');
     setSelectedPlace(null);
+    setPinnedCoords(null);
+    setPinnedPlaceName('');
+    setPinnedAddress('');
     setSuggestions([]);
     setAutocompleteError(null);
   };
 
   const selectMode = (mode: CaptureMode) => {
     setCaptureMode(mode);
+    setPlaceSelectionMode('search');
     setImageFile(null);
     setProgress(0);
     setDishName('');
@@ -235,10 +254,35 @@ export default function AddPage() {
     setRestaurantId('');
     setRestaurantQuery('');
     setSelectedPlace(null);
+    setPlaceSelectionMode('search');
+    setPinnedCoords(null);
+    setPinnedPlaceName('');
+    setPinnedAddress('');
     setSuggestions([]);
   };
 
   const ensureRestaurantId = async (userId: string): Promise<string | null> => {
+    if (placeSelectionMode === 'pinned') {
+      if (!pinnedCoords) return null;
+      const supabase = getBrowserSupabaseClient();
+      const pinnedName = pinnedPlaceName.trim() || 'Pinned location';
+      const { data: pinnedRestaurant, error: pinnedError } = await supabase
+        .from('restaurants')
+        .insert({
+          user_id: userId,
+          place_type: 'pinned',
+          name: pinnedName,
+          place_id: null,
+          address: pinnedAddress.trim() || null,
+          lat: pinnedCoords.lat,
+          lng: pinnedCoords.lng,
+        })
+        .select('id')
+        .single();
+      if (pinnedError) throw pinnedError;
+      return pinnedRestaurant.id;
+    }
+
     let finalRestaurantId: string | null = restaurantId || null;
     if (!finalRestaurantId && restaurantQuery.trim()) {
       const supabase = getBrowserSupabaseClient();
@@ -246,6 +290,7 @@ export default function AddPage() {
         .from('restaurants')
         .insert({
           user_id: userId,
+          place_type: 'google',
           name: restaurantQuery.trim(),
           place_id: selectedPlace?.placeId ?? null,
           address: selectedPlace?.address ?? null,
@@ -596,6 +641,22 @@ export default function AddPage() {
                 {autocompleteError ? <p className="text-xs text-rose-700 dark:text-rose-300">{autocompleteError}</p> : null}
 
                 <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant={placeSelectionMode === 'search' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setPlaceSelectionMode('search')}
+                  >
+                    Search place
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={placeSelectionMode === 'pinned' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setPlaceSelectionMode('pinned')}
+                  >
+                    Drop a pin
+                  </Button>
                   <Button type="button" variant="secondary" size="sm" onClick={useMyLocation} disabled={locationLoading}>
                     {locationLoading ? 'Locating...' : 'Use my location'}
                   </Button>
@@ -604,10 +665,56 @@ export default function AddPage() {
                   </Button>
                 </div>
 
-                {userLocation ? (
+                {placeSelectionMode === 'search' && userLocation ? (
                   <p className="text-xs text-app-muted">
                     Using location bias: {userLocation.lat.toFixed(4)}, {userLocation.lng.toFixed(4)}
                   </p>
+                ) : null}
+
+                {placeSelectionMode === 'search' ? (
+                  <>
+                    {!autocompleteLoading && isRestaurantFocused && restaurantQuery.trim().length >= 2 && suggestions.length === 0 ? (
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-app-link underline underline-offset-2"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => setPlaceSelectionMode('pinned')}
+                      >
+                        Can&apos;t find the place? Drop a pin
+                      </button>
+                    ) : null}
+                  </>
+                ) : null}
+
+                {placeSelectionMode === 'pinned' ? (
+                  <div className="space-y-2 rounded-xl border border-app-border bg-app-card/60 p-2.5">
+                    <Input
+                      value={pinnedPlaceName}
+                      onChange={(event) => setPinnedPlaceName(event.target.value)}
+                      placeholder="Custom place name (optional)"
+                    />
+                    <Input
+                      value={pinnedAddress}
+                      onChange={(event) => setPinnedAddress(event.target.value)}
+                      placeholder="Nearby address (optional)"
+                    />
+                    <PinMapPicker
+                      value={pinnedCoords}
+                      onChange={(next) => {
+                        setPinnedCoords(next);
+                        setSelectedPlace(null);
+                        setRestaurantId('');
+                        setRestaurantQuery(pinnedPlaceName.trim() || 'Pinned location');
+                      }}
+                    />
+                    {pinnedCoords ? (
+                      <p className="text-xs text-app-muted">
+                        Pin: {pinnedCoords.lat.toFixed(5)}, {pinnedCoords.lng.toFixed(5)}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-app-muted">Tap the map or drag the pin to choose a location.</p>
+                    )}
+                  </div>
                 ) : null}
                 {locationError ? <p className="text-xs text-rose-700 dark:text-rose-300">{locationError}</p> : null}
               </div>
@@ -631,7 +738,7 @@ export default function AddPage() {
                 variant="primary"
                 size="lg"
                 onClick={onSubmit}
-                disabled={!imageFile || loading || dishName.trim().length === 0}
+                disabled={!imageFile || loading || dishName.trim().length === 0 || (placeSelectionMode === 'pinned' && !pinnedCoords)}
               >
                 {loading ? 'Saving...' : 'Save food'}
               </Button>

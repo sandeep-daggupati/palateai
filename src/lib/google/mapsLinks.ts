@@ -1,9 +1,13 @@
 export function getGoogleMapsLink(
   placeId: string | null | undefined,
   address: string | null | undefined,
+  lat?: number | null,
+  lng?: number | null,
   fallbackQuery?: string | null,
 ): string | null {
-  const query = (address?.trim() || fallbackQuery?.trim() || 'restaurant').trim();
+  const hasCoords = Number.isFinite(lat) && Number.isFinite(lng);
+  const coordQuery = hasCoords ? `${lat},${lng}` : null;
+  const query = (coordQuery || address?.trim() || fallbackQuery?.trim() || 'restaurant').trim();
 
   if (placeId) {
     return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}&query_place_id=${encodeURIComponent(placeId)}`;

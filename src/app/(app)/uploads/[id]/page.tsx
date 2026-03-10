@@ -6,6 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { Check, CheckCircle2, ChevronDown, Clock3, Globe, MapPin, Navigation, Pencil, Phone, Plus, X } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
+import { PinMapPicker } from '@/components/maps/PinMapPicker';
 import { DishActionBar } from '@/components/DishActionBar';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { DishCatalog, DishEntry, HangoutItem, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
@@ -69,8 +70,11 @@ type VisitedAtSource = 'receipt' | 'manual' | 'fallback';
 type RestaurantDirectory = Pick<
   Restaurant,
   | 'id'
+  | 'place_type'
   | 'name'
   | 'address'
+  | 'lat'
+  | 'lng'
   | 'place_id'
   | 'phone_number'
   | 'website'
@@ -324,8 +328,12 @@ export default function UploadDetailPage() {
   const [restaurantLookupError, setRestaurantLookupError] = useState<string | null>(null);
   const [restaurantFocused, setRestaurantFocused] = useState(false);
   const [manualRestaurantMode, setManualRestaurantMode] = useState(false);
+  const [pinnedRestaurantMode, setPinnedRestaurantMode] = useState(false);
   const [manualRestaurantName, setManualRestaurantName] = useState('');
   const [manualRestaurantAddress, setManualRestaurantAddress] = useState('');
+  const [pinnedRestaurantName, setPinnedRestaurantName] = useState('');
+  const [pinnedRestaurantAddress, setPinnedRestaurantAddress] = useState('');
+  const [pinnedRestaurantCoords, setPinnedRestaurantCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [detectedMerchant, setDetectedMerchant] = useState<DetectedMerchant | null>(null);
 
 
@@ -515,7 +523,7 @@ export default function UploadDetailPage() {
     setCreatorProfile((creatorProfileData ?? null) as CreatorProfile | null);
 
     const restaurantPromise = typedUpload.restaurant_id
-      ? supabase.from('restaurants').select('id,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync').eq('id', typedUpload.restaurant_id).single()
+      ? supabase.from('restaurants').select('id,place_type,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync').eq('id', typedUpload.restaurant_id).single()
       : Promise.resolve({ data: null });
 
     const myEntriesPrimary = await supabase
@@ -1086,7 +1094,7 @@ export default function UploadDetailPage() {
         .from('restaurants')
         .update({ name: nextName })
         .eq('id', restaurant.id)
-        .select('id,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
+        .select('id,place_type,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
         .single();
       if (error) throw error;
 
@@ -1120,6 +1128,7 @@ export default function UploadDetailPage() {
           ? await supabase
               .from('restaurants')
               .update({
+                place_type: 'google',
                 name: detailsPayload.name,
                 address: detailsPayload.address,
                 lat: detailsPayload.lat,
@@ -1127,12 +1136,13 @@ export default function UploadDetailPage() {
                 maps_url: detailsPayload.googleMapsUrl ?? null,
               })
               .eq('id', existingRestaurant.id)
-              .select('id,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
+              .select('id,place_type,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
               .single()
           : await supabase
               .from('restaurants')
               .insert({
                 user_id: currentUserId,
+                place_type: 'google',
                 place_id: detailsPayload.placeId,
                 name: detailsPayload.name,
                 address: detailsPayload.address,
@@ -1140,7 +1150,7 @@ export default function UploadDetailPage() {
                 lng: detailsPayload.lng,
                 maps_url: detailsPayload.googleMapsUrl ?? null,
               })
-              .select('id,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
+              .select('id,place_type,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
               .single();
 
         if (restaurantMutation.error || !restaurantMutation.data) throw restaurantMutation.error ?? new Error('Could not save restaurant');
@@ -1199,10 +1209,11 @@ export default function UploadDetailPage() {
         .from('restaurants')
         .insert({
           user_id: currentUserId,
+          place_type: 'google',
           name,
           address: manualRestaurantAddress.trim() || null,
         })
-        .select('id,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
+        .select('id,place_type,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
         .single();
       if (restaurantError) throw restaurantError;
 
@@ -1224,6 +1235,48 @@ export default function UploadDetailPage() {
       setRestaurantLookupError(error instanceof Error ? error.message : 'Could not update restaurant');
     }
   }, [canEditHangoutIdentity, currentUserId, manualRestaurantAddress, manualRestaurantName, upload]);
+
+  const savePinnedRestaurant = useCallback(async () => {
+    if (!canEditHangoutIdentity || !upload || !currentUserId || !pinnedRestaurantCoords) return;
+    const name = pinnedRestaurantName.trim() || 'Pinned location';
+    try {
+      setRestaurantLookupError(null);
+      const supabase = getBrowserSupabaseClient();
+      const { data: createdRestaurant, error: restaurantError } = await supabase
+        .from('restaurants')
+        .insert({
+          user_id: currentUserId,
+          place_type: 'pinned',
+          name,
+          place_id: null,
+          address: pinnedRestaurantAddress.trim() || null,
+          lat: pinnedRestaurantCoords.lat,
+          lng: pinnedRestaurantCoords.lng,
+        })
+        .select('id,place_type,name,address,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
+        .single();
+      if (restaurantError) throw restaurantError;
+
+      const { error: uploadUpdateError } = await supabase.from('receipt_uploads').update({ restaurant_id: createdRestaurant.id }).eq('id', upload.id);
+      if (uploadUpdateError) throw uploadUpdateError;
+      await supabase.from('hangouts').update({ restaurant_id: createdRestaurant.id }).eq('id', upload.id);
+      await supabase
+        .from('dish_entries')
+        .update({ restaurant_id: createdRestaurant.id })
+        .eq('hangout_id', upload.id);
+      setRestaurant((createdRestaurant ?? null) as RestaurantDirectory | null);
+      setUpload((current) => (current ? { ...current, restaurant_id: createdRestaurant.id } : current));
+      setRestaurantQuery(createdRestaurant.name);
+      setPinnedRestaurantMode(false);
+      setPinnedRestaurantName('');
+      setPinnedRestaurantAddress('');
+      setPinnedRestaurantCoords(null);
+      setDetectedRestaurantChoices([]);
+      setManualRestaurantMode(false);
+    } catch (error) {
+      setRestaurantLookupError(error instanceof Error ? error.message : 'Could not update pinned location');
+    }
+  }, [canEditHangoutIdentity, currentUserId, pinnedRestaurantAddress, pinnedRestaurantCoords, pinnedRestaurantName, upload]);
 
   const promoteTempReceiptImages = useCallback(async (): Promise<string[] | null> => {
     if (!upload?.image_paths?.length || !currentUserId) return null;
@@ -1528,7 +1581,7 @@ export default function UploadDetailPage() {
     .filter((participant) => participant.status === 'active')
     .map((participant) => participant);
   const isSavedHangout = upload.status === 'approved';
-  const directionsHref = getGoogleMapsLink(restaurant?.place_id, restaurant?.address, restaurant?.name);
+  const directionsHref = getGoogleMapsLink(restaurant?.place_id, restaurant?.address, restaurant?.lat, restaurant?.lng, restaurant?.name);
   const todayHours = getTodayHours(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
   const openNow = getOpenNowStatus(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
   const showUnsavedIndicator = hasUnsavedChanges || (savedFoodFingerprint.length > 0 && savedFoodFingerprint !== draftFoodFingerprint);
@@ -1743,6 +1796,7 @@ export default function UploadDetailPage() {
                     className="text-xs font-medium text-app-link underline underline-offset-2"
                     onClick={() => {
                       setManualRestaurantMode(true);
+                      setPinnedRestaurantMode(false);
                       setManualRestaurantName(detectedMerchant.name ?? '');
                       setManualRestaurantAddress(detectedMerchant.address ?? '');
                     }}
@@ -1779,10 +1833,13 @@ export default function UploadDetailPage() {
                 <div className="flex flex-wrap gap-2 pb-1">
                   <Button
                     type="button"
-                    variant={!manualRestaurantMode ? 'secondary' : 'ghost'}
+                    variant={!manualRestaurantMode && !pinnedRestaurantMode ? 'secondary' : 'ghost'}
                     size="sm"
                     fullWidth={false}
-                    onClick={() => setManualRestaurantMode(false)}
+                    onClick={() => {
+                      setManualRestaurantMode(false);
+                      setPinnedRestaurantMode(false);
+                    }}
                   >
                     Search restaurant
                   </Button>
@@ -1791,13 +1848,28 @@ export default function UploadDetailPage() {
                     variant={manualRestaurantMode ? 'secondary' : 'ghost'}
                     size="sm"
                     fullWidth={false}
-                    onClick={() => setManualRestaurantMode(true)}
+                    onClick={() => {
+                      setManualRestaurantMode(true);
+                      setPinnedRestaurantMode(false);
+                    }}
                   >
                     Add restaurant manually
                   </Button>
+                  <Button
+                    type="button"
+                    variant={pinnedRestaurantMode ? 'secondary' : 'ghost'}
+                    size="sm"
+                    fullWidth={false}
+                    onClick={() => {
+                      setPinnedRestaurantMode(true);
+                      setManualRestaurantMode(false);
+                    }}
+                  >
+                    Drop a pin
+                  </Button>
                 </div>
 
-                {!manualRestaurantMode ? (
+                {!manualRestaurantMode && !pinnedRestaurantMode ? (
                   <>
                     <Input
                       value={restaurantQuery}
@@ -1810,7 +1882,20 @@ export default function UploadDetailPage() {
                       <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-app-border bg-app-card shadow-sm">
                         {restaurantLookupLoading ? <p className="p-3 text-sm text-app-muted">Searching...</p> : null}
                         {!restaurantLookupLoading && restaurantSuggestions.length === 0 ? (
-                          <p className="p-3 text-sm text-app-muted">No matching places found.</p>
+                          <div className="p-3">
+                            <p className="text-sm text-app-muted">No matching places found.</p>
+                            <button
+                              type="button"
+                              className="mt-1 text-xs font-medium text-app-link underline underline-offset-2"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => {
+                                setPinnedRestaurantMode(true);
+                                setManualRestaurantMode(false);
+                              }}
+                            >
+                              Can&apos;t find the place? Drop a pin
+                            </button>
+                          </div>
                         ) : null}
                         {!restaurantLookupLoading &&
                           restaurantSuggestions.map((suggestion) => (
@@ -1828,7 +1913,7 @@ export default function UploadDetailPage() {
                       </div>
                     ) : null}
                   </>
-                ) : (
+                ) : manualRestaurantMode ? (
                   <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
                     <Input value={manualRestaurantName} onChange={(event) => setManualRestaurantName(event.target.value)} placeholder="Restaurant name" />
                     <Input value={manualRestaurantAddress} onChange={(event) => setManualRestaurantAddress(event.target.value)} placeholder="Address (optional)" />
@@ -1841,6 +1926,37 @@ export default function UploadDetailPage() {
                       disabled={manualRestaurantName.trim().length === 0}
                     >
                       Save
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Input
+                      value={pinnedRestaurantName}
+                      onChange={(event) => setPinnedRestaurantName(event.target.value)}
+                      placeholder="Custom place name (optional)"
+                    />
+                    <Input
+                      value={pinnedRestaurantAddress}
+                      onChange={(event) => setPinnedRestaurantAddress(event.target.value)}
+                      placeholder="Nearby address (optional)"
+                    />
+                    <PinMapPicker value={pinnedRestaurantCoords} onChange={setPinnedRestaurantCoords} />
+                    {pinnedRestaurantCoords ? (
+                      <p className="text-xs text-app-muted">
+                        Pin: {pinnedRestaurantCoords.lat.toFixed(5)}, {pinnedRestaurantCoords.lng.toFixed(5)}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-app-muted">Tap the map or drag the pin to choose a location.</p>
+                    )}
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      fullWidth={false}
+                      onClick={() => void savePinnedRestaurant()}
+                      disabled={!pinnedRestaurantCoords}
+                    >
+                      Save pinned place
                     </Button>
                   </div>
                 )}
@@ -2510,13 +2626,6 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
-
-
-
-
-
-
 
 
 
