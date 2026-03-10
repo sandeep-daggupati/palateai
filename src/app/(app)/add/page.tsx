@@ -568,6 +568,16 @@ export default function AddPage() {
     if (entryInsert.error || !entryInsert.data?.id) throw entryInsert.error ?? new Error('Failed to save food');
     const dishEntryId = entryInsert.data.id;
 
+    const { error: participantMarkError } = await supabase.from('dish_entry_participants').upsert(
+      {
+        dish_entry_id: dishEntryId,
+        user_id: user.id,
+        had_it: true,
+      },
+      { onConflict: 'dish_entry_id,user_id' },
+    );
+    if (participantMarkError) throw participantMarkError;
+
     const {
       data: { session },
     } = await supabase.auth.getSession();

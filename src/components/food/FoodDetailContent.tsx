@@ -342,18 +342,34 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
 
     setLoading(true);
 
-    const [entriesResponse, catalogResponse, sessionResponse] = await Promise.all([
+    const [participantResult, catalogResponse, sessionResponse] = await Promise.all([
       supabase
-        .from('dish_entries')
-        .select('id,dish_name,dish_key,restaurant_id,identity_tag,comment,created_at,eaten_at,price_original,currency_original,source_upload_id')
+        .from('dish_entry_participants')
+        .select('dish_entry_id,updated_at')
         .eq('user_id', user.id)
-        .eq('dish_key', foodKey)
-        .not('hangout_id', 'is', null)
-        .order('eaten_at', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false }),
+        .eq('had_it', true)
+        .order('updated_at', { ascending: false }),
       supabase.from('dish_catalog').select('*').eq('dish_key', foodKey).maybeSingle(),
       supabase.auth.getSession(),
     ]);
+
+    const dishEntryIds = Array.from(
+      new Set(
+        ((participantResult.data ?? []) as Array<{ dish_entry_id: string | null }>)
+          .map((row) => row.dish_entry_id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+
+    const entriesResponse =
+      dishEntryIds.length > 0
+        ? await supabase
+            .from('dish_entries')
+            .select('id,dish_name,dish_key,restaurant_id,identity_tag,comment,created_at,eaten_at,price_original,currency_original,source_upload_id')
+            .in('id', dishEntryIds)
+            .eq('dish_key', foodKey)
+            .not('hangout_id', 'is', null)
+        : { data: [] };
 
     const parsedEntries = ((entriesResponse.data ?? []) as DishEntry[]).sort((a, b) => entryTime(b) - entryTime(a));
     setCatalog((catalogResponse.data ?? null) as DishCatalog | null);

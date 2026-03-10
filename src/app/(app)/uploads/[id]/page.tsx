@@ -9,7 +9,7 @@ import { Input } from '@/components/Input';
 import { PinMapPicker } from '@/components/maps/PinMapPicker';
 import { DishActionBar } from '@/components/DishActionBar';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { DishCatalog, DishEntry, HangoutItem, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
+import { DishCatalog, DishEntry, DishEntryParticipant, HangoutItem, ReceiptUpload, Restaurant, VisitParticipant } from '@/lib/supabase/types';
 import { toDishKey } from '@/lib/utils';
 import { normalizeName } from '@/lib/extraction/normalize';
 import { sanitizeText } from '@/lib/text/sanitize';
@@ -22,6 +22,11 @@ import { HANGOUT_VIBE_OPTIONS, HangoutVibeKey, normalizeHangoutVibeTags } from '
 type UnifiedDishRow = {
   hangoutItem: HangoutItem;
   myEntry: Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'> | null;
+};
+
+type DishTriedBy = Pick<DishEntryParticipant, 'id' | 'dish_entry_id' | 'user_id' | 'had_it'> & {
+  display_name: string | null;
+  avatar_url: string | null;
 };
 
 type CrewMember = VisitParticipant & {
@@ -292,6 +297,7 @@ export default function UploadDetailPage() {
   const [placeSyncLoading, setPlaceSyncLoading] = useState(false);
   const [hangoutPhotos, setHangoutPhotos] = useState<SignedPhoto[]>([]);
   const [dishPhotosByItemId, setDishPhotosByItemId] = useState<Record<string, SignedPhoto[]>>({});
+  const [dishTriedByByEntryId, setDishTriedByByEntryId] = useState<Record<string, DishTriedBy[]>>({});
   const [entryMetaById, setEntryMetaById] = useState<Record<string, { hangout_item_id: string | null; dish_name: string }>>({});
   const [lightboxPhotos, setLightboxPhotos] = useState<SignedPhoto[]>([]);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -507,6 +513,7 @@ export default function UploadDetailPage() {
       setRestaurant(null);
       setCreatorProfile(null);
       setFood([]);
+      setDishTriedByByEntryId({});
       setVibeTags([]);
       setDetectedMerchant(null);
       setDraftOccurredAt(null);
@@ -533,25 +540,62 @@ export default function UploadDetailPage() {
       .from('dish_entries')
       .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment,price_original,currency_original,quantity,created_at,eaten_at')
       .eq('hangout_id', uploadId);
-    const myEntries = (myEntriesPrimary.data ?? []) as Array<
+    const hangoutEntries = (myEntriesPrimary.data ?? []) as Array<
       Pick<
         DishEntry,
         'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment' | 'price_original' | 'currency_original' | 'quantity' | 'created_at' | 'eaten_at'
       >
     >;
-
-    const allEntriesResult = await supabase.from('dish_entries').select('id,hangout_item_id,dish_name').eq('hangout_id', uploadId);
     const entryMap: Record<string, { hangout_item_id: string | null; dish_name: string }> = {};
-    for (const entry of (allEntriesResult.data ?? []) as Array<Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name'>>) {
+    for (const entry of hangoutEntries) {
       entryMap[entry.id] = {
         hangout_item_id: entry.hangout_item_id ?? null,
         dish_name: entry.dish_name,
       };
     }
 
+    const entryIds = hangoutEntries.map((entry) => entry.id);
+    let nextDishTriedByByEntryId: Record<string, DishTriedBy[]> = {};
+    if (entryIds.length > 0) {
+      const { data: triedRows } = await supabase
+        .from('dish_entry_participants')
+        .select('id,dish_entry_id,user_id,had_it')
+        .in('dish_entry_id', entryIds)
+        .eq('had_it', true);
+
+      const participantRows = ((triedRows ?? []) as Array<Pick<DishEntryParticipant, 'id' | 'dish_entry_id' | 'user_id' | 'had_it'>>).filter(
+        (row) => row.user_id && row.dish_entry_id,
+      );
+      const participantUserIds = Array.from(new Set(participantRows.map((row) => row.user_id).filter(Boolean)));
+      const { data: profileRows } =
+        participantUserIds.length > 0
+          ? await supabase.from('profiles').select('id,display_name,avatar_url').in('id', participantUserIds)
+          : { data: [] };
+      const profileById = new Map(
+        ((profileRows ?? []) as Array<{ id: string; display_name: string | null; avatar_url: string | null }>).map((row) => [row.id, row]),
+      );
+
+      nextDishTriedByByEntryId = participantRows.reduce(
+        (acc, row) => {
+          const profile = profileById.get(row.user_id);
+          if (!acc[row.dish_entry_id]) acc[row.dish_entry_id] = [];
+          acc[row.dish_entry_id].push({
+            id: row.id,
+            dish_entry_id: row.dish_entry_id,
+            user_id: row.user_id,
+            had_it: row.had_it,
+            display_name: profile?.display_name ?? null,
+            avatar_url: profile?.avatar_url ?? null,
+          });
+          return acc;
+        },
+        {} as Record<string, DishTriedBy[]>,
+      );
+    }
+
     const restaurantData = await restaurantPromise;
 
-    const unifiedRows: UnifiedDishRow[] = myEntries.map((entry) => {
+    const unifiedRows: UnifiedDishRow[] = hangoutEntries.map((entry) => {
       const dishName = entry.dish_name;
       return {
         hangoutItem: {
@@ -618,6 +662,7 @@ export default function UploadDetailPage() {
     );
     setHasUnsavedChanges(false);
     setCatalogByDishKey(nextCatalogByDishKey);
+    setDishTriedByByEntryId(nextDishTriedByByEntryId);
     setEntryMetaById(entryMap);
     setRestaurant((restaurantData.data ?? null) as RestaurantDirectory | null);
     setVibeTags(normalizeHangoutVibeTags(Array.isArray(typedUpload.vibe_tags) ? typedUpload.vibe_tags.filter((value): value is string => typeof value === 'string') : []));
@@ -921,6 +966,50 @@ export default function UploadDetailPage() {
       }
     },
     [ensureDishEntryForRow, load, upload?.id],
+  );
+
+  const toggleMyDishHadIt = useCallback(
+    async (row: UnifiedDishRow, nextHadIt: boolean) => {
+      if (!currentUserId) return;
+      const dishEntryId = row.myEntry?.id;
+      if (!dishEntryId || dishEntryId.startsWith('draft-')) return;
+
+      const fallbackName = participants.find((entry) => entry.user_id === currentUserId)?.display_name ?? 'You';
+      setDishTriedByByEntryId((prev) => {
+        const existing = prev[dishEntryId] ?? [];
+        const withoutSelf = existing.filter((entry) => entry.user_id !== currentUserId);
+        const next = nextHadIt
+          ? [
+              ...withoutSelf,
+              {
+                id: `local-${dishEntryId}-${currentUserId}`,
+                dish_entry_id: dishEntryId,
+                user_id: currentUserId,
+                had_it: true,
+                display_name: fallbackName,
+                avatar_url: null,
+              },
+            ]
+          : withoutSelf;
+        return { ...prev, [dishEntryId]: next };
+      });
+
+      const supabase = getBrowserSupabaseClient();
+      const mutation = await supabase.from('dish_entry_participants').upsert(
+        {
+          dish_entry_id: dishEntryId,
+          user_id: currentUserId,
+          had_it: nextHadIt,
+        },
+        { onConflict: 'dish_entry_id,user_id' },
+      );
+
+      if (mutation.error) {
+        setSaveHangoutError(mutation.error.message);
+        await load();
+      }
+    },
+    [currentUserId, load, participants],
   );
 
   const addManualDishItem = useCallback(async () => {
@@ -1450,6 +1539,15 @@ export default function UploadDetailPage() {
         if (saveResult.error || !saveResult.data) throw saveResult.error ?? new Error('Failed to save food entry');
         const typedSavedEntry = saveResult.data as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
         preservedEntryIds.add(typedSavedEntry.id);
+        const { error: hadItError } = await supabase.from('dish_entry_participants').upsert(
+          {
+            dish_entry_id: typedSavedEntry.id,
+            user_id: currentUserId,
+            had_it: true,
+          },
+          { onConflict: 'dish_entry_id,user_id' },
+        );
+        if (hadItError) throw hadItError;
         setFood((prev) =>
           prev.map((entry) =>
             entry.hangoutItem.id === row.hangoutItem.id
@@ -2361,6 +2459,9 @@ export default function UploadDetailPage() {
               const identityValue = row.myEntry?.identity_tag ?? null;
               const isNeverAgain = identityValue === 'never_again';
               const dishPhoto = row.myEntry?.id ? (dishPhotosByItemId[row.myEntry.id]?.[0] ?? null) : null;
+              const dishEntryId = row.myEntry?.id ?? null;
+              const triedBy = dishEntryId ? (dishTriedByByEntryId[dishEntryId] ?? []) : [];
+              const currentUserHadThis = Boolean(currentUserId && triedBy.some((entry) => entry.user_id === currentUserId));
               const dishKey = row.myEntry?.dish_key ?? toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`);
               const catalog = catalogByDishKey[dishKey] ?? null;
 
@@ -2414,6 +2515,42 @@ export default function UploadDetailPage() {
                       </div>
 
                       <div className="flex items-center justify-end gap-2">
+                        <div className="mr-auto flex min-w-0 items-center gap-2">
+                          <span className="text-[11px] text-app-muted">Tried by</span>
+                          {triedBy.length > 0 ? (
+                            <div className="flex items-center">
+                              {triedBy.slice(0, 4).map((entry, index) => (
+                                <span
+                                  key={entry.id}
+                                  className={`inline-flex h-5 w-5 items-center justify-center overflow-hidden rounded-full border border-app-card bg-app-bg text-[10px] font-medium text-app-text ${index > 0 ? '-ml-1.5' : ''}`}
+                                  title={entry.display_name ?? 'Friend'}
+                                >
+                                  {entry.avatar_url ? (
+                                    <Image src={entry.avatar_url} alt={entry.display_name ?? 'Friend'} width={20} height={20} className="h-5 w-5 object-cover" unoptimized />
+                                  ) : (
+                                    initialsFromName(entry.display_name)
+                                  )}
+                                </span>
+                              ))}
+                              {triedBy.length > 4 ? <span className="ml-1 text-[11px] text-app-muted">+{triedBy.length - 4}</span> : null}
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-app-muted">No one marked yet</span>
+                          )}
+                          {dishEntryId ? (
+                            <button
+                              type="button"
+                              className={`ml-1 rounded-full border px-2 py-0.5 text-[11px] ${
+                                currentUserHadThis
+                                  ? 'border-app-primary/50 bg-app-primary/10 text-app-text'
+                                  : 'border-app-border text-app-muted'
+                              }`}
+                              onClick={() => void toggleMyDishHadIt(row, !currentUserHadThis)}
+                            >
+                              {currentUserHadThis ? 'I had this' : 'Mark I had this'}
+                            </button>
+                          ) : null}
+                        </div>
                     <DishActionBar
                       showPhotoAction={false}
                       onEdit={() => openDishCatalogEditor(row)}
@@ -2632,13 +2769,6 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
-
-
-
-
-
-
 
 
 

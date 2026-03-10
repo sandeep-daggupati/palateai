@@ -336,6 +336,39 @@ export type Database = {
         };
         Relationships: [];
       };
+      dish_entry_participants: {
+        Row: {
+          id: string;
+          dish_entry_id: string;
+          user_id: string;
+          had_it: boolean;
+          rating: number | null;
+          note: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          dish_entry_id: string;
+          user_id: string;
+          had_it?: boolean;
+          rating?: number | null;
+          note?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          dish_entry_id?: string;
+          user_id?: string;
+          had_it?: boolean;
+          rating?: number | null;
+          note?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       hangouts: {
         Row: {
           id: string;
@@ -723,6 +756,7 @@ export type HangoutItem = Database['public']['Tables']['hangout_items']['Row'];
 export type HangoutSummary = Database['public']['Tables']['hangout_summaries']['Row'];
 export type DishCatalog = Database['public']['Tables']['dish_catalog']['Row'];
 export type DishEntry = Database['public']['Tables']['dish_entries']['Row'];
+export type DishEntryParticipant = Database['public']['Tables']['dish_entry_participants']['Row'];
 export type DailyAiInsight = Database['public']['Tables']['daily_ai_insights']['Row'];
 export type DailyInsight = Database['public']['Tables']['daily_insights']['Row'];
 export type Photo = Database['public']['Tables']['photos']['Row'];
