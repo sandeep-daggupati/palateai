@@ -376,6 +376,22 @@ export default function UploadDetailPage() {
     return { Authorization: `Bearer ${session.access_token}` };
   }, []);
 
+  const enrichDishCatalogForEntry = useCallback(
+    async (dishEntryId: string) => {
+      const headers = await getAuthHeader();
+      if (!headers.Authorization) return;
+      await fetch('/api/dish-catalog/enrich', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...headers,
+        },
+        body: JSON.stringify({ dishEntryId }),
+      }).catch(() => undefined);
+    },
+    [getAuthHeader],
+  );
+
   const loadParticipants = useCallback(async () => {
     const headers = await getAuthHeader();
     const response = await fetch(`/api/visits/share?visitId=${encodeURIComponent(uploadId)}`, { headers });
@@ -1400,6 +1416,8 @@ export default function UploadDetailPage() {
         await supabase.from('dish_entries').delete().in('id', removeIds);
       }
 
+      await Promise.all(Array.from(preservedEntryIds).map((id) => enrichDishCatalogForEntry(id)));
+
       await supabase
         .from('receipt_uploads')
         .update({
@@ -1442,6 +1460,7 @@ export default function UploadDetailPage() {
 
     manualVisitDateEdited,
     promoteTempReceiptImages,
+    enrichDishCatalogForEntry,
     restaurant?.name,
     router,
     upload,
@@ -2491,7 +2510,6 @@ export default function UploadDetailPage() {
     </div>
   );
 }
-
 
 
 
