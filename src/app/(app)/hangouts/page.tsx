@@ -160,6 +160,9 @@ export default function HangoutsPage() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
       if (!user) {
         setAllItems([]);
@@ -276,18 +279,6 @@ export default function HangoutsPage() {
 
       const dishRows = ((dishResult.data ?? []) as Array<{ id: string; hangout_id: string | null; source_upload_id: string | null; dish_name?: string | null }>);
 
-      const dishEntryIds = dishRows.map((row) => row.id).filter(Boolean);
-      const { data: dishPhotoRowsRaw } =
-        dishEntryIds.length > 0
-          ? await supabase
-              .from('photos')
-              .select('id,dish_entry_id,storage_thumb,created_at')
-              .eq('kind', 'dish')
-              .in('dish_entry_id', dishEntryIds)
-              .order('created_at', { ascending: false })
-          : { data: [] as Array<Pick<Photo, 'id' | 'dish_entry_id' | 'storage_thumb' | 'created_at'>> };
-      const dishPhotoRows = (dishPhotoRowsRaw ?? []) as Array<Pick<Photo, 'id' | 'dish_entry_id' | 'storage_thumb' | 'created_at'>>;
-
       const dishCountByHangout = dishRows.reduce(
         (acc, row) => {
           if (!row.hangout_id) return acc;
@@ -304,38 +295,16 @@ export default function HangoutsPage() {
         return acc;
       }, {} as Record<string, number>);
 
-      const firstPhotoPathByHangout: Record<string, string> = {};
-      for (const row of photoRows) {
-        if (!row.hangout_id) continue;
-        if (!firstPhotoPathByHangout[row.hangout_id]) {
-          firstPhotoPathByHangout[row.hangout_id] = row.storage_thumb;
-        }
-      }
-
-      const hangoutIdByDishEntryId = dishRows.reduce((acc, row) => {
-        const hangoutId = row.source_upload_id ?? row.hangout_id;
-        if (!hangoutId) return acc;
-        acc[row.id] = hangoutId;
-        return acc;
-      }, {} as Record<string, string>);
-
-      const firstDishPhotoPathByHangout: Record<string, string> = {};
-      for (const row of dishPhotoRows) {
-        if (!row.dish_entry_id) continue;
-        const hangoutId = hangoutIdByDishEntryId[row.dish_entry_id];
-        if (!hangoutId) continue;
-        if (!firstDishPhotoPathByHangout[hangoutId]) {
-          firstDishPhotoPathByHangout[hangoutId] = row.storage_thumb;
-        }
-      }
-
-      const paths = Array.from(new Set([...Object.values(firstPhotoPathByHangout), ...Object.values(firstDishPhotoPathByHangout)]));
-      const signedByPath: Record<string, string> = {};
-      if (paths.length > 0) {
-        const { data: signedUrls } = await supabase.storage.from('uploads').createSignedUrls(paths, 60 * 20);
-        for (let index = 0; index < paths.length; index += 1) {
-          const signedUrl = signedUrls?.[index]?.signedUrl;
-          if (signedUrl) signedByPath[paths[index]] = signedUrl;
+      const coverPhotoUrlByHangout: Record<string, string | null> = {};
+      if (session?.access_token && visitIds.length > 0) {
+        const coverResponse = await fetch(`/api/photos/covers?hangout_ids=${encodeURIComponent(visitIds.join(','))}`, {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }).catch(() => null);
+        if (coverResponse?.ok) {
+          const payload = (await coverResponse.json().catch(() => null)) as { covers?: Record<string, string | null> } | null;
+          Object.assign(coverPhotoUrlByHangout, payload?.covers ?? {});
         }
       }
 
@@ -409,11 +378,7 @@ export default function HangoutsPage() {
           isOwnedByCurrentUser: visit.user_id === user.id,
           timestamp: normalizedTimestamp,
           href: `/uploads/${visit.id}`,
-          coverPhotoUrl: (() => {
-            const bestPath = firstPhotoPathByHangout[visit.id] ?? firstDishPhotoPathByHangout[visit.id] ?? null;
-            if (!bestPath) return null;
-            return signedByPath[bestPath] ?? null;
-          })(),
+          coverPhotoUrl: coverPhotoUrlByHangout[visit.id] ?? null,
           participantCount: participantCountByVisitId[visit.id] ?? 1,
           crew,
           vibeKeys,
