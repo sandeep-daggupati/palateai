@@ -438,6 +438,20 @@ export default function AddPage() {
     if (entryInsert.error || !entryInsert.data?.id) throw entryInsert.error ?? new Error('Failed to save food');
     const dishEntryId = entryInsert.data.id;
 
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      await fetch('/api/dish-catalog/enrich', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ dishEntryId }),
+      }).catch(() => undefined);
+    }
+
     const photo = await uploadDishPhoto(hangoutId, dishEntryId, imageFile);
     if (!photo) throw new Error('Photo upload failed');
 
