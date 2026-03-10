@@ -38,8 +38,12 @@ export function HangoutCard({ item }: { item: HangoutCardItem }) {
       </div>
 
       <div className="p-3">
-        <p className="truncate text-sm font-semibold text-app-text">
-          {item.restaurantName} · {item.dateLabel} · {item.ownershipLabel}
+        <p className="truncate text-sm leading-5">
+          <span className="font-semibold text-app-text">{item.restaurantName}</span>
+          <span className="mx-1.5 text-app-muted/70">·</span>
+          <span className="font-normal text-app-muted">{item.dateLabel}</span>
+          <span className="mx-1.5 text-app-muted/70">·</span>
+          <span className="font-normal text-app-muted">{item.ownershipLabel}</span>
         </p>
       </div>
     </Link>
