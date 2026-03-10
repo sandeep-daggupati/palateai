@@ -264,7 +264,7 @@ function initialsFromName(value: string | null): string {
   const cleaned = (value ?? '').trim();
   if (!cleaned) return 'U';
   const parts = cleaned.split(/\s+/).filter(Boolean);
-  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return `${parts[0]?.slice(0, 1) ?? ''}${parts[1]?.slice(0, 1) ?? ''}`.toUpperCase();
 }
 
@@ -274,6 +274,7 @@ export default function UploadDetailPage() {
   const uploadId = params.id;
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserAvatarUrl, setCurrentUserAvatarUrl] = useState<string | null>(null);
   const [upload, setUpload] = useState<ReceiptUpload | null>(null);
   const [creatorProfile, setCreatorProfile] = useState<CreatorProfile | null>(null);
   const [restaurant, setRestaurant] = useState<RestaurantDirectory | null>(null);
@@ -506,6 +507,12 @@ export default function UploadDetailPage() {
     } = await supabase.auth.getUser();
 
     setCurrentUserId(user?.id ?? null);
+    const userMeta = (user?.user_metadata ?? {}) as Record<string, unknown>;
+    setCurrentUserAvatarUrl(
+      (typeof userMeta.avatar_url === 'string' && userMeta.avatar_url) ||
+        (typeof userMeta.picture === 'string' && userMeta.picture) ||
+        null,
+    );
 
     const { data: uploadData } = await supabase.from('receipt_uploads').select('*').eq('id', uploadId).single();
 
@@ -527,6 +534,7 @@ export default function UploadDetailPage() {
       setVisitDateEditing(false);
       setDetectedRestaurantChoices([]);
       setParticipants([]);
+      setCurrentUserAvatarUrl(null);
       return;
     }
 
@@ -2440,10 +2448,14 @@ export default function UploadDetailPage() {
               <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
                 {triedBySheet.entries.map((entry) => {
                   const name = entry.display_name?.trim() || 'User';
+                  const avatarUrl =
+                    entry.avatar_url ??
+                    participants.find((row) => row.user_id === entry.user_id)?.avatar_url ??
+                    (entry.user_id === currentUserId ? currentUserAvatarUrl : null);
                   return (
                     <div key={entry.id} className="flex items-center gap-2 rounded-lg border border-app-border/70 bg-app-card/60 px-2 py-1.5">
-                      {entry.avatar_url ? (
-                        <Image src={entry.avatar_url} alt={name} width={24} height={24} className="h-6 w-6 rounded-full object-cover" unoptimized />
+                      {avatarUrl ? (
+                        <Image src={avatarUrl} alt={name} width={24} height={24} className="h-6 w-6 rounded-full object-cover" unoptimized />
                       ) : (
                         <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-app-bg text-[10px] font-semibold text-app-muted">
                           {initialsFromName(name)}
@@ -2543,7 +2555,7 @@ export default function UploadDetailPage() {
                     user_id: currentUserId,
                     had_it: true,
                     display_name: selfProfile?.display_name ?? creatorProfile?.display_name ?? 'You',
-                    avatar_url: selfProfile?.avatar_url ?? null,
+                    avatar_url: selfProfile?.avatar_url ?? currentUserAvatarUrl ?? null,
                   },
                 ];
               })();
@@ -2627,9 +2639,17 @@ export default function UploadDetailPage() {
                                   className={`inline-flex h-5 w-5 items-center justify-center overflow-hidden rounded-full border border-app-card bg-app-bg text-[10px] font-medium text-app-text ${index > 0 ? '-ml-1.5' : ''}`}
                                   title={entry.display_name ?? participants.find((row) => row.user_id === entry.user_id)?.display_name ?? 'User'}
                                 >
-                                  {entry.avatar_url ? (
+                                  {(
+                                    entry.avatar_url ??
+                                    participants.find((row) => row.user_id === entry.user_id)?.avatar_url ??
+                                    (entry.user_id === currentUserId ? currentUserAvatarUrl : null)
+                                  ) ? (
                                     <Image
-                                      src={entry.avatar_url}
+                                      src={
+                                        entry.avatar_url ??
+                                        participants.find((row) => row.user_id === entry.user_id)?.avatar_url ??
+                                        (entry.user_id === currentUserId ? currentUserAvatarUrl : '')!
+                                      }
                                       alt={entry.display_name ?? participants.find((row) => row.user_id === entry.user_id)?.display_name ?? 'User'}
                                       width={20}
                                       height={20}
@@ -2656,7 +2676,10 @@ export default function UploadDetailPage() {
                               }`}
                               onClick={() => void toggleMyDishHadIt(row, !currentUserHadThis)}
                             >
-                              {currentUserHadThis ? 'I had this' : 'Mark I had this'}
+                              <span className="inline-flex items-center gap-1">
+                                {currentUserHadThis ? <Check size={11} strokeWidth={2} /> : <Plus size={11} strokeWidth={2} />}
+                                <span>{currentUserHadThis ? 'I had this' : 'Mark I had this'}</span>
+                              </span>
                             </button>
                           ) : null}
                         </div>
