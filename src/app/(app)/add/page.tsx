@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
@@ -50,13 +50,16 @@ export default function AddPage() {
   const [pinPickerOpen, setPinPickerOpen] = useState(false);
   const [pinPickerCenter, setPinPickerCenter] = useState<UserLocation | null>(null);
   const [pinPickerSaving, setPinPickerSaving] = useState(false);
+  const [pinPickerLocating, setPinPickerLocating] = useState(false);
+  const [pinPickerApproxLabel, setPinPickerApproxLabel] = useState('');
+  const [pinPickerAccuracyMeters, setPinPickerAccuracyMeters] = useState<number | null>(null);
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [autocompleteLoading, setAutocompleteLoading] = useState(false);
   const [autocompleteError, setAutocompleteError] = useState<string | null>(null);
   const [isRestaurantFocused, setIsRestaurantFocused] = useState(false);
   const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
-  const [locationLoading, setLocationLoading] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
+  const [pinnedAccuracyMeters, setPinnedAccuracyMeters] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [dishName, setDishName] = useState('');
@@ -138,31 +141,6 @@ export default function AddPage() {
     };
   }, [imageFile]);
 
-  const useMyLocation = () => {
-    if (!navigator.geolocation) {
-      setLocationError('Geolocation is not supported on this device.');
-      return;
-    }
-
-    setLocationLoading(true);
-    setLocationError(null);
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setUserLocation({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        });
-        setLocationLoading(false);
-      },
-      (error) => {
-        setLocationError(error.message || 'Could not get your location.');
-        setLocationLoading(false);
-      },
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 300000 },
-    );
-  };
-
   const selectSuggestion = async (suggestion: PlaceSuggestion) => {
     try {
       setAutocompleteError(null);
@@ -228,6 +206,10 @@ export default function AddPage() {
     setPinnedAddress('');
     setPinPickerOpen(false);
     setPinPickerCenter(null);
+    setPinPickerLocating(false);
+    setPinPickerApproxLabel('');
+    setPinPickerAccuracyMeters(null);
+    setPinnedAccuracyMeters(null);
     setSuggestions([]);
     setAutocompleteError(null);
   };
@@ -258,16 +240,48 @@ export default function AddPage() {
     setPinnedAddress('');
     setPinPickerOpen(false);
     setPinPickerCenter(null);
+    setPinPickerLocating(false);
+    setPinPickerApproxLabel('');
+    setPinPickerAccuracyMeters(null);
+    setPinnedAccuracyMeters(null);
     setSuggestions([]);
   };
 
   const openPinPicker = () => {
     setPlaceSelectionMode('pinned');
-    setPinPickerCenter(pinnedCoords ?? userLocation ?? defaultPinCenter);
     setPinPickerOpen(true);
+    setPinPickerCenter(pinnedCoords ?? userLocation ?? defaultPinCenter);
+    setPinPickerApproxLabel(pinnedAddress);
+    setPinPickerAccuracyMeters(pinnedAccuracyMeters);
+    setLocationError(null);
+
+    if (!navigator.geolocation) {
+      setLocationError('Location access is unavailable. Move the map to choose location manually.');
+      return;
+    }
+
+    setPinPickerLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const coords = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        };
+        setUserLocation(coords);
+        setPinPickerCenter(coords);
+        const accuracy = Number.isFinite(position.coords.accuracy) ? Math.round(position.coords.accuracy) : null;
+        setPinPickerAccuracyMeters(accuracy && accuracy > 0 ? accuracy : null);
+        setPinPickerLocating(false);
+      },
+      () => {
+        setLocationError('Could not access your location. Move the map to choose location manually.');
+        setPinPickerLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 300000 },
+    );
   };
 
-  const reverseGeocodeApprox = async (coords: UserLocation): Promise<string | null> => {
+  const reverseGeocodeApprox = useCallback(async (coords: UserLocation): Promise<string | null> => {
     try {
       const response = await fetch(
         `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(String(coords.lat))}&lon=${encodeURIComponent(String(coords.lng))}&zoom=16&addressdetails=1`,
@@ -285,14 +299,15 @@ export default function AddPage() {
     } catch {
       return null;
     }
-  };
+  }, []);
 
   const applyPinPickerLocation = async () => {
     if (!pinPickerCenter) return;
     setPinPickerSaving(true);
-    const approx = await reverseGeocodeApprox(pinPickerCenter);
+    const approx = pinPickerApproxLabel || (await reverseGeocodeApprox(pinPickerCenter));
     setPinnedCoords(pinPickerCenter);
     setPinnedAddress(approx ?? '');
+    setPinnedAccuracyMeters(pinPickerAccuracyMeters);
     setSelectedPlace(null);
     setRestaurantId('');
     setRestaurantQuery('Pinned location');
@@ -300,6 +315,23 @@ export default function AddPage() {
     setPinPickerOpen(false);
     setPinPickerSaving(false);
   };
+
+  useEffect(() => {
+    const lat = pinPickerCenter?.lat;
+    const lng = pinPickerCenter?.lng;
+    if (!pinPickerOpen || typeof lat !== 'number' || typeof lng !== 'number') return;
+    let cancelled = false;
+    const timeout = window.setTimeout(async () => {
+      const approx = await reverseGeocodeApprox({ lat, lng });
+      if (!cancelled) {
+        setPinPickerApproxLabel(approx ?? '');
+      }
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [pinPickerOpen, pinPickerCenter, reverseGeocodeApprox]);
 
   const ensureRestaurantId = async (userId: string): Promise<string | null> => {
     if (placeSelectionMode === 'pinned') {
@@ -697,9 +729,6 @@ export default function AddPage() {
                   >
                     Drop a pin
                   </Button>
-                  <Button type="button" variant="secondary" size="sm" onClick={useMyLocation} disabled={locationLoading}>
-                    {locationLoading ? 'Locating...' : 'Use my location'}
-                  </Button>
                   <Button type="button" variant="secondary" size="sm" onClick={clearRestaurant}>
                     Skip
                   </Button>
@@ -733,6 +762,7 @@ export default function AddPage() {
                       <p className="text-xs text-app-muted">
                         {pinnedAddress || (pinnedCoords ? `${pinnedCoords.lat.toFixed(5)}, ${pinnedCoords.lng.toFixed(5)}` : 'No location selected yet')}
                       </p>
+                      {pinnedAccuracyMeters ? <p className="text-xs text-app-muted">Accurate to ~{pinnedAccuracyMeters} m</p> : null}
                     </div>
                     <Button type="button" variant="secondary" size="sm" fullWidth={false} onClick={openPinPicker}>
                       Change location
@@ -791,10 +821,28 @@ export default function AddPage() {
           <section className="relative z-10 w-full rounded-t-2xl border border-app-border bg-app-card p-4 sm:max-w-2xl sm:rounded-2xl">
             <p className="text-base font-semibold text-app-text">Choose location</p>
             <p className="mt-1 text-sm text-app-muted">Move the map to place the pin</p>
+            <div className="mt-2 min-h-9 space-y-0.5">
+              <p className="text-sm text-app-text">
+                {pinPickerApproxLabel || (pinPickerLocating ? 'Finding your current location...' : 'Pinned location')}
+              </p>
+              {pinPickerAccuracyMeters ? <p className="text-xs text-app-muted">Accurate to ~{pinPickerAccuracyMeters} m</p> : null}
+            </div>
             <div className="mt-3">
               <CenterPinMapPicker
                 center={pinPickerCenter ?? defaultPinCenter}
-                onCenterChange={(next) => setPinPickerCenter(next)}
+                onCenterChange={(next) => {
+                  setPinPickerCenter((prev) => {
+                    if (
+                      pinPickerAccuracyMeters &&
+                      prev &&
+                      (Math.abs(prev.lat - next.lat) > 0.00005 || Math.abs(prev.lng - next.lng) > 0.00005)
+                    ) {
+                      setPinPickerAccuracyMeters(null);
+                    }
+                    return next;
+                  });
+                }}
+                active={pinPickerOpen}
                 className="h-80 w-full"
               />
             </div>
