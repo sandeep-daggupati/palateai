@@ -160,16 +160,33 @@ export default function FoodPage() {
         return;
       }
 
-      const query = supabase
-        .from('dish_entries')
-        .select('id,dish_name,dish_key,restaurant_id,identity_tag,cuisine,flavor_tags,comment,price_original,eaten_at,created_at,source_upload_id')
-        .eq('user_id', user.id)
-        .not('hangout_id', 'is', null)
-        .order('eaten_at', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false })
-        .limit(LIST_LIMIT);
+      const [participantResult, sessionResult] = await Promise.all([
+        supabase
+          .from('dish_entry_participants')
+          .select('dish_entry_id,updated_at')
+          .eq('user_id', user.id)
+          .eq('had_it', true)
+          .order('updated_at', { ascending: false })
+          .limit(LIST_LIMIT),
+        supabase.auth.getSession(),
+      ]);
 
-      const [{ data: dishRows }, sessionResult] = await Promise.all([query, supabase.auth.getSession()]);
+      const dishEntryIds = Array.from(
+        new Set(
+          ((participantResult.data ?? []) as Array<{ dish_entry_id: string | null }>)
+            .map((row) => row.dish_entry_id)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      );
+
+      const { data: dishRows } =
+        dishEntryIds.length > 0
+          ? await supabase
+              .from('dish_entries')
+              .select('id,dish_name,dish_key,restaurant_id,identity_tag,cuisine,flavor_tags,comment,price_original,eaten_at,created_at,source_upload_id')
+              .in('id', dishEntryIds)
+              .not('hangout_id', 'is', null)
+          : { data: [] };
       const parsedRows = (dishRows ?? []) as DishEntry[];
       const dishKeys = Array.from(new Set(parsedRows.map((row) => row.dish_key).filter(Boolean)));
 

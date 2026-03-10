@@ -187,11 +187,20 @@ export async function POST(request: Request) {
       .upsert(entries, {
       onConflict: 'user_id,source_upload_id,dish_key',
       })
-      .select('dish_key,dish_name');
+      .select('id,dish_key,dish_name');
 
-    if (savedEntries?.length) {
+    const typedSavedEntries = (savedEntries ?? []) as Array<{ id: string; dish_key: string; dish_name: string }>;
+    if (typedSavedEntries.length > 0) {
+      await supabase.from('dish_entry_participants').upsert(
+        typedSavedEntries.map((entry) => ({
+          dish_entry_id: entry.id,
+          user_id: upload.user_id,
+          had_it: true,
+        })),
+        { onConflict: 'dish_entry_id,user_id' },
+      );
       await Promise.all(
-        savedEntries.map(async (entry) => {
+        typedSavedEntries.map(async (entry) => {
           if (!entry.dish_key) return;
           try {
             await ensureDishCatalogEntry({
