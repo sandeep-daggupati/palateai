@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
-import { PinMapPicker } from '@/components/maps/PinMapPicker';
+import { CenterPinMapPicker } from '@/components/maps/CenterPinMapPicker';
 import { uploadDishPhoto } from '@/lib/data/photosRepo';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { uploadImage } from '@/lib/storage/uploadImage';
@@ -47,6 +47,9 @@ export default function AddPage() {
   const [pinnedCoords, setPinnedCoords] = useState<UserLocation | null>(null);
   const [pinnedPlaceName, setPinnedPlaceName] = useState('');
   const [pinnedAddress, setPinnedAddress] = useState('');
+  const [pinPickerOpen, setPinPickerOpen] = useState(false);
+  const [pinPickerCenter, setPinPickerCenter] = useState<UserLocation | null>(null);
+  const [pinPickerSaving, setPinPickerSaving] = useState(false);
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [autocompleteLoading, setAutocompleteLoading] = useState(false);
   const [autocompleteError, setAutocompleteError] = useState<string | null>(null);
@@ -63,6 +66,7 @@ export default function AddPage() {
 
   const imagePickerRef = useRef<HTMLInputElement | null>(null);
   const imageCameraRef = useRef<HTMLInputElement | null>(null);
+  const defaultPinCenter: UserLocation = { lat: 37.0902, lng: -95.7129 };
 
   useEffect(() => {
     const mode = searchParams.get('mode');
@@ -145,18 +149,10 @@ export default function AddPage() {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const coords = {
+        setUserLocation({
           lat: position.coords.latitude,
           lng: position.coords.longitude,
-        };
-        if (placeSelectionMode === 'pinned') {
-          setPinnedCoords(coords);
-          if (!pinnedPlaceName.trim()) {
-            setRestaurantQuery('Pinned location');
-          }
-        } else {
-          setUserLocation(coords);
-        }
+        });
         setLocationLoading(false);
       },
       (error) => {
@@ -230,6 +226,8 @@ export default function AddPage() {
     setPinnedCoords(null);
     setPinnedPlaceName('');
     setPinnedAddress('');
+    setPinPickerOpen(false);
+    setPinPickerCenter(null);
     setSuggestions([]);
     setAutocompleteError(null);
   };
@@ -258,7 +256,49 @@ export default function AddPage() {
     setPinnedCoords(null);
     setPinnedPlaceName('');
     setPinnedAddress('');
+    setPinPickerOpen(false);
+    setPinPickerCenter(null);
     setSuggestions([]);
+  };
+
+  const openPinPicker = () => {
+    setPlaceSelectionMode('pinned');
+    setPinPickerCenter(pinnedCoords ?? userLocation ?? defaultPinCenter);
+    setPinPickerOpen(true);
+  };
+
+  const reverseGeocodeApprox = async (coords: UserLocation): Promise<string | null> => {
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(String(coords.lat))}&lon=${encodeURIComponent(String(coords.lng))}&zoom=16&addressdetails=1`,
+      );
+      if (!response.ok) return null;
+      const payload = (await response.json()) as {
+        display_name?: string;
+        address?: Record<string, string | undefined>;
+      };
+      const city = payload.address?.city || payload.address?.town || payload.address?.village || payload.address?.suburb || '';
+      const state = payload.address?.state || '';
+      const country = payload.address?.country || '';
+      const rough = [city, state, country].filter(Boolean).join(', ');
+      return (rough || payload.display_name || null)?.trim() ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  const applyPinPickerLocation = async () => {
+    if (!pinPickerCenter) return;
+    setPinPickerSaving(true);
+    const approx = await reverseGeocodeApprox(pinPickerCenter);
+    setPinnedCoords(pinPickerCenter);
+    setPinnedAddress(approx ?? '');
+    setSelectedPlace(null);
+    setRestaurantId('');
+    setRestaurantQuery('Pinned location');
+    setPlaceSelectionMode('pinned');
+    setPinPickerOpen(false);
+    setPinPickerSaving(false);
   };
 
   const ensureRestaurantId = async (userId: string): Promise<string | null> => {
@@ -653,7 +693,7 @@ export default function AddPage() {
                     type="button"
                     variant={placeSelectionMode === 'pinned' ? 'secondary' : 'ghost'}
                     size="sm"
-                    onClick={() => setPlaceSelectionMode('pinned')}
+                    onClick={openPinPicker}
                   >
                     Drop a pin
                   </Button>
@@ -678,7 +718,7 @@ export default function AddPage() {
                         type="button"
                         className="text-xs font-medium text-app-link underline underline-offset-2"
                         onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => setPlaceSelectionMode('pinned')}
+                        onClick={openPinPicker}
                       >
                         Can&apos;t find the place? Drop a pin
                       </button>
@@ -688,32 +728,20 @@ export default function AddPage() {
 
                 {placeSelectionMode === 'pinned' ? (
                   <div className="space-y-2 rounded-xl border border-app-border bg-app-card/60 p-2.5">
+                    <div className="space-y-0.5">
+                      <p className="text-sm font-medium text-app-text">📍 Pinned location</p>
+                      <p className="text-xs text-app-muted">
+                        {pinnedAddress || (pinnedCoords ? `${pinnedCoords.lat.toFixed(5)}, ${pinnedCoords.lng.toFixed(5)}` : 'No location selected yet')}
+                      </p>
+                    </div>
+                    <Button type="button" variant="secondary" size="sm" fullWidth={false} onClick={openPinPicker}>
+                      Change location
+                    </Button>
                     <Input
                       value={pinnedPlaceName}
                       onChange={(event) => setPinnedPlaceName(event.target.value)}
-                      placeholder="Custom place name (optional)"
+                      placeholder="Name this place (optional)"
                     />
-                    <Input
-                      value={pinnedAddress}
-                      onChange={(event) => setPinnedAddress(event.target.value)}
-                      placeholder="Nearby address (optional)"
-                    />
-                    <PinMapPicker
-                      value={pinnedCoords}
-                      onChange={(next) => {
-                        setPinnedCoords(next);
-                        setSelectedPlace(null);
-                        setRestaurantId('');
-                        setRestaurantQuery(pinnedPlaceName.trim() || 'Pinned location');
-                      }}
-                    />
-                    {pinnedCoords ? (
-                      <p className="text-xs text-app-muted">
-                        Pin: {pinnedCoords.lat.toFixed(5)}, {pinnedCoords.lng.toFixed(5)}
-                      </p>
-                    ) : (
-                      <p className="text-xs text-app-muted">Tap the map or drag the pin to choose a location.</p>
-                    )}
                   </div>
                 ) : null}
                 {locationError ? <p className="text-xs text-rose-700 dark:text-rose-300">{locationError}</p> : null}
@@ -756,6 +784,33 @@ export default function AddPage() {
           )}
         </section>
       )}
+
+      {pinPickerOpen ? (
+        <div className="fixed inset-0 z-[80] flex items-end sm:items-center sm:justify-center">
+          <button type="button" aria-label="Close location picker" className="absolute inset-0 bg-black/45" onClick={() => setPinPickerOpen(false)} />
+          <section className="relative z-10 w-full rounded-t-2xl border border-app-border bg-app-card p-4 sm:max-w-2xl sm:rounded-2xl">
+            <p className="text-base font-semibold text-app-text">Choose location</p>
+            <p className="mt-1 text-sm text-app-muted">Move the map to place the pin</p>
+            <div className="mt-3">
+              <CenterPinMapPicker
+                center={pinPickerCenter ?? defaultPinCenter}
+                onCenterChange={(next) => setPinPickerCenter(next)}
+                className="h-80 w-full"
+              />
+            </div>
+            <div className="mt-3 flex justify-end">
+              <Button
+                type="button"
+                fullWidth={false}
+                onClick={() => void applyPinPickerLocation()}
+                disabled={!pinPickerCenter || pinPickerSaving}
+              >
+                {pinPickerSaving ? 'Saving...' : 'Use this location'}
+              </Button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
