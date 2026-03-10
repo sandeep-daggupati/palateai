@@ -10,14 +10,22 @@ type LatLng = {
 export function CenterPinMapPicker({
   center,
   onCenterChange,
+  active = true,
   className,
 }: {
   center: LatLng;
   onCenterChange: (next: LatLng) => void;
+  active?: boolean;
   className?: string;
 }) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<unknown>(null);
+  const onCenterChangeRef = useRef(onCenterChange);
+  const initialCenterRef = useRef(center);
+
+  useEffect(() => {
+    onCenterChangeRef.current = onCenterChange;
+  }, [onCenterChange]);
 
   useEffect(() => {
     let mounted = true;
@@ -27,10 +35,11 @@ export function CenterPinMapPicker({
       const L = await import('leaflet');
       if (!mounted || !mapContainerRef.current) return;
 
+      const initial = initialCenterRef.current;
       const map = L.map(mapContainerRef.current, {
         zoomControl: false,
         attributionControl: true,
-      }).setView([center.lat, center.lng], 14);
+      }).setView([initial.lat, initial.lng], 14);
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
@@ -39,7 +48,7 @@ export function CenterPinMapPicker({
 
       map.on('moveend', () => {
         const next = map.getCenter();
-        onCenterChange({ lat: next.lat, lng: next.lng });
+        onCenterChangeRef.current({ lat: next.lat, lng: next.lng });
       });
 
       mapRef.current = map;
@@ -54,7 +63,7 @@ export function CenterPinMapPicker({
       }
       mapRef.current = null;
     };
-  }, [onCenterChange, center.lat, center.lng]);
+  }, []);
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -65,6 +74,15 @@ export function CenterPinMapPicker({
       map.setView([center.lat, center.lng], 14);
     }
   }, [center.lat, center.lng]);
+
+  useEffect(() => {
+    if (!active || !mapRef.current) return;
+    const map = mapRef.current as { invalidateSize: (options?: { animate?: boolean }) => void };
+    const timeout = window.setTimeout(() => {
+      map.invalidateSize({ animate: false });
+    }, 80);
+    return () => window.clearTimeout(timeout);
+  }, [active]);
 
   return (
     <div className={`relative overflow-hidden rounded-xl border border-app-border ${className ?? 'h-72 w-full'}`}>
