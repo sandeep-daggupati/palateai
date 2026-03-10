@@ -337,15 +337,20 @@ export default function AddPage() {
     if (placeSelectionMode === 'pinned') {
       if (!pinnedCoords) return null;
       const supabase = getBrowserSupabaseClient();
-      const pinnedName = pinnedPlaceName.trim() || 'Pinned location';
+      const customName = pinnedPlaceName.trim() || null;
+      const pinnedName = customName || 'Pinned location';
+      const approxAddress = pinnedAddress.trim() || null;
       const { data: pinnedRestaurant, error: pinnedError } = await supabase
         .from('restaurants')
         .insert({
           user_id: userId,
           place_type: 'pinned',
           name: pinnedName,
+          custom_name: customName,
+          approx_address: approxAddress,
           place_id: null,
-          address: pinnedAddress.trim() || null,
+          address: approxAddress,
+          accuracy_meters: pinnedAccuracyMeters,
           lat: pinnedCoords.lat,
           lng: pinnedCoords.lng,
         })
@@ -475,6 +480,12 @@ export default function AddPage() {
     if (!user) throw new Error('Missing user session.');
 
     const finalRestaurantId = await ensureRestaurantId(user.id);
+    const visitCoords =
+      placeSelectionMode === 'pinned'
+        ? pinnedCoords
+        : selectedPlace?.lat != null && selectedPlace.lng != null
+          ? { lat: selectedPlace.lat, lng: selectedPlace.lng }
+          : null;
     const numericPrice = Number(dishPrice.trim());
     const price = Number.isFinite(numericPrice) && numericPrice > 0 ? numericPrice : null;
     const dishKey = toDishKey(`${restaurantQuery.trim() || 'unknown-restaurant'} ${name}`);
@@ -490,6 +501,8 @@ export default function AddPage() {
         image_paths: [],
         visited_at: eatenAt,
         visited_at_source: 'manual',
+        visit_lat: visitCoords?.lat ?? null,
+        visit_lng: visitCoords?.lng ?? null,
         is_shared: false,
         share_visibility: 'private',
         processed_at: eatenAt,
@@ -760,7 +773,11 @@ export default function AddPage() {
                     <div className="space-y-0.5">
                       <p className="text-sm font-medium text-app-text">📍 Pinned location</p>
                       <p className="text-xs text-app-muted">
-                        {pinnedAddress || (pinnedCoords ? `${pinnedCoords.lat.toFixed(5)}, ${pinnedCoords.lng.toFixed(5)}` : 'No location selected yet')}
+                        {pinnedAddress
+                          ? `Near ${pinnedAddress}`
+                          : pinnedCoords
+                            ? 'Coordinates available'
+                            : 'No location selected yet'}
                       </p>
                       {pinnedAccuracyMeters ? <p className="text-xs text-app-muted">Accurate to ~{pinnedAccuracyMeters} m</p> : null}
                     </div>

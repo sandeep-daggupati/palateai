@@ -9,6 +9,7 @@ import { SignedPhoto } from '@/lib/photos/types';
 import { uploadDishPhoto } from '@/lib/data/photosRepo';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { DishCatalog, DishEntry, DishIdentityTag } from '@/lib/supabase/types';
+import { getGoogleMapsLink } from '@/lib/google/mapsLinks';
 
 type FoodDetailContentProps = {
   foodKey: string;
@@ -19,7 +20,9 @@ type CanonicalTag = DishIdentityTag | 'none';
 
 type RestaurantMeta = {
   id: string;
+  place_type: 'google' | 'pinned';
   name: string;
+  place_id: string | null;
   address: string | null;
   lat: number | null;
   lng: number | null;
@@ -138,13 +141,14 @@ function websiteHref(raw: string | null | undefined): string | null {
 
 function directionsHref(restaurant: RestaurantMeta | null): string | null {
   if (!restaurant) return null;
-  if (restaurant.lat != null && restaurant.lng != null) {
-    return `https://www.google.com/maps/dir/?api=1&destination=${restaurant.lat},${restaurant.lng}`;
-  }
-  if (restaurant.address) {
-    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(restaurant.address)}`;
-  }
-  return restaurant.maps_url ?? null;
+  return getGoogleMapsLink(
+    restaurant.place_id,
+    restaurant.address,
+    restaurant.lat,
+    restaurant.lng,
+    restaurant.name,
+    restaurant.place_type,
+  );
 }
 
 function telHref(raw: string | null | undefined): string | null {
@@ -360,7 +364,7 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
     if (restaurantIds.length > 0) {
       const { data: restaurantRows } = await supabase
         .from('restaurants')
-        .select('id,name,address,lat,lng,phone_number,website,maps_url')
+        .select('id,place_type,name,place_id,address,lat,lng,phone_number,website,maps_url')
         .in('id', restaurantIds);
       for (const row of (restaurantRows ?? []) as RestaurantMeta[]) {
         restaurantLookup.set(row.id, row);
