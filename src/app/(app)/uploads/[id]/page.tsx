@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Ban, Check, CheckCircle2, ChevronDown, CircleDot, Clock3, FileText, Flame, Gem, Globe, Loader2, MapPin, Navigation, Pencil, Phone, Plus, Trash2, Users } from 'lucide-react';
+import { Ban, Check, ChevronDown, CircleDot, Clock3, FileText, Flame, Gem, Globe, Loader2, MapPin, Navigation, Pencil, Phone, Plus, Trash2, Users } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { PinMapPicker } from '@/components/maps/PinMapPicker';
@@ -2079,7 +2079,6 @@ export default function UploadDetailPage() {
   const activeCrew = participants
     .filter((participant) => participant.status === 'active')
     .map((participant) => participant);
-  const isSavedHangout = upload.status === 'approved';
   const directionsHref = getGoogleMapsLink(restaurant?.place_id, restaurant?.address, restaurant?.lat, restaurant?.lng, restaurant?.name, restaurant?.place_type);
   const todayHours = getTodayHours(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
   const openNow = getOpenNowStatus(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
@@ -2247,12 +2246,17 @@ export default function UploadDetailPage() {
                 ) : null}
               </div>
             )}
-            {isSavedHangout ? (
-              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300/60 bg-emerald-100/30 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
-                <CheckCircle2 size={12} strokeWidth={1.7} />
-                Saved
-              </span>
-            ) : null}
+            <span
+              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                showUnsavedIndicator
+                  ? 'border-amber-300/70 bg-amber-100/30 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
+                  : 'border-emerald-300/60 bg-emerald-100/30 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'
+              }`}
+              aria-live="polite"
+            >
+              {showUnsavedIndicator ? <CircleDot size={12} strokeWidth={1.8} /> : <Check size={12} strokeWidth={1.8} />}
+              {showUnsavedIndicator ? 'Unsaved' : 'Saved'}
+            </span>
           </div>
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm leading-5 text-app-muted">
             {visitDateEditing && canEditHangoutIdentity ? (
@@ -2340,17 +2344,6 @@ export default function UploadDetailPage() {
                 <Plus size={14} strokeWidth={1.8} />
               </button>
             ) : null}
-          </div>
-          <div
-            className={`inline-flex w-fit items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-              showUnsavedIndicator
-                ? 'border-amber-300/70 bg-amber-100/30 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
-                : 'border-emerald-300/60 bg-emerald-100/30 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'
-            }`}
-            aria-live="polite"
-          >
-            {showUnsavedIndicator ? <CircleDot size={12} strokeWidth={1.8} /> : <Check size={12} strokeWidth={1.8} />}
-            {showUnsavedIndicator ? 'Unsaved' : 'Saved'}
           </div>
         </div>
         <div className="space-y-1">

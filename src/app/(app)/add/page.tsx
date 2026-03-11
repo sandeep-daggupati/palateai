@@ -962,7 +962,7 @@ export default function AddPage() {
               </span>
               <div className="space-y-0.5">
                 <p className="text-base font-semibold text-app-text">Start a Hangout</p>
-                <p className="text-sm text-app-muted">Dining out with others. Create a shared hangout flow.</p>
+                <p className="text-sm text-app-muted">Dining out with others. Create a shared hangout memory.</p>
               </div>
             </div>
           </button>
