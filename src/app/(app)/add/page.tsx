@@ -1,8 +1,24 @@
 'use client';
 
 import Image from 'next/image';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import {
+  ArrowLeft,
+  ArrowRight,
+  Camera,
+  CheckCircle2,
+  ImagePlus,
+  LocateFixed,
+  MapPin,
+  MapPinned,
+  Receipt,
+  Search,
+  SquarePen,
+  Upload,
+  Users,
+  UtensilsCrossed,
+} from 'lucide-react';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { CenterPinMapPicker } from '@/components/maps/CenterPinMapPicker';
@@ -32,12 +48,16 @@ type UserLocation = {
 };
 
 type CaptureMode = 'receipt' | 'food_photo';
+type AddIntent = 'hangout' | 'solo' | 'manual';
+type AddStep = 'intent' | 'hangout_method' | 'upload' | 'details' | 'location' | 'success';
 
 const fieldLabelClass = 'section-label';
 
 export default function AddPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [intent, setIntent] = useState<AddIntent | null>(null);
+  const [step, setStep] = useState<AddStep>('intent');
   const [captureMode, setCaptureMode] = useState<CaptureMode | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [restaurantId, setRestaurantId] = useState<string>('');
@@ -66,6 +86,12 @@ export default function AddPage() {
   const [dishPrice, setDishPrice] = useState('');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
+  const [successState, setSuccessState] = useState<{
+    title: string;
+    body: string;
+    href: string;
+    cta: string;
+  } | null>(null);
 
   const imagePickerRef = useRef<HTMLInputElement | null>(null);
   const imageCameraRef = useRef<HTMLInputElement | null>(null);
@@ -74,7 +100,9 @@ export default function AddPage() {
   useEffect(() => {
     const mode = searchParams.get('mode');
     if (mode === 'receipt' || mode === 'food_photo') {
+      setIntent(mode === 'receipt' ? 'hangout' : 'solo');
       setCaptureMode(mode);
+      setStep('upload');
     }
   }, [searchParams]);
 
@@ -214,6 +242,19 @@ export default function AddPage() {
     setAutocompleteError(null);
   };
 
+  const resetFlow = () => {
+    setIntent(null);
+    setStep('intent');
+    setCaptureMode(null);
+    setImageFile(null);
+    setProgress(0);
+    setDishName('');
+    setDishPrice('');
+    setSaveError(null);
+    setSuccessState(null);
+    clearRestaurant();
+  };
+
   const selectMode = (mode: CaptureMode) => {
     setCaptureMode(mode);
     setPlaceSelectionMode('search');
@@ -222,29 +263,26 @@ export default function AddPage() {
     setDishName('');
     setDishPrice('');
     setSaveError(null);
+    setSuccessState(null);
   };
 
-  const cancelFlow = () => {
-    setCaptureMode(null);
-    setImageFile(null);
-    setProgress(0);
-    setDishName('');
-    setDishPrice('');
+  const chooseIntent = (nextIntent: AddIntent) => {
+    setIntent(nextIntent);
     setSaveError(null);
-    setRestaurantId('');
-    setRestaurantQuery('');
-    setSelectedPlace(null);
-    setPlaceSelectionMode('search');
-    setPinnedCoords(null);
-    setPinnedPlaceName('');
-    setPinnedAddress('');
-    setPinPickerOpen(false);
-    setPinPickerCenter(null);
-    setPinPickerLocating(false);
-    setPinPickerApproxLabel('');
-    setPinPickerAccuracyMeters(null);
-    setPinnedAccuracyMeters(null);
-    setSuggestions([]);
+    setSuccessState(null);
+    if (nextIntent === 'hangout') {
+      setStep('hangout_method');
+      setCaptureMode(null);
+      return;
+    }
+    if (nextIntent === 'solo') {
+      selectMode('food_photo');
+      setStep('upload');
+      return;
+    }
+    selectMode('food_photo');
+    setImageFile(null);
+    setStep('details');
   };
 
   const openPinPicker = () => {
@@ -383,8 +421,8 @@ export default function AddPage() {
     return finalRestaurantId;
   };
 
-  const saveReceiptFlow = async () => {
-    if (!imageFile) return;
+  const saveReceiptFlow = async (): Promise<{ uploadId: string }> => {
+    if (!imageFile) throw new Error('Receipt image is required.');
 
     const supabase = getBrowserSupabaseClient();
     const {
@@ -462,15 +500,15 @@ export default function AddPage() {
       .eq('id', uploadId);
 
     if (finalizeError) throw finalizeError;
-    router.push(`/uploads/${uploadId}`);
+    return { uploadId };
   };
 
-  const saveFoodPhotoFlow = async () => {
-    if (!imageFile) return;
+  const saveFoodPhotoFlow = async (): Promise<{ hangoutId: string }> => {
+    if (!imageFile) throw new Error('Photo is required.');
     const name = dishName.trim();
     if (!name) {
       setSaveError('Dish name is required.');
-      return;
+      throw new Error('Dish name is required.');
     }
 
     const supabase = getBrowserSupabaseClient();
@@ -595,19 +633,182 @@ export default function AddPage() {
     const photo = await uploadDishPhoto(hangoutId, dishEntryId, imageFile);
     if (!photo) throw new Error('Photo upload failed');
 
-    router.push('/food');
+    return { hangoutId };
+  };
+
+  const saveManualFlow = async (): Promise<{ hangoutId: string }> => {
+    const name = dishName.trim();
+    if (!name) {
+      setSaveError('Dish name is required.');
+      throw new Error('Dish name is required.');
+    }
+
+    const supabase = getBrowserSupabaseClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) throw new Error('Missing user session.');
+
+    const finalRestaurantId = await ensureRestaurantId(user.id);
+    const visitCoords =
+      placeSelectionMode === 'pinned'
+        ? pinnedCoords
+        : selectedPlace?.lat != null && selectedPlace.lng != null
+          ? { lat: selectedPlace.lat, lng: selectedPlace.lng }
+          : null;
+    const numericPrice = Number(dishPrice.trim());
+    const price = Number.isFinite(numericPrice) && numericPrice > 0 ? numericPrice : null;
+    const dishKey = toDishKey(`${restaurantQuery.trim() || 'unknown-restaurant'} ${name}`);
+    const eatenAt = new Date().toISOString();
+
+    const { data: sourceUpload, error: sourceUploadError } = await supabase
+      .from('receipt_uploads')
+      .insert({
+        user_id: user.id,
+        restaurant_id: finalRestaurantId,
+        status: 'approved',
+        type: 'receipt',
+        image_paths: [],
+        visited_at: eatenAt,
+        visited_at_source: 'manual',
+        visit_lat: visitCoords?.lat ?? null,
+        visit_lng: visitCoords?.lng ?? null,
+        is_shared: false,
+        share_visibility: 'private',
+        processed_at: eatenAt,
+      })
+      .select('id')
+      .single();
+    if (sourceUploadError) throw sourceUploadError;
+
+    const hangoutId = sourceUpload.id;
+    const { data: existingHangout, error: existingHangoutError } = await supabase
+      .from('hangouts')
+      .select('id')
+      .eq('id', hangoutId)
+      .maybeSingle();
+    if (existingHangoutError) throw existingHangoutError;
+    if (!existingHangout) {
+      const { error: hangoutInsertError } = await supabase.from('hangouts').insert({
+        id: hangoutId,
+        owner_user_id: user.id,
+        restaurant_id: finalRestaurantId,
+        occurred_at: eatenAt,
+        note: null,
+      });
+      if (hangoutInsertError) throw hangoutInsertError;
+    }
+
+    const { data: existingParticipant, error: existingParticipantError } = await supabase
+      .from('hangout_participants')
+      .select('hangout_id')
+      .eq('hangout_id', hangoutId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (existingParticipantError) throw existingParticipantError;
+    if (!existingParticipant) {
+      const { error: participantError } = await supabase.from('hangout_participants').insert({
+        hangout_id: hangoutId,
+        user_id: user.id,
+      });
+      if (participantError) throw participantError;
+    }
+
+    const entryInsert = await supabase
+      .from('dish_entries')
+      .insert({
+        user_id: user.id,
+        restaurant_id: finalRestaurantId,
+        hangout_id: hangoutId,
+        hangout_item_id: null,
+        source_upload_id: hangoutId,
+        dish_name: name,
+        price_original: price,
+        currency_original: 'USD',
+        price_usd: price,
+        quantity: 1,
+        eaten_at: eatenAt,
+        dish_key: dishKey,
+        identity_tag: null,
+        comment: null,
+        had_it: true,
+      })
+      .select('id')
+      .single();
+    if (entryInsert.error || !entryInsert.data?.id) throw entryInsert.error ?? new Error('Failed to save food');
+    const dishEntryId = entryInsert.data.id;
+
+    const { error: participantMarkError } = await supabase.from('dish_entry_participants').upsert(
+      {
+        dish_entry_id: dishEntryId,
+        user_id: user.id,
+        had_it: true,
+      },
+      { onConflict: 'dish_entry_id,user_id' },
+    );
+    if (participantMarkError) throw participantMarkError;
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      await fetch('/api/dish-catalog/enrich', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ dishEntryId }),
+      }).catch(() => undefined);
+    }
+
+    return { hangoutId };
   };
 
   const onSubmit = async () => {
-    if (!captureMode || !imageFile) return;
+    if (!captureMode && intent !== 'manual') return;
     setLoading(true);
     setSaveError(null);
     try {
-      if (captureMode === 'receipt') {
-        await saveReceiptFlow();
+      if (intent === 'hangout' && captureMode === 'receipt') {
+        if (!imageFile) throw new Error('Add a receipt image to continue.');
+        const { uploadId } = await saveReceiptFlow();
+        setSuccessState({
+          title: 'Hangout created',
+          body: 'Receipt uploaded. Review extracted dishes and share this hangout.',
+          href: `/uploads/${uploadId}`,
+          cta: 'Review hangout',
+        });
+      } else if (intent === 'manual') {
+        await saveManualFlow();
+        setSuccessState({
+          title: 'Food logged',
+          body: 'Your manual food entry was added to your personal log.',
+          href: '/food',
+          cta: 'View food log',
+        });
+      } else if (captureMode === 'food_photo') {
+        if (!imageFile) throw new Error('Add a photo to continue.');
+        const { hangoutId } = await saveFoodPhotoFlow();
+        if (intent === 'hangout') {
+          setSuccessState({
+            title: 'Hangout created',
+            body: 'Dish photo saved. You can review and share this hangout.',
+            href: `/uploads/${hangoutId}`,
+            cta: 'Open hangout',
+          });
+        } else {
+          setSuccessState({
+            title: 'Food logged',
+            body: 'Your dish was saved to your personal food memory.',
+            href: '/food',
+            cta: 'View food log',
+          });
+        }
       } else {
-        await saveFoodPhotoFlow();
+        throw new Error('Unsupported add flow state.');
       }
+      setStep('success');
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Could not save');
     } finally {
@@ -615,232 +816,369 @@ export default function AddPage() {
     }
   };
 
+  const flowLabel = intent === 'hangout' ? 'Hangout' : intent === 'manual' ? 'Manual' : 'Solo';
+  const showUploadStep = step === 'upload';
+  const showDetailsStep = step === 'details';
+  const showLocationStep = step === 'location';
+  const canContinueFromUpload = intent === 'manual' || Boolean(imageFile);
+
+  const progressSteps = useMemo(() => {
+    if (intent === 'hangout' && captureMode === 'receipt') {
+      return ['Upload', 'Done'];
+    }
+    if (intent === 'manual') {
+      return ['Details', 'Location', 'Done'];
+    }
+    return ['Upload', 'Details', 'Location', 'Done'];
+  }, [captureMode, intent]);
+
+  const currentProgressIndex = useMemo(() => {
+    if (step === 'success') return progressSteps.length - 1;
+    if (intent === 'hangout' && captureMode === 'receipt') return 0;
+    if (step === 'upload') return 0;
+    if (step === 'details') return intent === 'manual' ? 0 : 1;
+    if (step === 'location') return intent === 'manual' ? 1 : 2;
+    return 0;
+  }, [captureMode, intent, progressSteps.length, step]);
+
+  const goBack = () => {
+    setSaveError(null);
+    if (step === 'hangout_method') {
+      resetFlow();
+      return;
+    }
+    if (step === 'upload') {
+      if (intent === 'hangout') {
+        setStep('hangout_method');
+        return;
+      }
+      resetFlow();
+      return;
+    }
+    if (step === 'details') {
+      if (intent === 'manual') {
+        resetFlow();
+      } else {
+        setStep('upload');
+      }
+      return;
+    }
+    if (step === 'location') {
+      setStep('details');
+      return;
+    }
+    if (step === 'success') {
+      resetFlow();
+    }
+  };
+
+  const continueFromUpload = () => {
+    setSaveError(null);
+    if (intent === 'hangout' && captureMode === 'receipt') {
+      void onSubmit();
+      return;
+    }
+    setStep('details');
+  };
+
+  const continueFromDetails = () => {
+    if (dishName.trim().length === 0) {
+      setSaveError('Dish name is required.');
+      return;
+    }
+    setSaveError(null);
+    setStep('location');
+  };
+
   return (
     <div className="mx-auto w-full max-w-md space-y-4 pb-6">
       <div className="space-y-1">
         <h1 className="text-xl font-semibold text-app-text">Add</h1>
       </div>
+      <input
+        ref={imagePickerRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
+      />
+      <input
+        ref={imageCameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
+      />
 
-      {!captureMode ? (
-        <section className="card-surface space-y-3">
+      {step === 'intent' ? (
+        <section className="space-y-3">
           <button
             type="button"
-            onClick={() => selectMode('receipt')}
-            className="w-full rounded-2xl border border-app-border bg-app-card p-4 text-left transition-colors hover:border-app-primary"
+            onClick={() => chooseIntent('hangout')}
+            className="card-surface w-full space-y-2 border border-app-primary/40 text-left"
           >
-            <p className="text-base font-semibold text-app-text">Upload receipt</p>
-            <p className="mt-1 text-sm text-app-muted">Upload a receipt and continue directly to review.</p>
+            <div className="flex items-start gap-3">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-app-primary/15 text-app-primary">
+                <Users size={20} />
+              </span>
+              <div className="space-y-0.5">
+                <p className="text-base font-semibold text-app-text">Start a Hangout</p>
+                <p className="text-sm text-app-muted">Dining out with others. Create a shared hangout flow.</p>
+              </div>
+            </div>
           </button>
-
           <button
             type="button"
-            onClick={() => selectMode('food_photo')}
-            className="w-full rounded-2xl border border-app-border bg-app-card p-4 text-left transition-colors hover:border-app-primary"
+            onClick={() => chooseIntent('solo')}
+            className="card-surface w-full space-y-2 text-left"
           >
-            <p className="text-base font-semibold text-app-text">Add food photo</p>
-            <p className="mt-1 text-sm text-app-muted">Upload a dish photo and add details manually.</p>
+            <div className="flex items-start gap-3">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-app-card text-app-muted">
+                <UtensilsCrossed size={20} />
+              </span>
+              <div className="space-y-0.5">
+                <p className="text-base font-semibold text-app-text">Log Food Solo</p>
+                <p className="text-sm text-app-muted">Quick personal food entry with photo and details.</p>
+              </div>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => chooseIntent('manual')}
+            className="card-surface w-full space-y-2 text-left"
+          >
+            <div className="flex items-start gap-3">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-app-card text-app-muted">
+                <SquarePen size={20} />
+              </span>
+              <div className="space-y-0.5">
+                <p className="text-base font-semibold text-app-text">Enter manually</p>
+                <p className="text-sm text-app-muted">No receipt or photo. Type dish details directly.</p>
+              </div>
+            </div>
           </button>
         </section>
-      ) : (
-        <section className="card-surface space-y-4">
-          <div className="flex items-center justify-between gap-2">
-            <p className={fieldLabelClass}>{captureMode === 'receipt' ? 'Receipt upload' : 'Food photo upload'}</p>
-            <button type="button" className="text-xs font-medium text-app-link" onClick={() => setCaptureMode(null)}>
-              Change
+      ) : null}
+
+      {step === 'hangout_method' ? (
+        <section className="card-surface space-y-3">
+          <div className="flex items-center justify-between">
+            <p className={fieldLabelClass}>How do you want to capture this?</p>
+            <button type="button" className="inline-flex items-center gap-1 text-xs text-app-link" onClick={goBack}>
+              <ArrowLeft size={13} /> Back
             </button>
           </div>
-
-          <input
-            ref={imagePickerRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
-          />
-          <input
-            ref={imageCameraRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
-          />
           <div className="grid grid-cols-2 gap-2">
-            <Button type="button" variant="primary" size="sm" onClick={() => imagePickerRef.current?.click()}>
-              Upload photo
-            </Button>
-            <Button type="button" variant="secondary" size="sm" onClick={() => imageCameraRef.current?.click()}>
-              Take photo
-            </Button>
+            <button
+              type="button"
+              onClick={() => {
+                selectMode('receipt');
+                setStep('upload');
+              }}
+              className={`rounded-xl border p-3 text-left ${captureMode === 'receipt' ? 'border-app-primary bg-app-primary/10' : 'border-app-border bg-app-card'}`}
+            >
+              <Receipt size={18} className="text-app-muted" />
+              <p className="mt-2 text-sm font-semibold text-app-text">Scan Receipt</p>
+              <p className="text-xs text-app-muted">Extract dishes from a bill.</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                selectMode('food_photo');
+                setStep('upload');
+              }}
+              className={`rounded-xl border p-3 text-left ${captureMode === 'food_photo' ? 'border-app-primary bg-app-primary/10' : 'border-app-border bg-app-card'}`}
+            >
+              <Camera size={18} className="text-app-muted" />
+              <p className="mt-2 text-sm font-semibold text-app-text">Dish Photo</p>
+              <p className="text-xs text-app-muted">Start with a dish image.</p>
+            </button>
           </div>
-          <p className="text-xs text-app-muted">{imageFile ? `Selected: ${imageFile.name}` : 'No file selected.'}</p>
-          {photoPreviewUrl ? (
-            <div className="overflow-hidden rounded-xl border border-app-border">
-              <Image src={photoPreviewUrl} alt="Selected meal photo" width={960} height={720} className="h-48 w-full object-cover" unoptimized />
+        </section>
+      ) : null}
+
+      {(showUploadStep || showDetailsStep || showLocationStep || step === 'success') ? (
+        <section className="card-surface space-y-4">
+          {step !== 'success' ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <button type="button" className="inline-flex items-center gap-1 text-xs text-app-link" onClick={goBack}>
+                  <ArrowLeft size={13} /> Back
+                </button>
+                <span className="inline-flex rounded-full border border-app-border px-2 py-0.5 text-[11px] text-app-muted">{flowLabel}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {progressSteps.map((label, index) => (
+                  <div key={label} className="flex min-w-0 flex-1 items-center gap-1.5">
+                    <div className={`h-1.5 flex-1 rounded-full ${index <= currentProgressIndex ? 'bg-app-primary' : 'bg-app-border'}`} />
+                    {index === progressSteps.length - 1 ? null : null}
+                  </div>
+                ))}
+              </div>
             </div>
           ) : null}
 
-          {captureMode === 'food_photo' ? (
-            <>
-              <div className="space-y-2">
-                <label className={fieldLabelClass}>Dish name</label>
-                <Input value={dishName} onChange={(event) => setDishName(event.target.value)} placeholder="What is this dish?" />
-                <label className={fieldLabelClass}>Price</label>
-                <Input
-                  value={dishPrice}
-                  onChange={(event) => setDishPrice(event.target.value)}
-                  placeholder="Optional"
-                  inputMode="decimal"
-                />
+          {showUploadStep ? (
+            <div className="space-y-3">
+              <p className={fieldLabelClass}>{captureMode === 'receipt' ? 'Upload receipt' : 'Upload photo'}</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Button type="button" variant="primary" size="sm" onClick={() => imagePickerRef.current?.click()}>
+                  <Upload size={14} className="mr-1" /> Upload
+                </Button>
+                <Button type="button" variant="secondary" size="sm" onClick={() => imageCameraRef.current?.click()}>
+                  <Camera size={14} className="mr-1" /> Take photo
+                </Button>
               </div>
-
-              <div className="space-y-2">
-                <label className={fieldLabelClass}>Restaurant</label>
-                <div className="relative">
-                  <Input
-                    value={restaurantQuery}
-                    placeholder="Search restaurant, cafe, bar..."
-                    onFocus={() => setIsRestaurantFocused(true)}
-                    onBlur={() => {
-                      window.setTimeout(() => setIsRestaurantFocused(false), 120);
-                    }}
-                    onChange={(e) => {
-                      setRestaurantQuery(e.target.value);
-                      setRestaurantId('');
-                      setSelectedPlace(null);
-                    }}
-                  />
-
-                  {isRestaurantFocused && restaurantQuery.trim().length >= 2 && (
-                    <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-app-border bg-app-card shadow-sm">
-                      {autocompleteLoading && <p className="p-3 text-sm text-app-muted">Searching nearby places...</p>}
-                      {!autocompleteLoading && suggestions.length === 0 && <p className="p-3 text-sm text-app-muted">No matching places found.</p>}
-                      {!autocompleteLoading &&
-                        suggestions.map((suggestion) => (
-                          <button
-                            key={suggestion.placeId}
-                            type="button"
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => void selectSuggestion(suggestion)}
-                            className="w-full border-b border-app-border px-3 py-3 text-left last:border-b-0"
-                          >
-                            <p className="text-sm font-medium text-app-text">{suggestion.primaryText}</p>
-                            {suggestion.secondaryText ? <p className="text-xs text-app-muted">{suggestion.secondaryText}</p> : null}
-                          </button>
-                        ))}
-                    </div>
-                  )}
-                </div>
-
-                {selectedPlace?.address ? <p className="text-xs text-app-muted">Selected: {selectedPlace.address}</p> : null}
-                {autocompleteError ? <p className="text-xs text-rose-700 dark:text-rose-300">{autocompleteError}</p> : null}
-
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant={placeSelectionMode === 'search' ? 'secondary' : 'ghost'}
-                    size="sm"
-                    onClick={() => setPlaceSelectionMode('search')}
-                  >
-                    Search place
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={placeSelectionMode === 'pinned' ? 'secondary' : 'ghost'}
-                    size="sm"
-                    onClick={openPinPicker}
-                  >
-                    Drop a pin
-                  </Button>
-                  <Button type="button" variant="secondary" size="sm" onClick={clearRestaurant}>
-                    Skip
-                  </Button>
-                </div>
-
-                {placeSelectionMode === 'search' && userLocation ? (
-                  <p className="text-xs text-app-muted">
-                    Using location bias: {userLocation.lat.toFixed(4)}, {userLocation.lng.toFixed(4)}
-                  </p>
-                ) : null}
-
-                {placeSelectionMode === 'search' ? (
-                  <>
-                    {!autocompleteLoading && isRestaurantFocused && restaurantQuery.trim().length >= 2 && suggestions.length === 0 ? (
-                      <button
-                        type="button"
-                        className="text-xs font-medium text-app-link underline underline-offset-2"
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={openPinPicker}
-                      >
-                        Can&apos;t find the place? Drop a pin
-                      </button>
-                    ) : null}
-                  </>
-                ) : null}
-
-                {placeSelectionMode === 'pinned' ? (
-                  <div className="space-y-2 rounded-xl border border-app-border bg-app-card/60 p-2.5">
-                    <div className="space-y-0.5">
-                      <p className="text-sm font-medium text-app-text">📍 Pinned location</p>
-                      <p className="text-xs text-app-muted">
-                        {pinnedAddress
-                          ? `Near ${pinnedAddress}`
-                          : pinnedCoords
-                            ? 'Coordinates available'
-                            : 'No location selected yet'}
-                      </p>
-                      {pinnedAccuracyMeters ? <p className="text-xs text-app-muted">Accurate to ~{pinnedAccuracyMeters} m</p> : null}
-                    </div>
-                    <Button type="button" variant="secondary" size="sm" fullWidth={false} onClick={openPinPicker}>
-                      Change location
-                    </Button>
-                    <Input
-                      value={pinnedPlaceName}
-                      onChange={(event) => setPinnedPlaceName(event.target.value)}
-                      placeholder="Name this place (optional)"
-                    />
+              <div className="rounded-xl border border-app-border bg-app-card/40 p-3">
+                {photoPreviewUrl ? (
+                  <Image src={photoPreviewUrl} alt="Selected meal photo" width={960} height={720} className="h-48 w-full rounded-lg object-cover" unoptimized />
+                ) : (
+                  <div className="flex h-40 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-app-border text-app-muted">
+                    <ImagePlus size={20} />
+                    <p className="text-xs">Upload or take a photo to continue</p>
                   </div>
-                ) : null}
-                {locationError ? <p className="text-xs text-rose-700 dark:text-rose-300">{locationError}</p> : null}
+                )}
+                <p className="mt-2 text-xs text-app-muted">{imageFile ? `Selected: ${imageFile.name}` : 'No file selected'}</p>
               </div>
-            </>
-          ) : null}
-
-          {loading ? (
-            <p className="text-sm text-app-muted">
-              {captureMode === 'receipt' ? `Uploading... ${Math.round(progress)}%` : 'Saving food...'}
-            </p>
-          ) : null}
-          {saveError ? <p className="text-xs text-rose-700 dark:text-rose-300">{saveError}</p> : null}
-
-          {captureMode === 'food_photo' ? (
-            <div className="grid grid-cols-2 gap-2">
-              <Button type="button" variant="secondary" size="lg" onClick={cancelFlow} disabled={loading}>
-                Cancel
+              {loading ? (
+                <p className="text-sm text-app-muted">
+                  {captureMode === 'receipt' ? `Uploading... ${Math.round(progress)}%` : 'Saving food...'}
+                </p>
+              ) : null}
+              {saveError ? <p className="text-xs text-rose-700 dark:text-rose-300">{saveError}</p> : null}
+              <Button type="button" size="lg" onClick={continueFromUpload} disabled={!canContinueFromUpload || loading}>
+                Continue <ArrowRight size={14} className="ml-1" />
               </Button>
+            </div>
+          ) : null}
+
+          {showDetailsStep ? (
+            <div className="space-y-3">
+              <p className={fieldLabelClass}>Dish details</p>
+              <div className="space-y-2">
+                <label className="text-xs text-app-muted">Dish name</label>
+                <Input value={dishName} onChange={(event) => setDishName(event.target.value)} placeholder="What did you eat?" />
+                <label className="text-xs text-app-muted">Price (optional)</label>
+                <Input value={dishPrice} onChange={(event) => setDishPrice(event.target.value)} placeholder="Optional" inputMode="decimal" />
+              </div>
+              {saveError ? <p className="text-xs text-rose-700 dark:text-rose-300">{saveError}</p> : null}
+              <Button type="button" size="lg" onClick={continueFromDetails}>
+                Continue <ArrowRight size={14} className="ml-1" />
+              </Button>
+            </div>
+          ) : null}
+
+          {showLocationStep ? (
+            <div className="space-y-3">
+              <p className={fieldLabelClass}>Restaurant / location</p>
+              <div className="relative">
+                <Input
+                  value={restaurantQuery}
+                  placeholder="Search restaurant"
+                  onFocus={() => setIsRestaurantFocused(true)}
+                  onBlur={() => window.setTimeout(() => setIsRestaurantFocused(false), 120)}
+                  onChange={(e) => {
+                    setRestaurantQuery(e.target.value);
+                    setRestaurantId('');
+                    setSelectedPlace(null);
+                  }}
+                />
+                {isRestaurantFocused && restaurantQuery.trim().length >= 2 && (
+                  <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-app-border bg-app-card shadow-sm">
+                    {autocompleteLoading ? <p className="p-3 text-sm text-app-muted">Searching...</p> : null}
+                    {!autocompleteLoading && suggestions.length === 0 ? <p className="p-3 text-sm text-app-muted">No matching places found.</p> : null}
+                    {!autocompleteLoading &&
+                      suggestions.map((suggestion) => (
+                        <button
+                          key={suggestion.placeId}
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => void selectSuggestion(suggestion)}
+                          className="w-full border-b border-app-border px-3 py-3 text-left last:border-b-0"
+                        >
+                          <p className="text-sm font-medium text-app-text">{suggestion.primaryText}</p>
+                          {suggestion.secondaryText ? <p className="text-xs text-app-muted">{suggestion.secondaryText}</p> : null}
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant={placeSelectionMode === 'search' ? 'secondary' : 'ghost'} size="sm" onClick={() => setPlaceSelectionMode('search')}>
+                  <Search size={13} className="mr-1" /> Search place
+                </Button>
+                <Button type="button" variant={placeSelectionMode === 'pinned' ? 'secondary' : 'ghost'} size="sm" onClick={openPinPicker}>
+                  <MapPinned size={13} className="mr-1" /> Drop a pin
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={clearRestaurant}>
+                  Skip for now
+                </Button>
+              </div>
+              {placeSelectionMode === 'search' && userLocation ? (
+                <p className="text-xs text-app-muted">
+                  <LocateFixed size={12} className="mr-1 inline-block" />
+                  Location bias: {userLocation.lat.toFixed(3)}, {userLocation.lng.toFixed(3)}
+                </p>
+              ) : null}
+              {selectedPlace?.address ? <p className="text-xs text-app-muted">Selected: {selectedPlace.address}</p> : null}
+              {placeSelectionMode === 'pinned' ? (
+                <div className="space-y-2 rounded-xl border border-app-border bg-app-card/60 p-2.5">
+                  <div className="space-y-0.5">
+                    <p className="text-sm font-medium text-app-text"><MapPin size={13} className="mr-1 inline-block" />Pinned location</p>
+                    <p className="text-xs text-app-muted">
+                      {pinnedAddress
+                        ? `Near ${pinnedAddress}`
+                        : pinnedCoords
+                          ? 'Coordinates available'
+                          : 'No location selected yet'}
+                    </p>
+                    {pinnedAccuracyMeters ? <p className="text-xs text-app-muted">Accurate to ~{pinnedAccuracyMeters} m</p> : null}
+                  </div>
+                  <Button type="button" variant="secondary" size="sm" fullWidth={false} onClick={openPinPicker}>
+                    Change location
+                  </Button>
+                  <Input value={pinnedPlaceName} onChange={(event) => setPinnedPlaceName(event.target.value)} placeholder="Name this place (optional)" />
+                </div>
+              ) : null}
+              {autocompleteError ? <p className="text-xs text-rose-700 dark:text-rose-300">{autocompleteError}</p> : null}
+              {locationError ? <p className="text-xs text-rose-700 dark:text-rose-300">{locationError}</p> : null}
+              {saveError ? <p className="text-xs text-rose-700 dark:text-rose-300">{saveError}</p> : null}
               <Button
                 type="button"
-                variant="primary"
                 size="lg"
-                onClick={onSubmit}
-                disabled={!imageFile || loading || dishName.trim().length === 0 || (placeSelectionMode === 'pinned' && !pinnedCoords)}
+                onClick={() => void onSubmit()}
+                disabled={loading || dishName.trim().length === 0 || (intent !== 'manual' && captureMode !== 'receipt' && !imageFile) || (placeSelectionMode === 'pinned' && !pinnedCoords)}
               >
-                {loading ? 'Saving...' : 'Save food'}
+                {loading ? 'Saving...' : 'Save'}
               </Button>
             </div>
-          ) : (
-            <Button
-              type="button"
-              variant="primary"
-              size="lg"
-              onClick={onSubmit}
-              disabled={!imageFile || loading}
-            >
-              {loading ? 'Saving...' : 'Continue to review'}
-            </Button>
-          )}
+          ) : null}
+
+          {step === 'success' ? (
+            <div className="space-y-3 text-center">
+              <div className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-full bg-app-primary/15 text-app-primary">
+                <CheckCircle2 size={24} />
+              </div>
+              <p className="text-base font-semibold text-app-text">{successState?.title ?? 'Saved'}</p>
+              <p className="text-sm text-app-muted">{successState?.body ?? 'Done.'}</p>
+              <div className="grid grid-cols-1 gap-2">
+                <Button
+                  type="button"
+                  onClick={() => {
+                    if (successState?.href) router.push(successState.href);
+                  }}
+                >
+                  {successState?.cta ?? 'Continue'}
+                </Button>
+                <Button type="button" variant="secondary" onClick={resetFlow}>
+                  Add another
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </section>
-      )}
+      ) : null}
 
       {pinPickerOpen ? (
         <div className="fixed inset-0 z-[80] flex items-end sm:items-center sm:justify-center">
