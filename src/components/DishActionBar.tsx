@@ -121,7 +121,7 @@ export function DishActionBar({
         <div ref={ratingRef} className="relative shrink-0">
           <button
             type="button"
-            aria-label="Set rating"
+            aria-label="Rate it"
             aria-expanded={ratingOpen}
             onClick={(event) => {
               stopTap(event);
@@ -272,7 +272,7 @@ export function DishActionBar({
           />
           <div className="relative w-full max-w-md rounded-t-2xl border border-app-border bg-app-card p-3">
             <div className="mb-2 flex items-center justify-between">
-              <p className="text-sm font-semibold text-app-text">Set vibe</p>
+              <p className="text-sm font-semibold text-app-text">Rate it</p>
               <button type="button" className="icon-button-subtle" onClick={(event) => { stopTap(event); setRatingOpen(false); }}>
                 <X size={14} strokeWidth={1.7} />
               </button>
