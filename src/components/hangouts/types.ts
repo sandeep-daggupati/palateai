@@ -3,6 +3,7 @@ export type HangoutVibeKey =
   | 'go_to_spot'
   | 'celebration'
   | 'work_hangout'
+  | 'mixer'
   | 'with_friends'
   | 'night_out'
   | 'hidden_gem';

@@ -526,7 +526,7 @@ export default function FoodPage() {
                         {row.photo?.signedUrls.thumb ? (
                           <Image src={row.photo.signedUrls.thumb} alt={`${row.dish_name} thumbnail`} width={56} height={56} className="h-full w-full object-cover" unoptimized />
                         ) : (
-                          <div className="flex h-full w-full items-center justify-center text-[10px] text-app-muted">No photo</div>
+                          <div className="flex h-full w-full items-center justify-center text-[10px] text-app-muted">Add photo</div>
                         )}
                       </div>
                       <div className="min-w-0 flex-1 space-y-0.5">

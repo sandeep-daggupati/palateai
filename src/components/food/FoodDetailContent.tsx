@@ -580,7 +580,7 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
                           />
                         ) : (
                           <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-100 to-lime-100 text-[10px] font-medium text-emerald-800">
-                            No photo
+                            Add photo
                           </div>
                         )}
 

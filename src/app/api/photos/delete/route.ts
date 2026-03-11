@@ -19,7 +19,7 @@ export async function DELETE(request: Request) {
   const supabase = getServiceSupabaseClient();
   const { data: photo } = await supabase
     .from('photos')
-    .select('id,user_id,hangout_id,dish_entry_id')
+    .select('id,user_id,kind,hangout_id,dish_entry_id')
     .eq('id', photoId)
     .maybeSingle();
 
@@ -28,7 +28,15 @@ export async function DELETE(request: Request) {
   }
 
   let canDelete = photo.user_id === auth.userId;
-  if (!canDelete && photo.hangout_id) {
+  if (!canDelete && photo.hangout_id && photo.kind === 'hangout') {
+    const { data: owner } = await supabase
+      .from('receipt_uploads')
+      .select('id')
+      .eq('id', photo.hangout_id)
+      .eq('user_id', auth.userId)
+      .maybeSingle();
+    canDelete = Boolean(owner?.id);
+  } else if (!canDelete && photo.hangout_id) {
     const [{ data: owner }, { data: participant }] = await Promise.all([
       supabase.from('receipt_uploads').select('id').eq('id', photo.hangout_id).eq('user_id', auth.userId).maybeSingle(),
       supabase

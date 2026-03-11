@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Check, CheckCircle2, ChevronDown, Clock3, Globe, MapPin, Navigation, Pencil, Phone, Plus, X } from 'lucide-react';
+import { Check, CheckCircle2, ChevronDown, Clock3, FileText, Globe, MapPin, Navigation, Pencil, Phone, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { PinMapPicker } from '@/components/maps/PinMapPicker';
@@ -15,7 +15,7 @@ import { normalizeName } from '@/lib/extraction/normalize';
 import { sanitizeText } from '@/lib/text/sanitize';
 import { getGoogleMapsLink } from '@/lib/google/mapsLinks';
 import { SignedPhoto } from '@/lib/photos/types';
-import { listDishPhotosForHangout, listHangoutPhotos, uploadDishPhoto, uploadHangoutPhoto } from '@/lib/data/photosRepo';
+import { deletePhoto, listDishPhotosForHangout, listHangoutPhotos, uploadDishPhoto, uploadHangoutPhoto } from '@/lib/data/photosRepo';
 import { uploadImage } from '@/lib/storage/uploadImage';
 import { HANGOUT_VIBE_OPTIONS, HangoutVibeKey, normalizeHangoutVibeTags } from '@/lib/hangouts/vibes';
 
@@ -298,6 +298,7 @@ export default function UploadDetailPage() {
 
   const [placeSyncLoading, setPlaceSyncLoading] = useState(false);
   const [hangoutPhotos, setHangoutPhotos] = useState<SignedPhoto[]>([]);
+  const [deletingHangoutPhotoId, setDeletingHangoutPhotoId] = useState<string | null>(null);
   const [dishPhotosByItemId, setDishPhotosByItemId] = useState<Record<string, SignedPhoto[]>>({});
   const [dishTriedByByEntryId, setDishTriedByByEntryId] = useState<Record<string, DishTriedBy[]>>({});
   const [myDishHadByEntryId, setMyDishHadByEntryId] = useState<Record<string, boolean>>({});
@@ -987,6 +988,20 @@ export default function UploadDetailPage() {
     [loadHangoutPhotos, upload?.id],
   );
 
+  const handleDeleteHangoutPhoto = useCallback(
+    async (photoId: string) => {
+      setDeletingHangoutPhotoId(photoId);
+      try {
+        const ok = await deletePhoto(photoId);
+        if (!ok) return;
+        await loadHangoutPhotos();
+      } finally {
+        setDeletingHangoutPhotoId(null);
+      }
+    },
+    [loadHangoutPhotos],
+  );
+
   const handleUploadDishPhoto = useCallback(
     async (row: UnifiedDishRow, file: File) => {
       if (!upload?.id) return;
@@ -1659,36 +1674,6 @@ export default function UploadDetailPage() {
     vibeTags,
   ]);
 
-  const removeParticipant = async (participantId: string) => {
-    if (!upload) return;
-
-    setShareLoading(true);
-    setShareError(null);
-
-    try {
-      const headers = {
-        'Content-Type': 'application/json',
-        ...(await getAuthHeader()),
-      };
-
-      const response = await fetch('/api/visits/share', {
-        method: 'DELETE',
-        headers,
-        body: JSON.stringify({ visitId: upload.id, participantId }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Could not remove buddy');
-      }
-
-      await loadParticipants();
-    } catch (error) {
-      setShareError(error instanceof Error ? error.message : 'Could not remove buddy');
-    } finally {
-      setShareLoading(false);
-    }
-  };
-
   if (!upload) {
     return <div className="text-sm text-app-muted">Loading hangout...</div>;
   }
@@ -1727,8 +1712,8 @@ export default function UploadDetailPage() {
   const showFromReceiptHint = draftOccurredAtSource === 'receipt';
   const creatorLabel =
     currentUserId && upload.user_id === currentUserId
-      ? 'You Created'
-      : `Added by ${creatorProfile?.display_name || creatorProfile?.email?.split('@')[0] || 'a friend'}`;
+      ? 'You created'
+      : 'Shared';
   const participantCount = activeCrew.length;
   const dishCount = visibleFood.length;
   const totalSpend = visibleFood.reduce((sum, row) => {
@@ -1742,7 +1727,7 @@ export default function UploadDetailPage() {
     .map((entry) => entry.rating)
     .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
   const averageRating = ratingValues.length > 0 ? ratingValues.reduce((sum, value) => sum + value, 0) / ratingValues.length : null;
-  const averageRatingLabel = averageRating != null ? `${averageRating.toFixed(1)}★` : '—';
+  const averageRatingLabel = averageRating != null ? `${averageRating.toFixed(1)}★` : 'Tap dishes to rate';
   const statsSpendLabel = hasSpendData ? `$${totalSpend.toFixed(2)}` : '—';
   const participantNameById = new Map(participants.map((participant) => [participant.user_id, participant.display_name]));
   const photoOwnerLabel = (userId: string | null | undefined): string => {
@@ -1761,6 +1746,11 @@ export default function UploadDetailPage() {
     const normalized = sanitizeText(dishName ?? '');
     return normalized.length > 0 ? normalized : null;
   };
+  const canDeleteHangoutPhoto = (photo: SignedPhoto): boolean => {
+    if (!currentUserId) return false;
+    return photo.user_id === currentUserId || upload.user_id === currentUserId;
+  };
+  const unratedDishCount = visibleFood.filter((row) => !row.myEntry?.identity_tag).length;
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5 pb-6">
@@ -1799,20 +1789,6 @@ export default function UploadDetailPage() {
             ) : (
               <div className="flex min-w-0 items-center gap-2">
                 <h1 className="truncate text-[1.75rem] font-semibold leading-8 tracking-tight text-app-text">{restaurant?.name ?? 'Restaurant not detected'}</h1>
-                {canEditHangoutIdentity && restaurant?.id ? (
-                  <button
-                    type="button"
-                    className="icon-button-subtle"
-                    aria-label="Edit restaurant name"
-                    title="Edit restaurant name"
-                    onClick={() => {
-                      setRestaurantNameDraft(restaurant.name ?? '');
-                      setRestaurantNameEditing(true);
-                    }}
-                  >
-                    <Pencil size={14} strokeWidth={1.6} />
-                  </button>
-                ) : null}
               </div>
             )}
             {isSavedHangout ? (
@@ -1850,7 +1826,11 @@ export default function UploadDetailPage() {
             ) : (
               <>
                 <span>{visitDateLabel}</span>
-                {showFromReceiptHint ? <span className="text-sm leading-5 text-app-muted">from receipt</span> : null}
+                {showFromReceiptHint ? (
+                  <span className="inline-flex h-5 w-5 items-center justify-center text-app-muted" title="Imported from receipt" aria-label="Imported from receipt">
+                    <FileText size={13} strokeWidth={1.7} />
+                  </span>
+                ) : null}
                 {canEditHangoutIdentity ? (
                   <button
                     type="button"
@@ -1866,42 +1846,50 @@ export default function UploadDetailPage() {
             <span className="inline-flex items-center rounded-full border border-app-border/80 bg-app-card px-2 py-0.5 text-[11px] font-medium text-app-muted">
               {creatorLabel}
             </span>
+            {canEditHangoutIdentity && restaurant?.id ? (
+              <button
+                type="button"
+                className="icon-button-subtle h-7 w-7"
+                aria-label="Edit restaurant name"
+                title="Edit restaurant name"
+                onClick={() => {
+                  setRestaurantNameDraft(restaurant.name ?? '');
+                  setRestaurantNameEditing(true);
+                }}
+              >
+                <Pencil size={12} strokeWidth={1.6} />
+              </button>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2 pt-1">
-            {activeCrew.map((participant) => {
-              const name = participant.display_name?.trim() || participant.invited_email || 'Crew member';
-              const canRemove = isHost && participant.user_id !== upload.user_id;
-              return (
-                <span key={participant.id} className="inline-flex items-center gap-1.5 rounded-full border border-app-border bg-app-card px-2 py-1">
-                  {participant.avatar_url ? (
-                    <Image src={participant.avatar_url} alt={name} width={18} height={18} className="h-5 w-5 rounded-full object-cover" unoptimized />
-                  ) : (
-                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-app-bg text-[10px] font-semibold text-app-muted">
-                      {initialsFromName(name)}
-                    </span>
-                  )}
-                  <span className="text-xs font-medium text-app-text">{name}</span>
-                  {canRemove ? (
-                    <button
-                      type="button"
-                      aria-label={`Remove ${name}`}
-                      onClick={() => void removeParticipant(participant.id)}
-                      className="icon-button-subtle h-5 w-5"
-                    >
-                      <X size={12} strokeWidth={1.6} />
-                    </button>
-                  ) : null}
-                </span>
-              );
-            })}
+            <div className="flex items-center">
+              {activeCrew.slice(0, 8).map((participant, index) => {
+                const name = participant.display_name?.trim() || participant.invited_email || 'Crew member';
+                return (
+                  <span
+                    key={participant.id}
+                    className={`inline-flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-app-card bg-app-bg text-[10px] font-medium text-app-text ${index > 0 ? '-ml-2' : ''}`}
+                    title={name}
+                  >
+                    {participant.avatar_url ? (
+                      <Image src={participant.avatar_url} alt={name} width={32} height={32} className="h-8 w-8 object-cover" unoptimized />
+                    ) : (
+                      initialsFromName(name)
+                    )}
+                  </span>
+                );
+              })}
+              {activeCrew.length > 8 ? <span className="ml-1 text-[11px] text-app-muted">+{activeCrew.length - 8}</span> : null}
+            </div>
             {isHost ? (
               <button
                 type="button"
                 onClick={() => setCrewSheetOpen(true)}
-                className="inline-flex items-center gap-1 rounded-full border border-app-border bg-app-card px-2 py-1 text-xs font-medium text-app-link"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-dashed border-app-border text-app-link"
+                aria-label="Add participant"
+                title="Add participant"
               >
-                <Plus size={12} strokeWidth={1.8} />
-                Add
+                <Plus size={14} strokeWidth={1.8} />
               </button>
             ) : null}
           </div>
@@ -2150,7 +2138,7 @@ export default function UploadDetailPage() {
             <span className="text-app-muted/70">·</span>
             <span className="font-semibold text-app-text">{statsSpendLabel}</span>
             <span className="text-app-muted/70">·</span>
-            <span className="font-semibold text-app-text">{averageRatingLabel}</span>
+            <span className={averageRating != null ? 'font-semibold text-app-text' : 'text-app-muted'}>{averageRatingLabel}</span>
           </div>
         </div>
       </div>
@@ -2239,10 +2227,7 @@ export default function UploadDetailPage() {
       />
       <div className="card-surface space-y-3 p-4">
         <div className="flex items-center justify-between gap-2">
-          <div>
-            <h2 className="section-label">Photos</h2>
-            <p className="mt-0.5 text-[11px] text-app-muted">Moments from this hangout.</p>
-          </div>
+          <h2 className="section-label">Photos <span className="text-app-muted">— Moments from this hangout</span></h2>
           <Button
             type="button"
             variant="secondary"
@@ -2274,6 +2259,22 @@ export default function UploadDetailPage() {
                   ) : (
                     <div className="h-28 w-full bg-app-card" />
                   )}
+                  {canDeleteHangoutPhoto(photo) ? (
+                    <button
+                      type="button"
+                      className="absolute right-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white"
+                      aria-label="Delete photo"
+                      title="Delete photo"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        void handleDeleteHangoutPhoto(photo.id);
+                      }}
+                      disabled={deletingHangoutPhotoId === photo.id}
+                    >
+                      <Trash2 size={12} strokeWidth={1.9} />
+                    </button>
+                  ) : null}
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5 text-left">
                     <p className="truncate text-[10px] font-medium text-white/95">{photoOwnerLabel(photo.user_id)}</p>
                     {dishLabel ? <p className="truncate text-[10px] text-white/80">{dishLabel}</p> : null}
@@ -2288,10 +2289,7 @@ export default function UploadDetailPage() {
       </div>
 
       <div className="card-surface space-y-3 p-4">
-        <div>
-          <h2 className="section-label">Vibe</h2>
-          <p className="mt-0.5 text-xs text-app-muted">Tag this hangout to help organize your memories.</p>
-        </div>
+        <h2 className="section-label">Vibe <span className="text-app-muted">— Tag this hangout to help organize your memories</span></h2>
         <div className="flex flex-wrap gap-1.5">
           {HANGOUT_VIBE_OPTIONS.map((option) => {
             const selected = vibeTags.includes(option.key);
@@ -2320,7 +2318,6 @@ export default function UploadDetailPage() {
             );
           })}
         </div>
-        <p className="text-[11px] text-app-muted">Pick any tags that fit this hangout.</p>
       </div>
 
       {hangoutSheetOpen && (
@@ -2524,10 +2521,7 @@ export default function UploadDetailPage() {
 
       <div className="card-surface space-y-3 p-4">
         <div className="flex items-center justify-between gap-2">
-          <div>
-            <h2 className="section-label">Food</h2>
-            <p className="mt-0.5 text-[11px] text-app-muted">What was on the table.</p>
-          </div>
+          <h2 className="section-label">Food <span className="text-app-muted">— {dishCount} dishes</span></h2>
           {canEditVisit &&
             (showExtractionPrompt ? (
               <Button type="button" onClick={() => void runExtraction('overwrite')} disabled={isExtracting}>
@@ -2580,7 +2574,11 @@ export default function UploadDetailPage() {
           </div>
         ) : null}
 
-        {uploadingDishPhotoFor ? <p className="text-xs text-app-muted">Uploading dish photo...</p> : null}
+        {unratedDishCount > 0 ? (
+          <div className="rounded-lg border border-app-border/80 bg-app-card/70 px-2.5 py-1.5 text-[11px] text-app-muted">
+            Tap a dish to rate it
+          </div>
+        ) : null}
 
         {visibleFood.length > 0 ? (
           <div className="divide-y divide-app-border/60">
@@ -2637,9 +2635,19 @@ export default function UploadDetailPage() {
                       aria-label={dishPhoto ? 'Open dish photo' : 'Add dish photo'}
                     >
                       {dishPhoto?.signedUrls.thumb ? (
-                        <Image src={dishPhoto.signedUrls.thumb} alt="Dish photo" width={64} height={64} className="h-full w-full object-cover" unoptimized />
+                        <div className="relative h-full w-full">
+                          <Image src={dishPhoto.signedUrls.thumb} alt="Dish photo" width={64} height={64} className="h-full w-full object-cover" unoptimized />
+                          {uploadingDishPhotoFor === row.hangoutItem.id ? (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/45 text-[10px] font-medium text-white">Uploading...</div>
+                          ) : null}
+                        </div>
                       ) : (
-                        <div className="flex h-full w-full items-center justify-center bg-app-bg text-[10px] text-app-muted">No photo</div>
+                        <div className="relative flex h-full w-full items-center justify-center bg-app-bg text-[10px] text-app-muted">
+                          Add photo
+                          {uploadingDishPhotoFor === row.hangoutItem.id ? (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/45 text-[10px] font-medium text-white">Uploading...</div>
+                          ) : null}
+                        </div>
                       )}
                     </button>
 

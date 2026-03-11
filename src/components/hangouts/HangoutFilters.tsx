@@ -55,6 +55,8 @@ function vibeIcon(value: string): ReactNode {
       return <Sparkles size={13} strokeWidth={1.5} />;
     case 'work_hangout':
       return <Briefcase size={13} strokeWidth={1.5} />;
+    case 'mixer':
+      return <Users size={13} strokeWidth={1.5} />;
     case 'with_friends':
       return <Users size={13} strokeWidth={1.5} />;
     case 'night_out':

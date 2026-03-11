@@ -1,8 +1,9 @@
 export const HANGOUT_VIBE_OPTIONS = [
   { key: 'quick_bite', label: 'Quick bite' },
-  { key: 'go_to_spot', label: 'Go-to spot' },
+  { key: 'go_to_spot', label: 'Go-to' },
   { key: 'celebration', label: 'Celebration' },
   { key: 'work_hangout', label: 'Work hangout' },
+  { key: 'mixer', label: 'Mixer' },
   { key: 'with_friends', label: 'With friends' },
   { key: 'night_out', label: 'Night out' },
   { key: 'hidden_gem', label: 'Hidden gem' },
@@ -37,6 +38,7 @@ export function normalizeHangoutVibeTags(raw: string[] | null | undefined): Hang
     if (tag.includes('go-to') || tag.includes('go to') || tag.includes('repeat') || tag === 'go_to') pushUnique(next, 'go_to_spot');
     if (tag.includes('celebrat') || tag.includes('birthday')) pushUnique(next, 'celebration');
     if (tag.includes('work')) pushUnique(next, 'work_hangout');
+    if (tag.includes('mixer') || tag.includes('mix')) pushUnique(next, 'mixer');
     if (tag.includes('friend') || tag.includes('crew') || tag.includes('buddy') || tag.includes('vibes')) pushUnique(next, 'with_friends');
     if (tag.includes('night') || tag.includes('late') || tag.includes('fancy') || tag.includes('date')) pushUnique(next, 'night_out');
     if (tag.includes('hidden')) pushUnique(next, 'hidden_gem');
