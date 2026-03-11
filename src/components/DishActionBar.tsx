@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Ban, Camera, Check, Ellipsis, FileText, Gem, Pencil, RotateCcw, Sparkles, Star, Wine, X } from 'lucide-react';
+import { Ban, Camera, Check, Ellipsis, FileText, Gem, Pencil, RotateCcw, Sparkles, Star, Trash2, Wine, X } from 'lucide-react';
 import { DishIdentityTag } from '@/lib/supabase/types';
 
 type DishActionBarProps = {
   onAddPhoto?: () => void;
   showPhotoAction?: boolean;
   onEdit: () => void;
+  onDelete?: () => void;
   onSetRating: (value: DishIdentityTag | null) => void;
   ratingValue: DishIdentityTag | null;
   noteValue: string;
@@ -30,6 +31,7 @@ export function DishActionBar({
   onAddPhoto,
   showPhotoAction = true,
   onEdit,
+  onDelete,
   onSetRating,
   ratingValue,
   noteValue,
@@ -214,6 +216,20 @@ export function DishActionBar({
                 <FileText size={14} strokeWidth={ICON_STROKE} />
                 {noteValue.trim().length > 0 ? 'Edit note' : 'Add note'}
               </button>
+              {onDelete ? (
+                <button
+                  type="button"
+                  className="flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs text-rose-500 hover:bg-rose-500/10"
+                  onClick={(event) => {
+                    stopTap(event);
+                    setMenuOpen(false);
+                    onDelete();
+                  }}
+                >
+                  <Trash2 size={14} strokeWidth={ICON_STROKE} />
+                  Delete dish
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -412,6 +428,20 @@ export function DishActionBar({
                 <FileText size={15} strokeWidth={ICON_STROKE} />
                 {noteValue.trim().length > 0 ? 'Edit note' : 'Add note'}
               </button>
+              {onDelete ? (
+                <button
+                  type="button"
+                  className="flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left text-sm text-rose-500 hover:bg-rose-500/10"
+                  onClick={(event) => {
+                    stopTap(event);
+                    setMenuOpen(false);
+                    onDelete();
+                  }}
+                >
+                  <Trash2 size={15} strokeWidth={ICON_STROKE} />
+                  Delete dish
+                </button>
+              ) : null}
             </div>
           </div>
         </div>

@@ -314,6 +314,8 @@ export default function UploadDetailPage() {
     dishKey: string;
     fallbackName: string;
   } | null>(null);
+  const [deleteDishTarget, setDeleteDishTarget] = useState<{ hangoutItemId: string; dishEntryId: string | null; dishName: string } | null>(null);
+  const [deletingDishEntryId, setDeletingDishEntryId] = useState<string | null>(null);
   const [editNameCanonical, setEditNameCanonical] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editFlavorTags, setEditFlavorTags] = useState('');
@@ -1190,6 +1192,95 @@ export default function UploadDetailPage() {
     }
   }, [editDescription, editFlavorTags, editNameCanonical, editPrice, editingDishRow, getAuthHeader, uploadId]);
 
+  const deleteDishRow = useCallback(
+    async (target: { hangoutItemId: string; dishEntryId: string | null; dishName: string }) => {
+      const persistedDishEntryId = target.dishEntryId;
+      const draftLikeId =
+        !persistedDishEntryId || persistedDishEntryId.startsWith('draft-') || persistedDishEntryId.startsWith('tmp-');
+
+      if (draftLikeId) {
+        setFood((prev) => prev.filter((entry) => entry.hangoutItem.id !== target.hangoutItemId));
+        setHasUnsavedChanges(true);
+        setDeleteDishTarget(null);
+        return;
+      }
+
+      if (!upload) return;
+
+      setDeletingDishEntryId(persistedDishEntryId);
+      setSaveHangoutError(null);
+      try {
+        const photos = dishPhotosByItemId[persistedDishEntryId] ?? [];
+        if (photos.length > 0) {
+          await Promise.all(photos.map((photo: SignedPhoto) => deletePhoto(photo.id).catch(() => false)));
+        }
+
+        const supabase = getBrowserSupabaseClient();
+        const { error } = await supabase
+          .from('dish_entries')
+          .delete()
+          .eq('id', persistedDishEntryId)
+          .eq('hangout_id', upload.id);
+        if (error) throw error;
+
+        setFood((prev) => {
+          const next = prev.filter((entry) => entry.hangoutItem.id !== target.hangoutItemId);
+          const nextFingerprint = JSON.stringify(
+            next
+              .map((row) => {
+                const name = sanitizeText(row.hangoutItem.name_final || row.hangoutItem.name_raw);
+                return {
+                  key: normalizedDraftKey(name, row.hangoutItem.unit_price),
+                  quantity: row.hangoutItem.quantity ?? 1,
+                  included: row.hangoutItem.included,
+                  note: row.myEntry?.comment ?? null,
+                  tag: row.myEntry?.identity_tag ?? null,
+                };
+              })
+              .sort((a, b) => (a.key < b.key ? -1 : 1)),
+          );
+          setSavedFoodFingerprint(nextFingerprint);
+          return next;
+        });
+
+        setDishPhotosByItemId((prev) => {
+          const next = { ...prev };
+          delete next[persistedDishEntryId];
+          return next;
+        });
+        setDishTriedByByEntryId((prev) => {
+          const next = { ...prev };
+          delete next[persistedDishEntryId];
+          return next;
+        });
+        setMyDishHadByEntryId((prev) => {
+          const next = { ...prev };
+          delete next[persistedDishEntryId];
+          return next;
+        });
+        setSavedMyDishHadByEntryId((prev) => {
+          const next = { ...prev };
+          delete next[persistedDishEntryId];
+          return next;
+        });
+        setEntryMetaById((prev) => {
+          const next = { ...prev };
+          delete next[persistedDishEntryId];
+          return next;
+        });
+
+        setSaveHangoutToast('Dish deleted');
+        window.setTimeout(() => setSaveHangoutToast(null), 1500);
+      } catch (error) {
+        setSaveHangoutError(error instanceof Error ? error.message : 'Could not delete dish');
+      } finally {
+        setDeletingDishEntryId(null);
+        setDeleteDishTarget(null);
+      }
+    },
+    [dishPhotosByItemId, upload],
+  );
+
   const addParticipant = async (emailOverride?: string) => {
     const email = (emailOverride ?? shareEmail).trim().toLowerCase();
     if (!email || !upload) return;
@@ -1629,8 +1720,6 @@ export default function UploadDetailPage() {
         );
       }
 
-      const activeParticipantCount = participants.filter((participant) => participant.status === 'active').length;
-      const isSoloHangout = activeParticipantCount <= 1;
       const participationRows = activeFood
         .map((row) => {
           const persistedDishEntryId = resolvedDishEntryIdsByRowId[row.hangoutItem.id] ?? row.myEntry?.id ?? null;
@@ -1644,14 +1733,6 @@ export default function UploadDetailPage() {
               dish_entry_id: persistedDishEntryId,
               user_id: currentUserId,
               had_it: explicitDraft,
-            };
-          }
-
-          if (isSoloHangout && typeof priorValue !== 'boolean') {
-            return {
-              dish_entry_id: persistedDishEntryId,
-              user_id: currentUserId,
-              had_it: true,
             };
           }
 
@@ -1719,7 +1800,6 @@ export default function UploadDetailPage() {
     myDishHadByEntryId,
     savedMyDishHadByEntryId,
     manualVisitDateEdited,
-    participants,
     promoteTempReceiptImages,
     hasUnsavedChanges,
     savedFoodFingerprint,
@@ -2709,6 +2789,46 @@ export default function UploadDetailPage() {
         </div>
       ) : null}
 
+      {deleteDishTarget ? (
+        <div className="fixed inset-0 z-[75] flex items-end justify-center bg-black/35 sm:items-center">
+          <button
+            type="button"
+            className="absolute inset-0"
+            aria-label="Close delete confirmation"
+            onClick={() => {
+              if (deletingDishEntryId) return;
+              setDeleteDishTarget(null);
+            }}
+          />
+          <div className="relative w-full max-w-md rounded-t-2xl border border-app-border bg-app-card p-3 sm:rounded-2xl">
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-app-text">Delete this dish?</p>
+              <p className="text-xs text-app-muted">This will remove it from the hangout and your food log.</p>
+              <p className="truncate text-xs text-app-muted">{deleteDishTarget.dishName}</p>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setDeleteDishTarget(null)}
+                disabled={Boolean(deletingDishEntryId)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void deleteDishRow(deleteDishTarget)}
+                disabled={Boolean(deletingDishEntryId)}
+              >
+                {deletingDishEntryId ? 'Deleting...' : 'Delete'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="card-surface space-y-3 p-4">
         <div className="flex items-center justify-between gap-2">
           <h2 className="section-label">Food <span className="normal-case text-xs font-normal tracking-normal text-app-muted">— {dishCount} dishes</span></h2>
@@ -2935,6 +3055,16 @@ export default function UploadDetailPage() {
                     <DishActionBar
                       showPhotoAction={false}
                       onEdit={() => openDishCatalogEditor(row)}
+                      onDelete={
+                        canEditVisit
+                          ? () =>
+                              setDeleteDishTarget({
+                                hangoutItemId: row.hangoutItem.id,
+                                dishEntryId: dishEntryId,
+                                dishName,
+                              })
+                          : undefined
+                      }
                       ratingValue={identityValue}
                       onSetRating={(value) => {
                         setFood((prev) =>
