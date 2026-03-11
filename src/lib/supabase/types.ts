@@ -369,6 +369,63 @@ export type Database = {
         };
         Relationships: [];
       };
+      personal_food_entries: {
+        Row: {
+          id: string;
+          user_id: string;
+          source_dish_entry_id: string | null;
+          source_hangout_id: string | null;
+          restaurant_id: string | null;
+          dish_key: string | null;
+          dish_name: string;
+          price: number | null;
+          photo_path: string | null;
+          rating: number | null;
+          note: string | null;
+          reaction_tag: Database['public']['Enums']['dish_identity'] | null;
+          had_it: boolean;
+          detached_from_hangout: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          source_dish_entry_id?: string | null;
+          source_hangout_id?: string | null;
+          restaurant_id?: string | null;
+          dish_key?: string | null;
+          dish_name: string;
+          price?: number | null;
+          photo_path?: string | null;
+          rating?: number | null;
+          note?: string | null;
+          reaction_tag?: Database['public']['Enums']['dish_identity'] | null;
+          had_it?: boolean;
+          detached_from_hangout?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          source_dish_entry_id?: string | null;
+          source_hangout_id?: string | null;
+          restaurant_id?: string | null;
+          dish_key?: string | null;
+          dish_name?: string;
+          price?: number | null;
+          photo_path?: string | null;
+          rating?: number | null;
+          note?: string | null;
+          reaction_tag?: Database['public']['Enums']['dish_identity'] | null;
+          had_it?: boolean;
+          detached_from_hangout?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       hangouts: {
         Row: {
           id: string;
@@ -737,6 +794,13 @@ export type Database = {
         };
         Returns: Json;
       };
+      delete_hangout_preserve_personal_memories: {
+        Args: {
+          p_hangout_id: string;
+          p_request_user_id: string;
+        };
+        Returns: Json;
+      };
     };
     Enums: {
       dish_identity: 'go_to' | 'hidden_gem' | 'special_occasion' | 'try_again' | 'never_again';
@@ -757,6 +821,7 @@ export type HangoutSummary = Database['public']['Tables']['hangout_summaries']['
 export type DishCatalog = Database['public']['Tables']['dish_catalog']['Row'];
 export type DishEntry = Database['public']['Tables']['dish_entries']['Row'];
 export type DishEntryParticipant = Database['public']['Tables']['dish_entry_participants']['Row'];
+export type PersonalFoodEntry = Database['public']['Tables']['personal_food_entries']['Row'];
 export type DailyAiInsight = Database['public']['Tables']['daily_ai_insights']['Row'];
 export type DailyInsight = Database['public']['Tables']['daily_insights']['Row'];
 export type Photo = Database['public']['Tables']['photos']['Row'];

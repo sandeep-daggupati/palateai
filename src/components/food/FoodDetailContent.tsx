@@ -8,7 +8,7 @@ import { IdentityTagIcon } from '@/components/IdentityTagIcon';
 import { SignedPhoto } from '@/lib/photos/types';
 import { uploadDishPhoto } from '@/lib/data/photosRepo';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { DishCatalog, DishEntry, DishIdentityTag } from '@/lib/supabase/types';
+import { DishCatalog, DishIdentityTag, PersonalFoodEntry } from '@/lib/supabase/types';
 import { getGoogleMapsLink } from '@/lib/google/mapsLinks';
 
 type FoodDetailContentProps = {
@@ -32,18 +32,18 @@ type RestaurantMeta = {
 };
 
 type FoodTimelineEntry = Pick<
-  DishEntry,
+  PersonalFoodEntry,
   | 'id'
   | 'dish_name'
   | 'dish_key'
   | 'restaurant_id'
-  | 'identity_tag'
-  | 'comment'
+  | 'reaction_tag'
+  | 'note'
   | 'created_at'
-  | 'eaten_at'
-  | 'price_original'
-  | 'currency_original'
-  | 'source_upload_id'
+  | 'updated_at'
+  | 'price'
+  | 'source_hangout_id'
+  | 'source_dish_entry_id'
 > & {
   restaurant: RestaurantMeta | null;
   photo: SignedPhoto | null;
@@ -95,8 +95,8 @@ function toDbTag(value: CanonicalTag): DishIdentityTag | null {
   return value === 'none' ? null : value;
 }
 
-function entryTime(entry: Pick<FoodTimelineEntry, 'eaten_at' | 'created_at'>): number {
-  const parsed = new Date(entry.eaten_at ?? entry.created_at).getTime();
+function entryTime(entry: Pick<FoodTimelineEntry, 'updated_at' | 'created_at'>): number {
+  const parsed = new Date(entry.updated_at ?? entry.created_at).getTime();
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
@@ -179,7 +179,7 @@ function FoodEntryEditorSheet({
   useEffect(() => {
     if (!entry || !open) return;
     setTag(entry.canonicalTag);
-    setNote(entry.comment ?? '');
+    setNote(entry.note ?? '');
     setPhotoFile(null);
   }, [entry, open]);
 
@@ -197,6 +197,7 @@ function FoodEntryEditorSheet({
   }, [onClose, open]);
 
   if (!open || !entry) return null;
+  const canUploadPhoto = Boolean(entry.source_hangout_id && entry.source_dish_entry_id);
 
   return (
     <div className="fixed inset-0 z-[70] flex items-end">
@@ -301,16 +302,18 @@ function FoodEntryEditorSheet({
                 <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-app-bg text-[10px] text-app-muted">None</div>
               )}
               <label className="inline-flex h-8 cursor-pointer items-center rounded-lg border border-app-border px-2 text-xs text-app-text">
-                {photoFile ? 'Replace selected' : 'Add or replace'}
+                {canUploadPhoto ? (photoFile ? 'Replace selected' : 'Add or replace') : 'Photo locked'}
                 <input
                   type="file"
                   accept="image/*"
                   className="hidden"
+                  disabled={!canUploadPhoto}
                   onChange={(event) => {
                     setPhotoFile(event.target.files?.[0] ?? null);
                   }}
                 />
               </label>
+              {!canUploadPhoto ? <span className="text-xs text-app-muted">Original hangout was deleted.</span> : null}
               {photoFile ? <span className="text-xs text-app-muted">{photoFile.name}</span> : null}
             </div>
           </div>
@@ -342,36 +345,19 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
 
     setLoading(true);
 
-    const [participantResult, catalogResponse, sessionResponse] = await Promise.all([
+    const [personalResult, catalogResponse, sessionResponse] = await Promise.all([
       supabase
-        .from('dish_entry_participants')
-        .select('dish_entry_id,updated_at')
+        .from('personal_food_entries')
+        .select('id,dish_name,dish_key,restaurant_id,reaction_tag,note,created_at,updated_at,price,source_hangout_id,source_dish_entry_id')
         .eq('user_id', user.id)
         .eq('had_it', true)
-        .order('updated_at', { ascending: false }),
+        .eq('dish_key', foodKey)
+        .order('updated_at', { ascending: false })
+        .limit(200),
       supabase.from('dish_catalog').select('*').eq('dish_key', foodKey).maybeSingle(),
       supabase.auth.getSession(),
     ]);
-
-    const dishEntryIds = Array.from(
-      new Set(
-        ((participantResult.data ?? []) as Array<{ dish_entry_id: string | null }>)
-          .map((row) => row.dish_entry_id)
-          .filter((id): id is string => Boolean(id)),
-      ),
-    );
-
-    const entriesResponse =
-      dishEntryIds.length > 0
-        ? await supabase
-            .from('dish_entries')
-            .select('id,dish_name,dish_key,restaurant_id,identity_tag,comment,created_at,eaten_at,price_original,currency_original,source_upload_id')
-            .in('id', dishEntryIds)
-            .eq('dish_key', foodKey)
-            .not('hangout_id', 'is', null)
-        : { data: [] };
-
-    const parsedEntries = ((entriesResponse.data ?? []) as DishEntry[]).sort((a, b) => entryTime(b) - entryTime(a));
+    const parsedEntries = ((personalResult.data ?? []) as PersonalFoodEntry[]).sort((a, b) => entryTime(b) - entryTime(a));
     setCatalog((catalogResponse.data ?? null) as DishCatalog | null);
 
     const restaurantIds = Array.from(new Set(parsedEntries.map((row) => row.restaurant_id).filter((id): id is string => Boolean(id))));
@@ -390,18 +376,40 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
     const byEntryId: Record<string, SignedPhoto> = {};
     const accessToken = sessionResponse.data.session?.access_token;
     if (accessToken && parsedEntries.length > 0) {
-      const ids = parsedEntries.map((row) => row.id).join(',');
+      const sourceDishEntryIds = Array.from(
+        new Set(parsedEntries.map((row) => row.source_dish_entry_id).filter((id): id is string => Boolean(id))),
+      );
+      const ids = sourceDishEntryIds.join(',');
+      if (!ids) {
+        setEntries(
+          parsedEntries.map((entry) => ({
+            ...entry,
+            canonicalTag: normalizeTag(entry.reaction_tag),
+            restaurant: entry.restaurant_id ? restaurantLookup.get(entry.restaurant_id) ?? null : null,
+            photo: null,
+          })),
+        );
+        setLoading(false);
+        return;
+      }
       const response = await fetch(`/api/photos/list?kind=dish&dish_entry_ids=${encodeURIComponent(ids)}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
 
       if (response.ok) {
         const payload = (await response.json()) as { photos?: SignedPhoto[] };
+        const bySourceDishEntryId: Record<string, SignedPhoto> = {};
         for (const photo of payload.photos ?? []) {
           if (!photo.dish_entry_id) continue;
-          if (!byEntryId[photo.dish_entry_id]) {
-            byEntryId[photo.dish_entry_id] = photo;
+          if (!bySourceDishEntryId[photo.dish_entry_id]) {
+            bySourceDishEntryId[photo.dish_entry_id] = photo;
           }
+        }
+        for (const entry of parsedEntries) {
+          const sourceDishEntryId = entry.source_dish_entry_id;
+          if (!sourceDishEntryId) continue;
+          const photo = bySourceDishEntryId[sourceDishEntryId];
+          if (photo) byEntryId[entry.id] = photo;
         }
       }
     }
@@ -409,7 +417,7 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
     setEntries(
       parsedEntries.map((entry) => ({
         ...entry,
-        canonicalTag: normalizeTag(entry.identity_tag),
+        canonicalTag: normalizeTag(entry.reaction_tag),
         restaurant: entry.restaurant_id ? restaurantLookup.get(entry.restaurant_id) ?? null : null,
         photo: byEntryId[entry.id] ?? null,
       })),
@@ -426,7 +434,7 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
     const groups = new Map<string, FoodTimelineEntry[]>();
 
     for (const entry of entries) {
-      const key = monthKey(entry.eaten_at ?? entry.created_at);
+      const key = monthKey(entry.updated_at ?? entry.created_at);
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)?.push(entry);
     }
@@ -463,9 +471,9 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
         entry.id === entryId
           ? {
               ...entry,
-              identity_tag: nextIdentityTag,
+              reaction_tag: nextIdentityTag,
               canonicalTag: payload.tag,
-              comment: nextNote,
+              note: nextNote,
             }
           : entry,
       ),
@@ -475,10 +483,10 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
 
     const supabase = getBrowserSupabaseClient();
     const { error } = await supabase
-      .from('dish_entries')
+      .from('personal_food_entries')
       .update({
-        identity_tag: nextIdentityTag,
-        comment: nextNote,
+        reaction_tag: nextIdentityTag,
+        note: nextNote,
       })
       .eq('id', entryId);
 
@@ -490,8 +498,8 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
 
     if (payload.photoFile) {
       const targetEntry = previous.find((entry) => entry.id === entryId);
-      if (targetEntry) {
-        const uploaded = await uploadDishPhoto(targetEntry.source_upload_id, entryId, payload.photoFile);
+      if (targetEntry?.source_hangout_id && targetEntry.source_dish_entry_id) {
+        const uploaded = await uploadDishPhoto(targetEntry.source_hangout_id, targetEntry.source_dish_entry_id, payload.photoFile);
         if (uploaded) {
           setEntries((current) => current.map((entry) => (entry.id === entryId ? { ...entry, photo: uploaded } : entry)));
         }
@@ -538,9 +546,9 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
 
           {catalog?.description ? <p className="text-xs leading-5 text-app-muted">{catalog.description}</p> : null}
 
-          <div className="flex items-center gap-2 text-xs text-app-muted">
-            <span>{entries.length} logged</span>
-          </div>
+            <div className="flex items-center gap-2 text-xs text-app-muted">
+              <span>{entries.length} logged</span>
+            </div>
 
           {uniqueHeaderTags.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
@@ -589,7 +597,7 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
                             <div className="min-w-0">
                               <p className="text-sm font-semibold leading-5 text-app-text">{entry.dish_name}</p>
                               <div className="flex items-center justify-between gap-2">
-                                <p className="truncate text-xs text-app-muted">{entry.restaurant?.name ?? 'Unknown restaurant'} · {formatTimestamp(entry.eaten_at ?? entry.created_at)}</p>
+                              <p className="truncate text-xs text-app-muted">{entry.restaurant?.name ?? 'Unknown restaurant'} · {formatTimestamp(entry.updated_at ?? entry.created_at)}</p>
                               </div>
                             </div>
 
@@ -628,10 +636,10 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
                             <IdentityTagIcon tag={entry.canonicalTag} showNone />
                           </div>
 
-                          {entry.comment ? <p className="text-xs leading-5 text-app-muted">{entry.comment}</p> : null}
+                          {entry.note ? <p className="text-xs leading-5 text-app-muted">{entry.note}</p> : null}
 
                           <div className="flex items-center justify-between gap-2 text-xs text-app-muted">
-                            <span>{entry.price_original != null ? `${entry.currency_original} ${entry.price_original.toFixed(2)}` : 'Price unavailable'}</span>
+                            <span>{entry.price != null ? `USD ${entry.price.toFixed(2)}` : 'Price unavailable'}</span>
                             <button
                               type="button"
                               className="font-medium text-app-link"
