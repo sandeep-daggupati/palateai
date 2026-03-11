@@ -304,6 +304,7 @@ export default function UploadDetailPage() {
   const [myDishHadByEntryId, setMyDishHadByEntryId] = useState<Record<string, boolean>>({});
   const [savedMyDishHadByEntryId, setSavedMyDishHadByEntryId] = useState<Record<string, boolean>>({});
   const [triedBySheet, setTriedBySheet] = useState<{ dishName: string; entries: DishTriedBy[] } | null>(null);
+  const [participantsSheetOpen, setParticipantsSheetOpen] = useState(false);
   const [entryMetaById, setEntryMetaById] = useState<Record<string, { hangout_item_id: string | null; dish_name: string }>>({});
   const [lightboxPhotos, setLightboxPhotos] = useState<SignedPhoto[]>([]);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -931,14 +932,6 @@ export default function UploadDetailPage() {
     void runExtraction();
   }, [canEditVisit, hasAnyExtractedItems, isReceiptCapture, runExtraction, upload]);
 
-  const hasParticipationDraftChanges = useMemo(() => {
-    const entryIds = dishes
-      .map((row) => row.myEntry?.id)
-      .filter((value): value is string => Boolean(value && !value.startsWith('draft-') && !value.startsWith('tmp-')));
-    if (entryIds.length === 0) return false;
-    return entryIds.some((entryId) => (myDishHadByEntryId[entryId] ?? false) !== (savedMyDishHadByEntryId[entryId] ?? false));
-  }, [dishes, myDishHadByEntryId, savedMyDishHadByEntryId]);
-
   useEffect(() => {
     const currentFingerprint = JSON.stringify(
       dishes
@@ -954,8 +947,7 @@ export default function UploadDetailPage() {
         })
         .sort((a, b) => (a.key < b.key ? -1 : 1)),
     );
-    const dirty =
-      hasUnsavedChanges || hasParticipationDraftChanges || (savedFoodFingerprint.length > 0 && savedFoodFingerprint !== currentFingerprint);
+    const dirty = hasUnsavedChanges || (savedFoodFingerprint.length > 0 && savedFoodFingerprint !== currentFingerprint);
     if (!dirty) return;
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
@@ -963,7 +955,7 @@ export default function UploadDetailPage() {
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [dishes, hasParticipationDraftChanges, hasUnsavedChanges, savedFoodFingerprint]);
+  }, [dishes, hasUnsavedChanges, savedFoodFingerprint]);
 
   const ensureDishEntryForRow = useCallback(
     async (row: UnifiedDishRow): Promise<Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'> | null> => {
@@ -1025,9 +1017,29 @@ export default function UploadDetailPage() {
       if (!currentUserId) return;
       const dishEntryId = row.myEntry?.id;
       if (!dishEntryId || dishEntryId.startsWith('draft-')) return;
+      const previousHadIt = myDishHadByEntryId[dishEntryId] ?? false;
       setMyDishHadByEntryId((prev) => ({ ...prev, [dishEntryId]: nextHadIt }));
+      void (async () => {
+        const supabase = getBrowserSupabaseClient();
+        const { error } = await supabase
+          .from('dish_entry_participants')
+          .upsert(
+            {
+              dish_entry_id: dishEntryId,
+              user_id: currentUserId,
+              had_it: nextHadIt,
+            },
+            { onConflict: 'dish_entry_id,user_id' },
+          );
+        if (error) {
+          setMyDishHadByEntryId((prev) => ({ ...prev, [dishEntryId]: previousHadIt }));
+          setSaveHangoutError('Could not update participation right now.');
+          return;
+        }
+        setSavedMyDishHadByEntryId((prev) => ({ ...prev, [dishEntryId]: nextHadIt }));
+      })();
     },
-    [currentUserId],
+    [currentUserId, myDishHadByEntryId],
   );
 
   const addManualDishItem = useCallback(async () => {
@@ -1420,34 +1432,18 @@ export default function UploadDetailPage() {
     setCancelingDraft(true);
     setSaveHangoutError(null);
     try {
-      if (upload.status === 'approved') {
-        clearDraftDishCount(upload.id);
-        await load();
-        setHasUnsavedChanges(false);
-        setPendingReceiptFile(null);
-        setReceiptUpdateModeOpen(false);
-        setReceiptReplaceSheetOpen(false);
-        return;
-      }
-      const supabase = getBrowserSupabaseClient();
-      const tempOrUploaded = (upload.image_paths ?? []).filter(Boolean);
-      if (tempOrUploaded.length > 0) {
-        await supabase.storage.from('uploads').remove(tempOrUploaded);
-      }
-      await supabase
-        .from('receipt_uploads')
-        .update({
-          status: 'rejected',
-          image_paths: [],
-          visit_note: null,
-        })
-        .eq('id', upload.id);
       clearDraftDishCount(upload.id);
-      router.push('/add');
+      await load();
+      setHasUnsavedChanges(false);
+      setPendingReceiptFile(null);
+      setReceiptUpdateModeOpen(false);
+      setReceiptReplaceSheetOpen(false);
+      setSaveHangoutToast('Changes discarded');
+      window.setTimeout(() => setSaveHangoutToast(null), 1600);
     } finally {
       setCancelingDraft(false);
     }
-  }, [isHost, load, router, upload]);
+  }, [isHost, load, upload]);
 
   const replaceReceiptAndRescan = useCallback(
     async (file: File, mode: 'add' | 'overwrite') => {
@@ -1487,6 +1483,25 @@ export default function UploadDetailPage() {
   const saveHangout = useCallback(async () => {
     if (!upload || !currentUserId) return;
     setSaveHangoutError(null);
+
+    const nextFingerprint = JSON.stringify(
+      dishes
+        .map((row) => {
+          const name = sanitizeText(row.hangoutItem.name_final || row.hangoutItem.name_raw);
+          return {
+            key: normalizedDraftKey(name, row.hangoutItem.unit_price),
+            quantity: row.hangoutItem.quantity ?? 1,
+            included: row.hangoutItem.included,
+            note: row.myEntry?.comment ?? null,
+            tag: row.myEntry?.identity_tag ?? null,
+          };
+        })
+        .sort((a, b) => (a.key < b.key ? -1 : 1)),
+    );
+    const hasFoodDraftChanges = savedFoodFingerprint.length > 0 && savedFoodFingerprint !== nextFingerprint;
+    const hasAnyChanges = hasUnsavedChanges || hasFoodDraftChanges;
+    if (!hasAnyChanges) return;
+
     const activeFood = dishes.filter((row) => row.hangoutItem.included);
     if (activeFood.length === 0) {
       setSaveHangoutError('Add at least one food item before saving.');
@@ -1495,20 +1510,6 @@ export default function UploadDetailPage() {
 
     setSaveHangoutLoading(true);
     try {
-      const nextFingerprint = JSON.stringify(
-        dishes
-          .map((row) => {
-            const name = sanitizeText(row.hangoutItem.name_final || row.hangoutItem.name_raw);
-            return {
-              key: normalizedDraftKey(name, row.hangoutItem.unit_price),
-              quantity: row.hangoutItem.quantity ?? 1,
-              included: row.hangoutItem.included,
-              note: row.myEntry?.comment ?? null,
-              tag: row.myEntry?.identity_tag ?? null,
-            };
-          })
-          .sort((a, b) => (a.key < b.key ? -1 : 1)),
-      );
       const promotedImagePaths = await promoteTempReceiptImages();
       const supabase = getBrowserSupabaseClient();
       const preservedEntryIds = new Set<string>();
@@ -1647,7 +1648,7 @@ export default function UploadDetailPage() {
 
       clearDraftDishCount(upload.id);
 
-      setSaveHangoutToast('Hangout saved');
+      setSaveHangoutToast('Saved ✓');
       setSavedFoodFingerprint(nextFingerprint);
       setSavedMyDishHadByEntryId(myDishHadByEntryId);
       setHasUnsavedChanges(false);
@@ -1667,6 +1668,8 @@ export default function UploadDetailPage() {
     manualVisitDateEdited,
     participants,
     promoteTempReceiptImages,
+    hasUnsavedChanges,
+    savedFoodFingerprint,
     enrichDishCatalogForEntry,
     restaurant?.name,
     router,
@@ -1707,8 +1710,7 @@ export default function UploadDetailPage() {
   const directionsHref = getGoogleMapsLink(restaurant?.place_id, restaurant?.address, restaurant?.lat, restaurant?.lng, restaurant?.name, restaurant?.place_type);
   const todayHours = getTodayHours(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
   const openNow = getOpenNowStatus(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
-  const showUnsavedIndicator =
-    hasUnsavedChanges || hasParticipationDraftChanges || (savedFoodFingerprint.length > 0 && savedFoodFingerprint !== draftFoodFingerprint);
+  const showUnsavedIndicator = hasUnsavedChanges || (savedFoodFingerprint.length > 0 && savedFoodFingerprint !== draftFoodFingerprint);
   const showFromReceiptHint = draftOccurredAtSource === 'receipt';
   const creatorLabel =
     currentUserId && upload.user_id === currentUserId
@@ -1858,7 +1860,13 @@ export default function UploadDetailPage() {
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-2 pt-1">
-            <div className="flex items-center">
+            <button
+              type="button"
+              className="flex items-center rounded-full border border-transparent px-0.5 py-0.5 hover:border-app-border/70"
+              onClick={() => setParticipantsSheetOpen(true)}
+              aria-label="View participants"
+              title="View participants"
+            >
               {activeCrew.slice(0, 8).map((participant, index) => {
                 const name = participant.display_name?.trim() || participant.invited_email || 'Crew member';
                 return (
@@ -1876,7 +1884,7 @@ export default function UploadDetailPage() {
                 );
               })}
               {activeCrew.length > 8 ? <span className="ml-1 text-[11px] text-app-muted">+{activeCrew.length - 8}</span> : null}
-            </div>
+            </button>
             {isHost ? (
               <button
                 type="button"
@@ -2515,6 +2523,49 @@ export default function UploadDetailPage() {
         </div>
       ) : null}
 
+      {participantsSheetOpen ? (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/35 sm:items-center">
+          <button
+            type="button"
+            className="absolute inset-0"
+            aria-label="Close participants list"
+            onClick={() => setParticipantsSheetOpen(false)}
+          />
+          <div className="relative w-full max-w-md rounded-t-2xl border border-app-border bg-app-card p-3 sm:rounded-2xl">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-app-text">Participants</p>
+                <p className="text-xs text-app-muted">{participantCount} people</p>
+              </div>
+              <Button type="button" variant="secondary" size="sm" fullWidth={false} onClick={() => setParticipantsSheetOpen(false)}>
+                Close
+              </Button>
+            </div>
+            {activeCrew.length > 0 ? (
+              <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
+                {activeCrew.map((participant) => {
+                  const name = participant.display_name?.trim() || participant.invited_email || 'Crew member';
+                  return (
+                    <div key={participant.id} className="flex items-center gap-2 rounded-lg border border-app-border/70 bg-app-card/60 px-2 py-1.5">
+                      {participant.avatar_url ? (
+                        <Image src={participant.avatar_url} alt={name} width={24} height={24} className="h-6 w-6 rounded-full object-cover" unoptimized />
+                      ) : (
+                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-app-bg text-[10px] font-semibold text-app-muted">
+                          {initialsFromName(name)}
+                        </span>
+                      )}
+                      <span className="truncate text-xs font-medium text-app-text">{name}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-app-muted">No participants yet.</p>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       <div className="card-surface space-y-3 p-4">
         <div className="flex items-center justify-between gap-2">
           <h2 className="section-label">Food <span className="normal-case text-xs font-normal tracking-normal text-app-muted">— {dishCount} dishes</span></h2>
@@ -2853,11 +2904,18 @@ export default function UploadDetailPage() {
       {canEditVisit ? (
         <div className="card-surface space-y-3 p-4">
           {saveHangoutError ? <p className="text-sm text-rose-700 dark:text-rose-300">{saveHangoutError}</p> : null}
-          <div className="grid grid-cols-2 gap-2">
-            <Button type="button" variant="secondary" size="lg" onClick={() => void cancelHangoutDraft()} disabled={saveHangoutLoading || cancelingDraft}>
-              {cancelingDraft ? 'Canceling...' : 'Cancel'}
-            </Button>
-            <Button type="button" size="lg" onClick={() => void saveHangout()} disabled={saveHangoutLoading || cancelingDraft}>
+          <div className={`grid gap-2 ${showUnsavedIndicator ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            {showUnsavedIndicator ? (
+              <Button type="button" variant="secondary" size="lg" onClick={() => void cancelHangoutDraft()} disabled={saveHangoutLoading || cancelingDraft}>
+                {cancelingDraft ? 'Canceling...' : 'Cancel'}
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              size="lg"
+              onClick={() => void saveHangout()}
+              disabled={!showUnsavedIndicator || saveHangoutLoading || cancelingDraft}
+            >
               {saveHangoutLoading ? 'Saving...' : 'Save Hangout'}
             </Button>
           </div>
