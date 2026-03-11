@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Ban, Check, CheckCircle2, ChevronDown, Clock3, FileText, Flame, Gem, Globe, MapPin, Navigation, Pencil, Phone, Plus, Trash2, Users } from 'lucide-react';
+import { Ban, Check, CheckCircle2, ChevronDown, Clock3, FileText, Flame, Gem, Globe, Loader2, MapPin, Navigation, Pencil, Phone, Plus, Trash2, Users } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { PinMapPicker } from '@/components/maps/PinMapPicker';
@@ -1285,13 +1285,18 @@ export default function UploadDetailPage() {
         }
 
         const supabase = getBrowserSupabaseClient();
+        const { error: personalDeleteError } = await supabase
+          .from('personal_food_entries')
+          .delete()
+          .eq('source_dish_entry_id', persistedDishEntryId);
+        if (personalDeleteError) throw personalDeleteError;
+
         const { error } = await supabase
           .from('dish_entries')
           .delete()
           .eq('id', persistedDishEntryId)
           .eq('hangout_id', upload.id);
         if (error) throw error;
-        await supabase.from('personal_food_entries').delete().eq('source_dish_entry_id', persistedDishEntryId);
 
         setFood((prev) => {
           const next = prev.filter((entry) => entry.hangoutItem.id !== target.hangoutItemId);
@@ -1893,6 +1898,11 @@ export default function UploadDetailPage() {
         .eq('hangout_id', upload.id);
       const removeIds = (existingEntries ?? []).map((row) => row.id).filter((id) => !preservedEntryIds.has(id));
       if (removeIds.length > 0) {
+        const { error: personalDeleteError } = await supabase
+          .from('personal_food_entries')
+          .delete()
+          .in('source_dish_entry_id', removeIds);
+        if (personalDeleteError) throw personalDeleteError;
         await supabase.from('dish_entries').delete().in('id', removeIds);
       }
 
@@ -2114,6 +2124,20 @@ export default function UploadDetailPage() {
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5 pb-6">
+      {isExtracting ? (
+        <div className="fixed inset-x-0 top-3 z-[85] mx-auto w-[min(92vw,34rem)] rounded-xl border border-app-border bg-app-card/95 px-3 py-2 shadow-lg backdrop-blur">
+          <div className="flex items-center gap-2">
+            <Loader2 size={15} className="animate-spin text-app-primary" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-app-text">{isReceiptCapture ? 'Analyzing receipt...' : 'Analyzing photo...'}</p>
+              <p className="truncate text-xs text-app-muted">
+                {isReceiptCapture ? "We're extracting dishes and restaurant details." : "We're extracting dish details."}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="card-surface space-y-5 p-5">
         <div className="min-w-0 space-y-1">
           <div className="flex items-start justify-between gap-2">
