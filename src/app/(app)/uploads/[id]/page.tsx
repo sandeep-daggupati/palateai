@@ -25,6 +25,7 @@ type UnifiedDishRow = {
 };
 
 type DishTriedBy = Pick<DishEntryParticipant, 'id' | 'dish_entry_id' | 'user_id' | 'had_it'> & {
+  rating?: number | null;
   display_name: string | null;
   avatar_url: string | null;
 };
@@ -573,12 +574,12 @@ export default function UploadDetailPage() {
     if (entryIds.length > 0) {
       const { data: triedRows } = await supabase
         .from('dish_entry_participants')
-        .select('id,dish_entry_id,user_id,had_it')
+        .select('id,dish_entry_id,user_id,had_it,rating')
         .in('dish_entry_id', entryIds);
 
-      const participantRows = ((triedRows ?? []) as Array<Pick<DishEntryParticipant, 'id' | 'dish_entry_id' | 'user_id' | 'had_it'>>).filter(
-        (row) => row.user_id && row.dish_entry_id,
-      );
+      const participantRows = (
+        (triedRows ?? []) as Array<Pick<DishEntryParticipant, 'id' | 'dish_entry_id' | 'user_id' | 'had_it' | 'rating'>>
+      ).filter((row) => row.user_id && row.dish_entry_id);
       nextMyDishHadByEntryId = participantRows
         .filter((row) => row.user_id === user.id)
         .reduce(
@@ -608,6 +609,7 @@ export default function UploadDetailPage() {
             dish_entry_id: row.dish_entry_id,
             user_id: row.user_id,
             had_it: row.had_it,
+            rating: row.rating ?? null,
             display_name: profile?.display_name ?? null,
             avatar_url: profile?.avatar_url ?? null,
           });
@@ -1727,11 +1729,43 @@ export default function UploadDetailPage() {
     currentUserId && upload.user_id === currentUserId
       ? 'You created'
       : `Added by ${creatorProfile?.display_name || creatorProfile?.email?.split('@')[0] || 'a friend'}`;
+  const participantCount = activeCrew.length;
+  const dishCount = visibleFood.length;
+  const totalSpend = visibleFood.reduce((sum, row) => {
+    const unitPrice = row.hangoutItem.unit_price;
+    if (unitPrice == null) return sum;
+    return sum + unitPrice * Math.max(1, row.hangoutItem.quantity ?? 1);
+  }, 0);
+  const hasSpendData = visibleFood.some((row) => row.hangoutItem.unit_price != null);
+  const ratingValues = Object.values(dishTriedByByEntryId)
+    .flat()
+    .map((entry) => entry.rating)
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  const averageRating = ratingValues.length > 0 ? ratingValues.reduce((sum, value) => sum + value, 0) / ratingValues.length : null;
+  const averageRatingLabel = averageRating != null ? `${averageRating.toFixed(1)}★` : '—';
+  const statsSpendLabel = hasSpendData ? `$${totalSpend.toFixed(2)}` : '—';
+  const participantNameById = new Map(participants.map((participant) => [participant.user_id, participant.display_name]));
+  const photoOwnerLabel = (userId: string | null | undefined): string => {
+    if (!userId) return 'Added by someone';
+    if (userId === currentUserId) return 'Added by you';
+    if (userId === upload.user_id) {
+      const creatorName = creatorProfile?.display_name || creatorProfile?.email?.split('@')[0];
+      return creatorName ? `Added by ${creatorName}` : 'Added by creator';
+    }
+    const crewName = participantNameById.get(userId)?.trim();
+    return crewName ? `Added by ${crewName}` : 'Added by crew';
+  };
+  const getPhotoDishLabel = (dishEntryId: string | null): string | null => {
+    if (!dishEntryId) return null;
+    const dishName = entryMetaById[dishEntryId]?.dish_name;
+    const normalized = sanitizeText(dishName ?? '');
+    return normalized.length > 0 ? normalized : null;
+  };
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-3 pb-4">
-      <div className="card-surface space-y-3 p-3">
-        <div className="min-w-0 space-y-0.5">
+    <div className="mx-auto w-full max-w-3xl space-y-5 pb-6">
+      <div className="card-surface space-y-5 p-5">
+        <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             {restaurantNameEditing ? (
               <div className="flex min-w-0 items-center gap-2">
@@ -1764,7 +1798,7 @@ export default function UploadDetailPage() {
               </div>
             ) : (
               <>
-                <h1 className="truncate text-2xl font-semibold leading-7 text-app-text">{restaurant?.name ?? 'Restaurant not detected'}</h1>
+                <h1 className="truncate text-[2rem] font-semibold leading-9 tracking-tight text-app-text">{restaurant?.name ?? 'Restaurant not detected'}</h1>
                 {canEditHangoutIdentity && restaurant?.id ? (
                   <button
                     type="button"
@@ -1788,7 +1822,7 @@ export default function UploadDetailPage() {
               </span>
             ) : null}
           </div>
-          <div className="flex flex-wrap items-center gap-1 text-xs leading-4 text-app-muted">
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm leading-5 text-app-muted">
             <span>Visited</span>
             {visitDateEditing && canEditHangoutIdentity ? (
               <div className="flex items-center gap-1">
@@ -1830,7 +1864,7 @@ export default function UploadDetailPage() {
                 ) : null}
               </>
             )}
-            <span>· {creatorLabel}</span>
+            <span className="text-app-muted">· {creatorLabel}</span>
           </div>
           <div className="flex flex-wrap items-center gap-2 pt-1">
             {activeCrew.map((participant) => {
@@ -1872,6 +1906,8 @@ export default function UploadDetailPage() {
           </div>
           {showUnsavedIndicator ? (
             <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">Unsaved changes</p>
+          ) : isSavedHangout ? (
+            <p className="text-[11px] text-app-muted">Last edited {formatDateTime(upload.processed_at ?? upload.created_at)}</p>
           ) : null}
         </div>
         <div className="space-y-1">
@@ -2105,38 +2141,18 @@ export default function UploadDetailPage() {
         {restaurant && detectedMerchant?.name ? (
           <p className="text-xs text-app-muted">Receipt detected: {detectedMerchant.name}</p>
         ) : null}
-        <div className="rounded-lg border border-app-border bg-app-card/60 px-3 py-2.5">
-          <h2 className="section-label">Vibe</h2>
-          <p className="mt-1 text-xs text-app-muted">Tag this hangout to help organize your memories.</p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {HANGOUT_VIBE_OPTIONS.map((option) => {
-              const selected = vibeTags.includes(option.key);
-              return (
-                <button
-                  key={option.key}
-                  type="button"
-                  disabled={!canEditVisit}
-                  onClick={() => {
-                    if (!canEditVisit) return;
-                    setVibeTags((current) => {
-                      if (current.includes(option.key)) return current.filter((value) => value !== option.key);
-                      return [...current, option.key];
-                    });
-                    setHasUnsavedChanges(true);
-                  }}
-                  className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                    selected
-                      ? 'border-app-primary/60 bg-app-primary/15 text-app-text'
-                      : 'border-app-border bg-app-card text-app-muted'
-                  } ${!canEditVisit ? 'opacity-60' : ''}`}
-                >
-                  {selected ? <Check size={12} strokeWidth={1.7} className="mr-1" /> : null}
-                  {option.label}
-                </button>
-              );
-            })}
+      </div>
+      <div className="card-surface overflow-hidden border border-app-border/70 p-0">
+        <div className="bg-gradient-to-r from-app-card via-app-card to-app-bg/70 px-4 py-3 text-xs text-app-muted">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span><span className="font-semibold text-app-text">{participantCount}</span> people</span>
+            <span className="text-app-muted/70">·</span>
+            <span><span className="font-semibold text-app-text">{dishCount}</span> dishes</span>
+            <span className="text-app-muted/70">·</span>
+            <span className="font-semibold text-app-text">{statsSpendLabel}</span>
+            <span className="text-app-muted/70">·</span>
+            <span className="font-semibold text-app-text">{averageRatingLabel}</span>
           </div>
-          <p className="mt-1 text-[11px] text-app-muted">Pick any tags that fit this hangout.</p>
         </div>
       </div>
       <input
@@ -2222,44 +2238,12 @@ export default function UploadDetailPage() {
           setDishUploadTarget(null);
         }}
       />
-      {hangoutPhotos.length > 0 ? (
-        <div className="card-surface p-3 space-y-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="section-label">Hangout photos</h2>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              fullWidth={false}
-              className="h-9 px-2 text-xs"
-              onClick={() => setHangoutSheetOpen(true)}
-              disabled={uploadingHangoutPhoto}
-            >
-              {uploadingHangoutPhoto ? 'Uploading photo...' : 'Add photos'}
-            </Button>
+      <div className="card-surface space-y-3 p-4">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h2 className="section-label">Photos</h2>
+            <p className="mt-0.5 text-[11px] text-app-muted">Moments from this hangout.</p>
           </div>
-          <div className="grid grid-cols-3 gap-2">
-            {hangoutPhotos.map((photo, index) => (
-              <button
-                key={photo.id}
-                type="button"
-                className="relative overflow-hidden rounded-lg border border-app-border"
-                onClick={() => {
-                  setLightboxPhotos(hangoutPhotos);
-                  setLightboxIndex(index);
-                }}
-              >
-                {photo.signedUrls.thumb ? (
-                  <Image src={photo.signedUrls.thumb} alt="Hangout thumbnail" width={200} height={200} className="h-24 w-full object-cover" unoptimized />
-                ) : (
-                  <div className="h-24 w-full bg-app-card" />
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div>
           <Button
             type="button"
             variant="secondary"
@@ -2272,7 +2256,73 @@ export default function UploadDetailPage() {
             {uploadingHangoutPhoto ? 'Uploading photo...' : 'Add photos'}
           </Button>
         </div>
-      )}
+        {hangoutPhotos.length > 0 ? (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {hangoutPhotos.map((photo, index) => {
+              const dishLabel = getPhotoDishLabel(photo.dish_entry_id);
+              return (
+                <button
+                  key={photo.id}
+                  type="button"
+                  className="group relative overflow-hidden rounded-xl border border-app-border"
+                  onClick={() => {
+                    setLightboxPhotos(hangoutPhotos);
+                    setLightboxIndex(index);
+                  }}
+                >
+                  {photo.signedUrls.thumb ? (
+                    <Image src={photo.signedUrls.thumb} alt="Hangout thumbnail" width={240} height={240} className="h-28 w-full object-cover" unoptimized />
+                  ) : (
+                    <div className="h-28 w-full bg-app-card" />
+                  )}
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5 text-left">
+                    <p className="truncate text-[10px] font-medium text-white/95">{photoOwnerLabel(photo.user_id)}</p>
+                    {dishLabel ? <p className="truncate text-[10px] text-white/80">{dishLabel}</p> : null}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-sm text-app-muted">No photos yet. Add one to capture this memory.</p>
+        )}
+      </div>
+
+      <div className="card-surface space-y-3 p-4">
+        <div>
+          <h2 className="section-label">Vibe</h2>
+          <p className="mt-0.5 text-xs text-app-muted">Tag this hangout to help organize your memories.</p>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {HANGOUT_VIBE_OPTIONS.map((option) => {
+            const selected = vibeTags.includes(option.key);
+            return (
+              <button
+                key={option.key}
+                type="button"
+                disabled={!canEditVisit}
+                onClick={() => {
+                  if (!canEditVisit) return;
+                  setVibeTags((current) => {
+                    if (current.includes(option.key)) return current.filter((value) => value !== option.key);
+                    return [...current, option.key];
+                  });
+                  setHasUnsavedChanges(true);
+                }}
+                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  selected
+                    ? 'border-app-primary/60 bg-app-primary/15 text-app-text'
+                    : 'border-app-border bg-app-card text-app-muted'
+                } ${!canEditVisit ? 'opacity-60' : ''}`}
+              >
+                {selected ? <Check size={12} strokeWidth={1.7} className="mr-1" /> : null}
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[11px] text-app-muted">Pick any tags that fit this hangout.</p>
+      </div>
 
       {hangoutSheetOpen && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/35">
@@ -2473,9 +2523,12 @@ export default function UploadDetailPage() {
         </div>
       ) : null}
 
-      <div className="card-surface p-3 space-y-2.5">
+      <div className="card-surface space-y-3 p-4">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="section-label">Food</h2>
+          <div>
+            <h2 className="section-label">Food</h2>
+            <p className="mt-0.5 text-[11px] text-app-muted">What was on the table.</p>
+          </div>
           {canEditVisit &&
             (showExtractionPrompt ? (
               <Button type="button" onClick={() => void runExtraction('overwrite')} disabled={isExtracting}>
@@ -2796,7 +2849,7 @@ export default function UploadDetailPage() {
       </div>
 
       {canEditVisit ? (
-        <div className="card-surface p-3 space-y-2.5">
+        <div className="card-surface space-y-3 p-4">
           {saveHangoutError ? <p className="text-sm text-rose-700 dark:text-rose-300">{saveHangoutError}</p> : null}
           <div className="grid grid-cols-2 gap-2">
             <Button type="button" variant="secondary" size="lg" onClick={() => void cancelHangoutDraft()} disabled={saveHangoutLoading || cancelingDraft}>
