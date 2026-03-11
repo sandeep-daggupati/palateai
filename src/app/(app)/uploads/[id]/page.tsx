@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Ban, Check, CheckCircle2, ChevronDown, Clock3, FileText, Flame, Gem, Globe, Loader2, MapPin, Navigation, Pencil, Phone, Plus, Trash2, Users } from 'lucide-react';
+import { Ban, Check, CheckCircle2, ChevronDown, CircleDot, Clock3, FileText, Flame, Gem, Globe, Loader2, MapPin, Navigation, Pencil, Phone, Plus, Trash2, Users } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { PinMapPicker } from '@/components/maps/PinMapPicker';
@@ -332,6 +332,7 @@ export default function UploadDetailPage() {
   const [manualDishError, setManualDishError] = useState<string | null>(null);
   const [uploadingHangoutPhoto, setUploadingHangoutPhoto] = useState(false);
   const [uploadingDishPhotoFor, setUploadingDishPhotoFor] = useState<string | null>(null);
+  const [photoUploadPending, setPhotoUploadPending] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [hasTriedExtraction, setHasTriedExtraction] = useState(false);
   const [manualEntryForReceipt, setManualEntryForReceipt] = useState(false);
@@ -926,7 +927,7 @@ export default function UploadDetailPage() {
           setDraftOccurredAt(detectedAt);
           setDraftOccurredAtSource('receipt');
         }
-        setHasUnsavedChanges(true);
+        // Receipt analysis itself should not force dirty state.
       } finally {
         setIsExtracting(false);
       }
@@ -995,15 +996,40 @@ export default function UploadDetailPage() {
         })
         .sort((a, b) => (a.key < b.key ? -1 : 1)),
     );
-    const dirty = hasUnsavedChanges || (savedFoodFingerprint.length > 0 && savedFoodFingerprint !== currentFingerprint);
+    const dirty =
+      hasUnsavedChanges ||
+      photoUploadPending ||
+      (savedFoodFingerprint.length > 0 && savedFoodFingerprint !== currentFingerprint);
     if (!dirty) return;
+
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = '';
     };
+    const onDocumentClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      const anchor = target?.closest('a[href]') as HTMLAnchorElement | null;
+      if (!anchor) return;
+      if (!anchor.href || anchor.target === '_blank' || anchor.download) return;
+      if (anchor.origin !== window.location.origin) return;
+      const nextUrl = new URL(anchor.href);
+      const currentUrl = new URL(window.location.href);
+      const samePathAndQuery = nextUrl.pathname === currentUrl.pathname && nextUrl.search === currentUrl.search;
+      if (samePathAndQuery && nextUrl.hash) return;
+      const discard = window.confirm('You have unsaved changes. Discard them?');
+      if (!discard) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+
     window.addEventListener('beforeunload', onBeforeUnload);
-    return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [dishes, hasUnsavedChanges, savedFoodFingerprint]);
+    document.addEventListener('click', onDocumentClick, true);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      document.removeEventListener('click', onDocumentClick, true);
+    };
+  }, [dishes, hasUnsavedChanges, photoUploadPending, savedFoodFingerprint]);
 
   const ensureDishEntryForRow = useCallback(
     async (row: UnifiedDishRow): Promise<Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'> | null> => {
@@ -1016,6 +1042,7 @@ export default function UploadDetailPage() {
     async (file: File) => {
       if (!upload?.id) return;
       setUploadingHangoutPhoto(true);
+      setPhotoUploadPending(true);
       try {
         const created = await uploadHangoutPhoto(upload.id, file);
         if (created) {
@@ -1023,6 +1050,7 @@ export default function UploadDetailPage() {
         }
       } finally {
         setUploadingHangoutPhoto(false);
+        setPhotoUploadPending(false);
       }
     },
     [loadHangoutPhotos, upload?.id],
@@ -1081,6 +1109,7 @@ export default function UploadDetailPage() {
     async (row: UnifiedDishRow, file: File) => {
       if (!upload?.id) return;
       setUploadingDishPhotoFor(row.hangoutItem.id);
+      setPhotoUploadPending(true);
       try {
         const ensured = await ensureDishEntryForRow(row);
         if (!ensured?.id) return;
@@ -1106,6 +1135,7 @@ export default function UploadDetailPage() {
         }
       } finally {
         setUploadingDishPhotoFor(null);
+        setPhotoUploadPending(false);
       }
     },
     [ensureDishEntryForRow, load, myDishHadByEntryId, restaurant?.name, upsertPersonalMemoryForDish, upload?.id],
@@ -1679,7 +1709,7 @@ export default function UploadDetailPage() {
         setUpload((current) => (current ? { ...current, image_paths: nextPaths, status: 'uploaded', processed_at: null } : current));
         await new Promise((resolve) => window.setTimeout(resolve, 200));
         await runExtraction(mode);
-        setHasUnsavedChanges(true);
+        // Receipt analysis itself should not force dirty state.
       } catch (error) {
         setSaveHangoutError(error instanceof Error ? error.message : 'Could not upload new receipt');
       } finally {
@@ -2053,7 +2083,7 @@ export default function UploadDetailPage() {
   const directionsHref = getGoogleMapsLink(restaurant?.place_id, restaurant?.address, restaurant?.lat, restaurant?.lng, restaurant?.name, restaurant?.place_type);
   const todayHours = getTodayHours(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
   const openNow = getOpenNowStatus(restaurant?.opening_hours ?? null, restaurant?.utc_offset_minutes ?? null);
-  const showUnsavedIndicator = hasUnsavedChanges || (savedFoodFingerprint.length > 0 && savedFoodFingerprint !== draftFoodFingerprint);
+  const showUnsavedIndicator = hasUnsavedChanges || photoUploadPending || (savedFoodFingerprint.length > 0 && savedFoodFingerprint !== draftFoodFingerprint);
   const showFromReceiptHint = draftOccurredAtSource === 'receipt';
   const creatorLabel =
     currentUserId && upload.user_id === currentUserId
@@ -2311,9 +2341,17 @@ export default function UploadDetailPage() {
               </button>
             ) : null}
           </div>
-          {showUnsavedIndicator ? (
-            <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">Unsaved changes</p>
-          ) : null}
+          <div
+            className={`inline-flex w-fit items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+              showUnsavedIndicator
+                ? 'border-amber-300/70 bg-amber-100/30 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
+                : 'border-emerald-300/60 bg-emerald-100/30 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'
+            }`}
+            aria-live="polite"
+          >
+            {showUnsavedIndicator ? <CircleDot size={12} strokeWidth={1.8} /> : <Check size={12} strokeWidth={1.8} />}
+            {showUnsavedIndicator ? 'Unsaved' : 'Saved'}
+          </div>
         </div>
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-4 text-app-muted">
@@ -3348,7 +3386,7 @@ export default function UploadDetailPage() {
                     Log food manually
                   </Button>
                   <Button type="button" variant="ghost" size="sm" onClick={() => void cancelHangoutDraft()} disabled={cancelingDraft}>
-                    {cancelingDraft ? 'Canceling...' : 'Cancel'}
+                    {cancelingDraft ? 'Discarding...' : 'Discard'}
                   </Button>
                 </div>
               </div>
@@ -3395,20 +3433,20 @@ export default function UploadDetailPage() {
       </div>
 
       {canEditVisit ? (
-        <div className="card-surface space-y-3 p-4">
+        <div className="card-surface hidden space-y-3 p-4 md:block">
           {saveHangoutError ? <p className="text-sm text-rose-700 dark:text-rose-300">{saveHangoutError}</p> : null}
           {deleteHangoutError ? <p className="text-sm text-rose-700 dark:text-rose-300">{deleteHangoutError}</p> : null}
           <div className={`grid gap-2 ${showUnsavedIndicator ? 'grid-cols-2' : 'grid-cols-1'}`}>
             {showUnsavedIndicator ? (
               <Button type="button" variant="secondary" size="lg" onClick={() => void cancelHangoutDraft()} disabled={saveHangoutLoading || cancelingDraft}>
-                {cancelingDraft ? 'Canceling...' : 'Cancel'}
+                {cancelingDraft ? 'Discarding...' : 'Discard'}
               </Button>
             ) : null}
             <Button
               type="button"
               size="lg"
               onClick={() => void saveHangout()}
-              disabled={!showUnsavedIndicator || saveHangoutLoading || cancelingDraft}
+              disabled={!showUnsavedIndicator || saveHangoutLoading || cancelingDraft || photoUploadPending}
             >
               {saveHangoutLoading ? 'Saving...' : 'Save Hangout'}
             </Button>
@@ -3426,6 +3464,25 @@ export default function UploadDetailPage() {
               Delete hangout
             </button>
           ) : null}
+        </div>
+      ) : null}
+
+      {canEditVisit && showUnsavedIndicator ? (
+        <div className="fixed inset-x-0 bottom-0 z-[84] border-t border-app-border bg-app-card/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-8px_24px_rgba(0,0,0,0.25)] backdrop-blur md:hidden">
+          <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-2">
+            <div className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300">
+              <CircleDot size={12} strokeWidth={1.8} />
+              Unsaved changes
+            </div>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="secondary" size="sm" fullWidth={false} onClick={() => void cancelHangoutDraft()} disabled={saveHangoutLoading || cancelingDraft}>
+                {cancelingDraft ? 'Discarding...' : 'Discard'}
+              </Button>
+              <Button type="button" size="sm" fullWidth={false} onClick={() => void saveHangout()} disabled={saveHangoutLoading || cancelingDraft || photoUploadPending}>
+                {saveHangoutLoading ? 'Saving...' : 'Save'}
+              </Button>
+            </div>
+          </div>
         </div>
       ) : null}
 
