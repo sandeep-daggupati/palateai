@@ -180,7 +180,7 @@ export default function FoodPage() {
           .from('personal_food_entries')
           .select('id,dish_name,dish_key,restaurant_id,reaction_tag,note,price,created_at,updated_at,source_hangout_id,source_dish_entry_id')
           .eq('user_id', user.id)
-          .eq('had_it', true)
+          .or('had_it.eq.true,rating.not.is.null,reaction_tag.not.is.null,note.not.is.null,photo_path.not.is.null')
           .order('updated_at', { ascending: false })
           .limit(LIST_LIMIT),
         supabase.auth.getSession(),
