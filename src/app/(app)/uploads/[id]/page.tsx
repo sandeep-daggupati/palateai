@@ -338,6 +338,9 @@ export default function UploadDetailPage() {
   const [saveHangoutLoading, setSaveHangoutLoading] = useState(false);
   const [saveHangoutError, setSaveHangoutError] = useState<string | null>(null);
   const [saveHangoutToast, setSaveHangoutToast] = useState<string | null>(null);
+  const [deleteHangoutOpen, setDeleteHangoutOpen] = useState(false);
+  const [deleteHangoutLoading, setDeleteHangoutLoading] = useState(false);
+  const [deleteHangoutError, setDeleteHangoutError] = useState<string | null>(null);
   const [restaurantQuery, setRestaurantQuery] = useState('');
   const [restaurantSuggestions, setRestaurantSuggestions] = useState<PlaceSuggestion[]>([]);
   const [detectedRestaurantChoices, setDetectedRestaurantChoices] = useState<PlaceSuggestion[]>([]);
@@ -1020,6 +1023,41 @@ export default function UploadDetailPage() {
     [loadHangoutPhotos],
   );
 
+  const upsertPersonalMemoryForDish = useCallback(
+    async (params: {
+      dishEntryId: string;
+      dishName: string;
+      dishKey: string;
+      price: number | null;
+      hadIt: boolean;
+      rating?: number | null;
+      note?: string | null;
+      reactionTag?: DishEntry['identity_tag'] | null;
+    }) => {
+      if (!currentUserId || !upload) return;
+      const supabase = getBrowserSupabaseClient();
+      const { error } = await supabase.from('personal_food_entries').upsert(
+        {
+          user_id: currentUserId,
+          source_dish_entry_id: params.dishEntryId,
+          source_hangout_id: upload.id,
+          restaurant_id: restaurant?.id ?? upload.restaurant_id ?? null,
+          dish_key: params.dishKey,
+          dish_name: params.dishName,
+          price: params.price,
+          rating: params.rating ?? null,
+          note: params.note ?? null,
+          reaction_tag: params.reactionTag ?? null,
+          had_it: params.hadIt,
+          detached_from_hangout: false,
+        },
+        { onConflict: 'user_id,source_dish_entry_id' },
+      );
+      if (error) throw error;
+    },
+    [currentUserId, restaurant?.id, upload],
+  );
+
   const handleUploadDishPhoto = useCallback(
     async (row: UnifiedDishRow, file: File) => {
       if (!upload?.id) return;
@@ -1029,13 +1067,29 @@ export default function UploadDetailPage() {
         if (!ensured?.id) return;
         const created = await uploadDishPhoto(upload.id, ensured.id, file);
         if (created) {
+          const dishName = sanitizeText(row.hangoutItem.name_final || row.hangoutItem.name_raw);
+          const dishKey = ensured.dish_key ?? toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`);
+          const hadIt = myDishHadByEntryId[ensured.id] ?? true;
+          try {
+            await upsertPersonalMemoryForDish({
+              dishEntryId: ensured.id,
+              dishName,
+              dishKey,
+              price: row.hangoutItem.unit_price ?? null,
+              hadIt,
+              reactionTag: ensured.identity_tag ?? null,
+              note: ensured.comment ?? null,
+            });
+          } catch {
+            // Photo upload should remain successful even if memory sync fails.
+          }
           await load();
         }
       } finally {
         setUploadingDishPhotoFor(null);
       }
     },
-    [ensureDishEntryForRow, load, upload?.id],
+    [ensureDishEntryForRow, load, myDishHadByEntryId, restaurant?.name, upsertPersonalMemoryForDish, upload?.id],
   );
 
   const toggleMyDishHadIt = useCallback(
@@ -1062,10 +1116,25 @@ export default function UploadDetailPage() {
           setSaveHangoutError('Could not update participation right now.');
           return;
         }
+        try {
+          const dishName = sanitizeText(row.hangoutItem.name_final || row.hangoutItem.name_raw);
+          const dishKey = row.myEntry?.dish_key ?? toDishKey(`${restaurant?.name ?? 'unknown-restaurant'} ${dishName}`);
+          await upsertPersonalMemoryForDish({
+            dishEntryId,
+            dishName,
+            dishKey,
+            price: row.hangoutItem.unit_price ?? null,
+            hadIt: nextHadIt,
+            reactionTag: row.myEntry?.identity_tag ?? null,
+            note: row.myEntry?.comment ?? null,
+          });
+        } catch {
+          // Participation update already succeeded; keep memory sync best-effort.
+        }
         setSavedMyDishHadByEntryId((prev) => ({ ...prev, [dishEntryId]: nextHadIt }));
       })();
     },
-    [currentUserId, myDishHadByEntryId],
+    [currentUserId, myDishHadByEntryId, restaurant?.name, upsertPersonalMemoryForDish],
   );
 
   const addManualDishItem = useCallback(async () => {
@@ -1222,6 +1291,7 @@ export default function UploadDetailPage() {
           .eq('id', persistedDishEntryId)
           .eq('hangout_id', upload.id);
         if (error) throw error;
+        await supabase.from('personal_food_entries').delete().eq('source_dish_entry_id', persistedDishEntryId);
 
         setFood((prev) => {
           const next = prev.filter((entry) => entry.hangoutItem.id !== target.hangoutItemId);
@@ -1629,6 +1699,16 @@ export default function UploadDetailPage() {
       const supabase = getBrowserSupabaseClient();
       const preservedEntryIds = new Set<string>();
       const resolvedDishEntryIdsByRowId: Record<string, string> = {};
+      const persistedDraftMetaByRowId: Record<
+        string,
+        {
+          dishName: string;
+          dishKey: string;
+          price: number | null;
+          identityTag: DishEntry['identity_tag'] | null;
+          note: string | null;
+        }
+      > = {};
       let effectiveRestaurantId = restaurant?.id ?? upload.restaurant_id;
 
       // Preserve a detected merchant as a fallback restaurant so the saved hangout
@@ -1704,6 +1784,13 @@ export default function UploadDetailPage() {
         const typedSavedEntry = saveResult.data as Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment'>;
         preservedEntryIds.add(typedSavedEntry.id);
         resolvedDishEntryIdsByRowId[row.hangoutItem.id] = typedSavedEntry.id;
+        persistedDraftMetaByRowId[row.hangoutItem.id] = {
+          dishName,
+          dishKey,
+          price: row.hangoutItem.unit_price ?? null,
+          identityTag: draftIdentity,
+          note: draftComment,
+        };
         setFood((prev) =>
           prev.map((entry) =>
             entry.hangoutItem.id === row.hangoutItem.id
@@ -1745,6 +1832,59 @@ export default function UploadDetailPage() {
           .from('dish_entry_participants')
           .upsert(participationRows, { onConflict: 'dish_entry_id,user_id' });
         if (participationError) throw participationError;
+      }
+
+      const isSoloHangoutForMemory = participants.filter((participant) => participant.status === 'active').length <= 1;
+      const personalMemoryRows = activeFood
+        .map((row) => {
+          const dishEntryId = resolvedDishEntryIdsByRowId[row.hangoutItem.id] ?? row.myEntry?.id ?? null;
+          if (!dishEntryId || dishEntryId.startsWith('draft-')) return null;
+          const persistedMeta = persistedDraftMetaByRowId[row.hangoutItem.id];
+          if (!persistedMeta) return null;
+
+          const hadItDraft = myDishHadByEntryId[dishEntryId];
+          const hasExplicitMemoryFields = Boolean(persistedMeta.identityTag || persistedMeta.note);
+          if (typeof hadItDraft !== 'boolean' && !hasExplicitMemoryFields && !isSoloHangoutForMemory) return null;
+
+          return {
+            user_id: currentUserId,
+            source_dish_entry_id: dishEntryId,
+            source_hangout_id: upload.id,
+            restaurant_id: effectiveRestaurantId,
+            dish_key: persistedMeta.dishKey,
+            dish_name: persistedMeta.dishName,
+            price: persistedMeta.price,
+            rating: null,
+            note: persistedMeta.note,
+            reaction_tag: persistedMeta.identityTag,
+            had_it: typeof hadItDraft === 'boolean' ? hadItDraft : isSoloHangoutForMemory || hasExplicitMemoryFields,
+            detached_from_hangout: false,
+          };
+        })
+        .filter(
+          (
+            row,
+          ): row is {
+            user_id: string;
+            source_dish_entry_id: string;
+            source_hangout_id: string;
+            restaurant_id: string | null;
+            dish_key: string;
+            dish_name: string;
+            price: number | null;
+            rating: null;
+            note: string | null;
+            reaction_tag: DishEntry['identity_tag'] | null;
+            had_it: boolean;
+            detached_from_hangout: boolean;
+          } => Boolean(row),
+        );
+
+      if (personalMemoryRows.length > 0) {
+        const { error: personalMemoryError } = await supabase
+          .from('personal_food_entries')
+          .upsert(personalMemoryRows, { onConflict: 'user_id,source_dish_entry_id' });
+        if (personalMemoryError) throw personalMemoryError;
       }
 
       const { data: existingEntries } = await supabase
@@ -1806,6 +1946,7 @@ export default function UploadDetailPage() {
     enrichDishCatalogForEntry,
     detectedMerchant?.address,
     detectedMerchant?.name,
+    participants,
     restaurant?.id,
     restaurant?.name,
     restaurantQuery,
@@ -1813,6 +1954,33 @@ export default function UploadDetailPage() {
     upload,
     vibeTags,
   ]);
+
+  const deleteHangout = useCallback(async () => {
+    if (!upload || !isHost) return;
+    setDeleteHangoutError(null);
+    setDeleteHangoutLoading(true);
+    try {
+      const headers = {
+        'Content-Type': 'application/json',
+        ...(await getAuthHeader()),
+      };
+      const response = await fetch('/api/hangouts/delete', {
+        method: 'DELETE',
+        headers,
+        body: JSON.stringify({ hangoutId: upload.id }),
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Failed to delete hangout');
+      }
+      clearDraftDishCount(upload.id);
+      router.push('/hangouts');
+    } catch (error) {
+      setDeleteHangoutError(error instanceof Error ? error.message : 'Failed to delete hangout');
+    } finally {
+      setDeleteHangoutLoading(false);
+    }
+  }, [getAuthHeader, isHost, router, upload]);
 
   if (!upload) {
     return <div className="text-sm text-app-muted">Loading hangout...</div>;
@@ -3177,6 +3345,7 @@ export default function UploadDetailPage() {
       {canEditVisit ? (
         <div className="card-surface space-y-3 p-4">
           {saveHangoutError ? <p className="text-sm text-rose-700 dark:text-rose-300">{saveHangoutError}</p> : null}
+          {deleteHangoutError ? <p className="text-sm text-rose-700 dark:text-rose-300">{deleteHangoutError}</p> : null}
           <div className={`grid gap-2 ${showUnsavedIndicator ? 'grid-cols-2' : 'grid-cols-1'}`}>
             {showUnsavedIndicator ? (
               <Button type="button" variant="secondary" size="lg" onClick={() => void cancelHangoutDraft()} disabled={saveHangoutLoading || cancelingDraft}>
@@ -3192,12 +3361,58 @@ export default function UploadDetailPage() {
               {saveHangoutLoading ? 'Saving...' : 'Save Hangout'}
             </Button>
           </div>
+          {isHost ? (
+            <button
+              type="button"
+              className="inline-flex h-8 items-center text-xs font-medium text-rose-700 underline underline-offset-2 dark:text-rose-300"
+              onClick={() => {
+                setDeleteHangoutError(null);
+                setDeleteHangoutOpen(true);
+              }}
+              disabled={deleteHangoutLoading}
+            >
+              Delete hangout
+            </button>
+          ) : null}
         </div>
       ) : null}
 
       {saveHangoutToast ? (
         <div className="fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-app-border bg-app-card px-3 py-2 text-sm text-app-text shadow-lg">
           {saveHangoutToast}
+        </div>
+      ) : null}
+
+      {deleteHangoutOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/35">
+          <button
+            type="button"
+            className="absolute inset-0"
+            aria-label="Close delete hangout dialog"
+            onClick={() => {
+              if (deleteHangoutLoading) return;
+              setDeleteHangoutOpen(false);
+            }}
+          />
+          <div className="relative w-full max-w-md rounded-t-2xl border border-app-border bg-app-card p-4">
+            <p className="text-sm font-semibold text-app-text">Delete this hangout?</p>
+            <p className="mt-1 text-xs leading-5 text-app-muted">
+              Deleting this hangout removes the shared hangout for everyone. Any dishes participants rated, noted, or saved to their own food log will remain in their personal memories.
+            </p>
+            <div className="mt-3 flex gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setDeleteHangoutOpen(false)}
+                disabled={deleteHangoutLoading}
+              >
+                Cancel
+              </Button>
+              <Button type="button" onClick={() => void deleteHangout()} disabled={deleteHangoutLoading}>
+                {deleteHangoutLoading ? 'Deleting...' : 'Delete'}
+              </Button>
+            </div>
+          </div>
         </div>
       ) : null}
 

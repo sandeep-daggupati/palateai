@@ -616,6 +616,25 @@ export default function AddPage() {
     );
     if (participantMarkError) throw participantMarkError;
 
+    const { error: personalFoodError } = await supabase.from('personal_food_entries').upsert(
+      {
+        user_id: user.id,
+        source_dish_entry_id: dishEntryId,
+        source_hangout_id: hangoutId,
+        restaurant_id: finalRestaurantId,
+        dish_key: dishKey,
+        dish_name: name,
+        price,
+        rating: null,
+        note: null,
+        reaction_tag: null,
+        had_it: true,
+        detached_from_hangout: false,
+      },
+      { onConflict: 'user_id,source_dish_entry_id' },
+    );
+    if (personalFoodError) throw personalFoodError;
+
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -747,6 +766,25 @@ export default function AddPage() {
       { onConflict: 'dish_entry_id,user_id' },
     );
     if (participantMarkError) throw participantMarkError;
+
+    const { error: personalFoodError } = await supabase.from('personal_food_entries').upsert(
+      {
+        user_id: user.id,
+        source_dish_entry_id: dishEntryId,
+        source_hangout_id: hangoutId,
+        restaurant_id: finalRestaurantId,
+        dish_key: dishKey,
+        dish_name: name,
+        price,
+        rating: null,
+        note: null,
+        reaction_tag: null,
+        had_it: true,
+        detached_from_hangout: false,
+      },
+      { onConflict: 'user_id,source_dish_entry_id' },
+    );
+    if (personalFoodError) throw personalFoodError;
 
     const {
       data: { session },

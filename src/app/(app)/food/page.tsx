@@ -8,7 +8,7 @@ import { SearchControlFilterConfig, SearchControlsCard } from '@/components/cont
 import { IdentityTagPill } from '@/components/IdentityTagPill';
 import { cn } from '@/lib/utils';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { DishCatalog, DishEntry, DishIdentityTag, Restaurant } from '@/lib/supabase/types';
+import { DishCatalog, DishIdentityTag, PersonalFoodEntry, Restaurant } from '@/lib/supabase/types';
 import { SignedPhoto } from '@/lib/photos/types';
 
 const LIST_LIMIT = 120;
@@ -37,7 +37,22 @@ type RestaurantLookup = {
 
 type DishCatalogLookup = Pick<DishCatalog, 'dish_key' | 'cuisine' | 'flavor_tags'>;
 
-type GridRow = DishEntry & {
+type PersonalFoodRow = Pick<
+  PersonalFoodEntry,
+  | 'id'
+  | 'dish_name'
+  | 'dish_key'
+  | 'restaurant_id'
+  | 'reaction_tag'
+  | 'note'
+  | 'price'
+  | 'created_at'
+  | 'updated_at'
+  | 'source_hangout_id'
+  | 'source_dish_entry_id'
+>;
+
+type GridRow = PersonalFoodRow & {
   restaurantName: string;
   photo: SignedPhoto | null;
   recencyGroupKey: string;
@@ -130,7 +145,7 @@ export default function FoodPage() {
     return { query, cuisine, flavor, price, mergedVibe };
   }, [searchParams]);
 
-  const [rows, setRows] = useState<DishEntry[]>([]);
+  const [rows, setRows] = useState<PersonalFoodRow[]>([]);
   const [view, setView] = useState<FoodViewMode>('grid');
   const [searchText, setSearchText] = useState(parsedParams.query);
   const [restaurantsById, setRestaurantsById] = useState<Record<string, RestaurantLookup>>({});
@@ -160,10 +175,10 @@ export default function FoodPage() {
         return;
       }
 
-      const [participantResult, sessionResult] = await Promise.all([
+      const [personalRowsResult, sessionResult] = await Promise.all([
         supabase
-          .from('dish_entry_participants')
-          .select('dish_entry_id,updated_at')
+          .from('personal_food_entries')
+          .select('id,dish_name,dish_key,restaurant_id,reaction_tag,note,price,created_at,updated_at,source_hangout_id,source_dish_entry_id')
           .eq('user_id', user.id)
           .eq('had_it', true)
           .order('updated_at', { ascending: false })
@@ -171,24 +186,8 @@ export default function FoodPage() {
         supabase.auth.getSession(),
       ]);
 
-      const dishEntryIds = Array.from(
-        new Set(
-          ((participantResult.data ?? []) as Array<{ dish_entry_id: string | null }>)
-            .map((row) => row.dish_entry_id)
-            .filter((id): id is string => Boolean(id)),
-        ),
-      );
-
-      const { data: dishRows } =
-        dishEntryIds.length > 0
-          ? await supabase
-              .from('dish_entries')
-              .select('id,dish_name,dish_key,restaurant_id,identity_tag,cuisine,flavor_tags,comment,price_original,eaten_at,created_at,source_upload_id')
-              .in('id', dishEntryIds)
-              .not('hangout_id', 'is', null)
-          : { data: [] };
-      const parsedRows = (dishRows ?? []) as DishEntry[];
-      const dishKeys = Array.from(new Set(parsedRows.map((row) => row.dish_key).filter(Boolean)));
+      const parsedRows = (personalRowsResult.data ?? []) as PersonalFoodRow[];
+      const dishKeys = Array.from(new Set(parsedRows.map((row) => row.dish_key).filter((key): key is string => Boolean(key))));
 
       const restaurantIds = Array.from(new Set(parsedRows.map((entry) => entry.restaurant_id).filter((id): id is string => Boolean(id))));
       if (restaurantIds.length > 0) {
@@ -227,7 +226,15 @@ export default function FoodPage() {
         return;
       }
 
-      const ids = parsedRows.map((entry) => entry.id).join(',');
+      const dishEntryIds = Array.from(
+        new Set(parsedRows.map((entry) => entry.source_dish_entry_id).filter((id): id is string => Boolean(id))),
+      );
+      if (dishEntryIds.length === 0) {
+        setPhotoByDishEntryId({});
+        return;
+      }
+
+      const ids = dishEntryIds.join(',');
       const response = await fetch(`/api/photos/list?kind=dish&dish_entry_ids=${encodeURIComponent(ids)}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -238,15 +245,23 @@ export default function FoodPage() {
       }
 
       const payload = (await response.json()) as { photos?: SignedPhoto[] };
-      const map: Record<string, SignedPhoto> = {};
+      const mapByDishEntryId: Record<string, SignedPhoto> = {};
       for (const photo of payload.photos ?? []) {
         if (!photo.dish_entry_id) continue;
-        if (!map[photo.dish_entry_id]) {
-          map[photo.dish_entry_id] = photo;
+        if (!mapByDishEntryId[photo.dish_entry_id]) {
+          mapByDishEntryId[photo.dish_entry_id] = photo;
         }
       }
+      const mapByPersonalEntryId: Record<string, SignedPhoto> = {};
+      for (const entry of parsedRows) {
+        const sourceDishEntryId = entry.source_dish_entry_id;
+        if (!sourceDishEntryId) continue;
+        const photo = mapByDishEntryId[sourceDishEntryId];
+        if (!photo) continue;
+        mapByPersonalEntryId[entry.id] = photo;
+      }
 
-      setPhotoByDishEntryId(map);
+      setPhotoByDishEntryId(mapByPersonalEntryId);
     };
 
     void load();
@@ -298,7 +313,7 @@ export default function FoodPage() {
   const cuisineOptions = useMemo<FilterOption[]>(() => {
     const values = new Set<string>();
     for (const row of rows) {
-      const effectiveCuisine = row.cuisine ?? catalogByDishKey[row.dish_key]?.cuisine ?? null;
+      const effectiveCuisine = row.dish_key ? (catalogByDishKey[row.dish_key]?.cuisine ?? null) : null;
       const normalized = normalizeToken(effectiveCuisine);
       if (normalized) values.add(normalized);
     }
@@ -311,7 +326,7 @@ export default function FoodPage() {
   const flavorOptions = useMemo<FilterOption[]>(() => {
     const values = new Set<string>();
     for (const row of rows) {
-      const effectiveFlavorTags = row.flavor_tags ?? catalogByDishKey[row.dish_key]?.flavor_tags ?? [];
+      const effectiveFlavorTags = row.dish_key ? (catalogByDishKey[row.dish_key]?.flavor_tags ?? []) : [];
       for (const tag of effectiveFlavorTags ?? []) {
         const normalized = normalizeToken(tag);
         if (normalized) values.add(normalized);
@@ -365,7 +380,7 @@ export default function FoodPage() {
 
     const base = rows
       .map((entry) => {
-        const stamp = entry.eaten_at ?? entry.created_at;
+        const stamp = entry.updated_at ?? entry.created_at;
         const groupKey = monthKey(stamp);
         return {
           ...entry,
@@ -375,12 +390,12 @@ export default function FoodPage() {
           recencyGroupLabel: monthLabel(groupKey),
         };
       })
-      .sort((a, b) => parseTime(b.eaten_at ?? b.created_at) - parseTime(a.eaten_at ?? a.created_at));
+      .sort((a, b) => parseTime(b.updated_at ?? b.created_at) - parseTime(a.updated_at ?? a.created_at));
 
     return base.filter((row) => {
-      const effectiveCuisine = row.cuisine ?? catalogByDishKey[row.dish_key]?.cuisine ?? null;
-      const effectiveFlavorTags = row.flavor_tags ?? catalogByDishKey[row.dish_key]?.flavor_tags ?? [];
-      const bucket = priceBucket(row.price_original);
+      const effectiveCuisine = row.dish_key ? (catalogByDishKey[row.dish_key]?.cuisine ?? null) : null;
+      const effectiveFlavorTags = row.dish_key ? (catalogByDishKey[row.dish_key]?.flavor_tags ?? []) : [];
+      const bucket = priceBucket(row.price);
 
       const searchMatch =
         !searchQuery ||
@@ -389,7 +404,7 @@ export default function FoodPage() {
           row.restaurantName,
           effectiveCuisine,
           ...(effectiveFlavorTags ?? []),
-          row.comment,
+          row.note,
         ]
           .map((value) => normalizeToken(value))
           .filter(Boolean)
@@ -399,7 +414,7 @@ export default function FoodPage() {
       const flavorMatch =
         flavorFilters.length === 0 || (effectiveFlavorTags ?? []).some((tag) => flavorFilters.includes(normalizeToken(tag)));
       const priceMatch = priceFilters.length === 0 || (bucket !== null && priceFilters.includes(bucket));
-      const vibeMatch = vibeFilters.length === 0 || (row.identity_tag !== null && vibeFilters.includes(row.identity_tag));
+      const vibeMatch = vibeFilters.length === 0 || (row.reaction_tag !== null && vibeFilters.includes(row.reaction_tag));
 
       return searchMatch && cuisineMatch && flavorMatch && priceMatch && vibeMatch;
     });
@@ -455,7 +470,7 @@ export default function FoodPage() {
       ) : view === 'grid' ? (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {filteredRows.map((row) => {
-            const target = row.dish_key ? `/food/${row.dish_key}` : `/uploads/${row.source_upload_id}`;
+            const target = row.dish_key ? `/food/${row.dish_key}` : row.source_hangout_id ? `/uploads/${row.source_hangout_id}` : '/food';
             return (
               <button
                 key={row.id}
@@ -490,7 +505,7 @@ export default function FoodPage() {
                 <div className="space-y-1 px-2 py-2">
                   <div className="flex items-center justify-between gap-2">
                     <p className="truncate text-sm font-medium text-app-text">{row.dish_name}</p>
-                    {row.identity_tag ? <IdentityTagPill tag={row.identity_tag} /> : null}
+                    {row.reaction_tag ? <IdentityTagPill tag={row.reaction_tag} /> : null}
                   </div>
                   <p className="truncate text-xs text-app-muted">{row.restaurantName}</p>
                 </div>
@@ -504,7 +519,7 @@ export default function FoodPage() {
             <h2 className="px-0.5 text-xs font-semibold uppercase tracking-wide text-app-muted">{group.label}</h2>
             <div className="space-y-1.5">
               {group.rows.map((row) => {
-                const target = row.dish_key ? `/food/${row.dish_key}` : `/uploads/${row.source_upload_id}`;
+                const target = row.dish_key ? `/food/${row.dish_key}` : row.source_hangout_id ? `/uploads/${row.source_hangout_id}` : '/food';
                 return (
                   <button
                     key={`timeline-${row.id}`}
@@ -532,7 +547,7 @@ export default function FoodPage() {
                       <div className="min-w-0 flex-1 space-y-0.5">
                         <div className="flex items-center justify-between gap-2">
                           <p className="truncate text-sm font-medium text-app-text">{row.dish_name}</p>
-                          {row.identity_tag ? <IdentityTagPill tag={row.identity_tag} /> : null}
+                          {row.reaction_tag ? <IdentityTagPill tag={row.reaction_tag} /> : null}
                         </div>
                         <p className="truncate text-xs text-app-muted">{row.restaurantName}</p>
                       </div>

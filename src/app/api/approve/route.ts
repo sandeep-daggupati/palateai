@@ -207,6 +207,20 @@ export async function POST(request: Request) {
           })),
           { onConflict: 'dish_entry_id,user_id' },
         );
+
+        await supabase.from('personal_food_entries').upsert(
+          typedSavedEntries.map((entry) => ({
+            user_id: upload.user_id,
+            source_dish_entry_id: entry.id,
+            source_hangout_id: upload.id,
+            restaurant_id: upload.restaurant_id,
+            dish_key: entry.dish_key,
+            dish_name: entry.dish_name,
+            had_it: true,
+            detached_from_hangout: false,
+          })),
+          { onConflict: 'user_id,source_dish_entry_id' },
+        );
       }
       await Promise.all(
         typedSavedEntries.map(async (entry) => {
