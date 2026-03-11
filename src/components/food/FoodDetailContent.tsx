@@ -350,7 +350,7 @@ export function FoodDetailContent({ foodKey, showBackLink = false }: FoodDetailC
         .from('personal_food_entries')
         .select('id,dish_name,dish_key,restaurant_id,reaction_tag,note,created_at,updated_at,price,source_hangout_id,source_dish_entry_id')
         .eq('user_id', user.id)
-        .eq('had_it', true)
+        .or('had_it.eq.true,rating.not.is.null,reaction_tag.not.is.null,note.not.is.null,photo_path.not.is.null')
         .eq('dish_key', foodKey)
         .order('updated_at', { ascending: false })
         .limit(200),

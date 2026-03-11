@@ -166,6 +166,7 @@ export async function POST(request: Request) {
 
   if (items.length) {
     const groupedRows = buildGroupedApprovalRows({ items, identityByLineItemId });
+    const groupedRowByDishKey = new Map(groupedRows.map((row) => [toDishKey(`${restaurantName} ${row.dishName}`), row]));
     const entries: TableInsert<'dish_entries'>[] = groupedRows.map((row) => ({
       user_id: upload.user_id,
       restaurant_id: upload.restaurant_id,
@@ -177,9 +178,6 @@ export async function POST(request: Request) {
       eaten_at: upload.visited_at ?? upload.created_at,
       source_upload_id: upload.id,
       dish_key: toDishKey(`${restaurantName} ${row.dishName}`),
-      identity_tag: row.identity,
-      rating: row.rating,
-      comment: row.comment,
     }));
 
     const { data: savedEntries } = await supabase
@@ -222,6 +220,52 @@ export async function POST(request: Request) {
           { onConflict: 'user_id,source_dish_entry_id' },
         );
       }
+
+      const explicitPersonalRows = typedSavedEntries
+        .map((entry) => {
+          const grouped = groupedRowByDishKey.get(entry.dish_key);
+          if (!grouped) return null;
+          const note = grouped.comment?.trim() ? grouped.comment.trim() : null;
+          const reactionTag = grouped.identity ?? null;
+          const rating = grouped.rating ?? null;
+          const hasExplicitInteraction = Boolean(note || reactionTag || rating != null);
+          if (!hasExplicitInteraction) return null;
+          return {
+            user_id: upload.user_id,
+            source_dish_entry_id: entry.id,
+            source_hangout_id: upload.id,
+            restaurant_id: upload.restaurant_id,
+            dish_key: entry.dish_key,
+            dish_name: entry.dish_name,
+            price: grouped.unitPrice,
+            rating,
+            note,
+            reaction_tag: reactionTag,
+            had_it: true,
+            detached_from_hangout: false,
+          };
+        })
+        .filter((row): row is {
+          user_id: string;
+          source_dish_entry_id: string;
+          source_hangout_id: string;
+          restaurant_id: string | null;
+          dish_key: string;
+          dish_name: string;
+          price: number | null;
+          rating: number | null;
+          note: string | null;
+          reaction_tag: DishIdentityTag | null;
+          had_it: boolean;
+          detached_from_hangout: boolean;
+        } => Boolean(row));
+
+      if (explicitPersonalRows.length > 0) {
+        await supabase
+          .from('personal_food_entries')
+          .upsert(explicitPersonalRows, { onConflict: 'user_id,source_dish_entry_id' });
+      }
+
       await Promise.all(
         typedSavedEntries.map(async (entry) => {
           if (!entry.dish_key) return;

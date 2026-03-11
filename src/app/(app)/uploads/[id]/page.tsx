@@ -559,13 +559,10 @@ export default function UploadDetailPage() {
 
     const myEntriesPrimary = await supabase
       .from('dish_entries')
-      .select('id,hangout_item_id,dish_name,dish_key,identity_tag,comment,price_original,currency_original,quantity,created_at,eaten_at')
+      .select('id,hangout_item_id,dish_name,dish_key,price_original,currency_original,quantity,created_at,eaten_at')
       .eq('hangout_id', uploadId);
     const hangoutEntries = (myEntriesPrimary.data ?? []) as Array<
-      Pick<
-        DishEntry,
-        'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'identity_tag' | 'comment' | 'price_original' | 'currency_original' | 'quantity' | 'created_at' | 'eaten_at'
-      >
+      Pick<DishEntry, 'id' | 'hangout_item_id' | 'dish_name' | 'dish_key' | 'price_original' | 'currency_original' | 'quantity' | 'created_at' | 'eaten_at'>
     >;
     const entryMap: Record<string, { hangout_item_id: string | null; dish_name: string }> = {};
     for (const entry of hangoutEntries) {
@@ -578,7 +575,19 @@ export default function UploadDetailPage() {
     const entryIds = hangoutEntries.map((entry) => entry.id);
     let nextDishTriedByByEntryId: Record<string, DishTriedBy[]> = {};
     let nextMyDishHadByEntryId: Record<string, boolean> = {};
+    let personalByDishEntryId = new Map<string, { source_dish_entry_id: string | null; reaction_tag: DishEntry['identity_tag'] | null; note: string | null }>();
     if (entryIds.length > 0) {
+      const { data: personalRows } = await supabase
+        .from('personal_food_entries')
+        .select('source_dish_entry_id,reaction_tag,note')
+        .eq('user_id', user.id)
+        .in('source_dish_entry_id', entryIds);
+      personalByDishEntryId = new Map(
+        ((personalRows ?? []) as Array<{ source_dish_entry_id: string | null; reaction_tag: DishEntry['identity_tag'] | null; note: string | null }>)
+          .filter((row) => row.source_dish_entry_id)
+          .map((row) => [row.source_dish_entry_id as string, row]),
+      );
+
       const { data: triedRows } = await supabase
         .from('dish_entry_participants')
         .select('id,dish_entry_id,user_id,had_it,rating')
@@ -650,8 +659,8 @@ export default function UploadDetailPage() {
           hangout_item_id: entry.hangout_item_id,
           dish_name: entry.dish_name,
           dish_key: entry.dish_key,
-          identity_tag: entry.identity_tag,
-          comment: entry.comment,
+          identity_tag: personalByDishEntryId.get(entry.id)?.reaction_tag ?? null,
+          comment: personalByDishEntryId.get(entry.id)?.note ?? null,
         },
       };
     });
@@ -1768,8 +1777,6 @@ export default function UploadDetailPage() {
           eaten_at: effectiveOccurredAt,
           source_upload_id: upload.id,
           dish_key: dishKey,
-          identity_tag: draftIdentity,
-          comment: draftComment,
         };
         const existingId = row.myEntry?.id && !row.myEntry.id.startsWith('tmp-') ? row.myEntry.id : null;
         const saveResult = existingId
