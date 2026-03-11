@@ -1722,12 +1722,8 @@ export default function UploadDetailPage() {
     return sum + unitPrice * Math.max(1, row.hangoutItem.quantity ?? 1);
   }, 0);
   const hasSpendData = visibleFood.some((row) => row.hangoutItem.unit_price != null);
-  const ratingValues = Object.values(dishTriedByByEntryId)
-    .flat()
-    .map((entry) => entry.rating)
-    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
-  const averageRating = ratingValues.length > 0 ? ratingValues.reduce((sum, value) => sum + value, 0) / ratingValues.length : null;
-  const averageRatingLabel = averageRating != null ? `${averageRating.toFixed(1)}★` : 'Tap dishes to rate';
+  const ratedDishCount = visibleFood.filter((row) => Boolean(row.myEntry?.identity_tag)).length;
+  const averageRatingLabel = ratedDishCount > 0 ? `${ratedDishCount}/${dishCount} rated` : 'Use "Rate it" on dishes';
   const statsSpendLabel = hasSpendData ? `$${totalSpend.toFixed(2)}` : '—';
   const participantNameById = new Map(participants.map((participant) => [participant.user_id, participant.display_name]));
   const photoOwnerLabel = (userId: string | null | undefined): string => {
@@ -1750,7 +1746,7 @@ export default function UploadDetailPage() {
     if (!currentUserId) return false;
     return photo.user_id === currentUserId || upload.user_id === currentUserId;
   };
-  const unratedDishCount = visibleFood.filter((row) => !row.myEntry?.identity_tag).length;
+  const unratedDishCount = dishCount - ratedDishCount;
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5 pb-6">
@@ -1789,6 +1785,20 @@ export default function UploadDetailPage() {
             ) : (
               <div className="flex min-w-0 items-center gap-2">
                 <h1 className="truncate text-[1.75rem] font-semibold leading-8 tracking-tight text-app-text">{restaurant?.name ?? 'Restaurant not detected'}</h1>
+                {canEditHangoutIdentity && restaurant?.id ? (
+                  <button
+                    type="button"
+                    className="icon-button-subtle"
+                    aria-label="Edit restaurant name"
+                    title="Edit restaurant name"
+                    onClick={() => {
+                      setRestaurantNameDraft(restaurant.name ?? '');
+                      setRestaurantNameEditing(true);
+                    }}
+                  >
+                    <Pencil size={14} strokeWidth={1.6} />
+                  </button>
+                ) : null}
               </div>
             )}
             {isSavedHangout ? (
@@ -1846,20 +1856,6 @@ export default function UploadDetailPage() {
             <span className="inline-flex items-center rounded-full border border-app-border/80 bg-app-card px-2 py-0.5 text-[11px] font-medium text-app-muted">
               {creatorLabel}
             </span>
-            {canEditHangoutIdentity && restaurant?.id ? (
-              <button
-                type="button"
-                className="icon-button-subtle h-7 w-7"
-                aria-label="Edit restaurant name"
-                title="Edit restaurant name"
-                onClick={() => {
-                  setRestaurantNameDraft(restaurant.name ?? '');
-                  setRestaurantNameEditing(true);
-                }}
-              >
-                <Pencil size={12} strokeWidth={1.6} />
-              </button>
-            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2 pt-1">
             <div className="flex items-center">
@@ -2138,7 +2134,7 @@ export default function UploadDetailPage() {
             <span className="text-app-muted/70">·</span>
             <span className="font-semibold text-app-text">{statsSpendLabel}</span>
             <span className="text-app-muted/70">·</span>
-            <span className={averageRating != null ? 'font-semibold text-app-text' : 'text-app-muted'}>{averageRatingLabel}</span>
+            <span className={ratedDishCount > 0 ? 'font-semibold text-app-text' : 'text-app-muted'}>{averageRatingLabel}</span>
           </div>
         </div>
       </div>
@@ -2227,7 +2223,7 @@ export default function UploadDetailPage() {
       />
       <div className="card-surface space-y-3 p-4">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="section-label">Photos <span className="text-app-muted">— Moments from this hangout</span></h2>
+          <h2 className="section-label">Photos <span className="normal-case text-xs font-normal tracking-normal text-app-muted">— Moments from this hangout</span></h2>
           <Button
             type="button"
             variant="secondary"
@@ -2289,7 +2285,7 @@ export default function UploadDetailPage() {
       </div>
 
       <div className="card-surface space-y-3 p-4">
-        <h2 className="section-label">Vibe <span className="text-app-muted">— Tag this hangout to help organize your memories</span></h2>
+        <h2 className="section-label">Vibe <span className="normal-case text-xs font-normal tracking-normal text-app-muted">— Tag this hangout to help organize your memories</span></h2>
         <div className="flex flex-wrap gap-1.5">
           {HANGOUT_VIBE_OPTIONS.map((option) => {
             const selected = vibeTags.includes(option.key);
@@ -2521,7 +2517,7 @@ export default function UploadDetailPage() {
 
       <div className="card-surface space-y-3 p-4">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="section-label">Food <span className="text-app-muted">— {dishCount} dishes</span></h2>
+          <h2 className="section-label">Food <span className="normal-case text-xs font-normal tracking-normal text-app-muted">— {dishCount} dishes</span></h2>
           {canEditVisit &&
             (showExtractionPrompt ? (
               <Button type="button" onClick={() => void runExtraction('overwrite')} disabled={isExtracting}>
@@ -2576,7 +2572,7 @@ export default function UploadDetailPage() {
 
         {unratedDishCount > 0 ? (
           <div className="rounded-lg border border-app-border/80 bg-app-card/70 px-2.5 py-1.5 text-[11px] text-app-muted">
-            Tap a dish to rate it
+            Use the &quot;Rate it&quot; icon on each dish
           </div>
         ) : null}
 
