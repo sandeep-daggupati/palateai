@@ -229,7 +229,7 @@ export default function HangoutsPage() {
       const visitIds = mergedVisits.map((visit) => visit.id);
       const restaurantIds = Array.from(new Set(mergedVisits.map((visit) => visit.restaurant_id).filter((id): id is string => Boolean(id))));
 
-      const [restaurantResult, participantResult, dishResult, photoResult] = await Promise.all([
+      const [restaurantResult, participantResult, dishResult, photoResult, vibeMemoryResult] = await Promise.all([
         restaurantIds.length > 0
           ? supabase.from('restaurants').select('id,name,address').in('id', restaurantIds)
           : Promise.resolve({ data: [] as Pick<Restaurant, 'id' | 'name' | 'address'>[] }),
@@ -245,6 +245,11 @@ export default function HangoutsPage() {
           .eq('kind', 'hangout')
           .in('hangout_id', visitIds)
           .order('created_at', { ascending: false }),
+        supabase
+          .from('hangout_vibe_memories')
+          .select('hangout_id,vibe_tags')
+          .eq('user_id', user.id)
+          .in('hangout_id', visitIds),
       ]);
 
       const restaurantsById = ((restaurantResult.data ?? []) as Pick<Restaurant, 'id' | 'name' | 'address'>[]).reduce(
@@ -258,6 +263,14 @@ export default function HangoutsPage() {
       const participantRowsFull = (participantResult.data ?? []) as Array<
         Pick<VisitParticipant, 'id' | 'visit_id' | 'user_id' | 'invited_email' | 'status'>
       >;
+      const vibeMemoryByVisitId = ((vibeMemoryResult.data ?? []) as Array<{ hangout_id: string; vibe_tags: string[] | null }>).reduce(
+        (acc, row) => {
+          const tags = Array.isArray(row.vibe_tags) ? row.vibe_tags.filter((value): value is string => typeof value === 'string') : [];
+          acc[row.hangout_id] = tags;
+          return acc;
+        },
+        {} as Record<string, string[]>,
+      );
 
       const profileIds = Array.from(
         new Set(
@@ -365,7 +378,8 @@ export default function HangoutsPage() {
         const address = restaurant?.address ?? null;
         const timestamp = new Date(visit.visited_at ?? visit.created_at).getTime();
         const normalizedTimestamp = Number.isNaN(timestamp) ? 0 : timestamp;
-        const vibeKeys = normalizeHangoutVibeTags(visit.vibe_tags);
+        const rawVibeTags = vibeMemoryByVisitId[visit.id] ?? (Array.isArray(visit.vibe_tags) ? visit.vibe_tags.filter((value): value is string => typeof value === 'string') : []);
+        const vibeKeys = normalizeHangoutVibeTags(rawVibeTags);
         const crew = crewByVisitId[visit.id] ?? [];
 
         return {
@@ -390,7 +404,7 @@ export default function HangoutsPage() {
           dishCount: dishCountByHangout[visit.id] ?? 0,
           crewSearch: crew.map((member) => normalizeToken(member.displayName)).join(' '),
           dishSearch: dishRows.filter((entry) => entry.hangout_id === visit.id).map((entry) => normalizeToken(entry.dish_name ?? '')).join(' '),
-          rawVibeTags: Array.isArray(visit.vibe_tags) ? visit.vibe_tags.filter((value): value is string => typeof value === 'string') : [],
+          rawVibeTags,
         } satisfies EnrichedHangout;
       });
 

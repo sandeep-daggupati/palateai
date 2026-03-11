@@ -556,6 +556,12 @@ export default function UploadDetailPage() {
     const restaurantPromise = typedUpload.restaurant_id
       ? supabase.from('restaurants').select('id,place_type,name,address,custom_name,approx_address,accuracy_meters,lat,lng,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync').eq('id', typedUpload.restaurant_id).single()
       : Promise.resolve({ data: null });
+    const vibeMemoryPromise = supabase
+      .from('hangout_vibe_memories')
+      .select('vibe_tags')
+      .eq('hangout_id', uploadId)
+      .eq('user_id', user.id)
+      .maybeSingle();
 
     const myEntriesPrimary = await supabase
       .from('dish_entries')
@@ -635,7 +641,7 @@ export default function UploadDetailPage() {
       );
     }
 
-    const restaurantData = await restaurantPromise;
+    const [restaurantData, vibeMemoryData] = await Promise.all([restaurantPromise, vibeMemoryPromise]);
 
     const unifiedRows: UnifiedDishRow[] = hangoutEntries.map((entry) => {
       const dishName = entry.dish_name;
@@ -709,7 +715,11 @@ export default function UploadDetailPage() {
     setSavedMyDishHadByEntryId(nextMyDishHadByEntryId);
     setEntryMetaById(entryMap);
     setRestaurant((restaurantData.data ?? null) as RestaurantDirectory | null);
-    setVibeTags(normalizeHangoutVibeTags(Array.isArray(typedUpload.vibe_tags) ? typedUpload.vibe_tags.filter((value): value is string => typeof value === 'string') : []));
+    const personalVibeTagsRaw = Array.isArray(vibeMemoryData.data?.vibe_tags)
+      ? vibeMemoryData.data.vibe_tags.filter((value): value is string => typeof value === 'string')
+      : null;
+    const sharedVibeTagsRaw = Array.isArray(typedUpload.vibe_tags) ? typedUpload.vibe_tags.filter((value): value is string => typeof value === 'string') : [];
+    setVibeTags(normalizeHangoutVibeTags(personalVibeTagsRaw ?? sharedVibeTagsRaw));
     setDraftOccurredAt(typedUpload.visited_at ?? typedUpload.created_at ?? null);
     setDraftOccurredAtSource((typedUpload.visited_at_source as VisitedAtSource | null) ?? null);
     setManualVisitDateEdited((typedUpload.visited_at_source as VisitedAtSource | null) === 'manual');
@@ -1921,12 +1931,23 @@ export default function UploadDetailPage() {
           restaurant_id: effectiveRestaurantId,
           visited_at: effectiveOccurredAt,
           visited_at_source: effectiveOccurredAtSource,
-          vibe_tags: vibeTags.length > 0 ? vibeTags : [],
           status: 'approved',
           processed_at: new Date().toISOString(),
           ...(promotedImagePaths ? { image_paths: promotedImagePaths } : {}),
         })
         .eq('id', upload.id);
+
+      const { error: vibeMemoryError } = await supabase
+        .from('hangout_vibe_memories')
+        .upsert(
+          {
+            hangout_id: upload.id,
+            user_id: currentUserId,
+            vibe_tags: vibeTags,
+          },
+          { onConflict: 'hangout_id,user_id' },
+        );
+      if (vibeMemoryError) throw vibeMemoryError;
 
       await supabase
         .from('hangouts')

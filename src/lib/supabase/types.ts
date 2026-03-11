@@ -586,6 +586,33 @@ export type Database = {
         };
         Relationships: [];
       };
+      hangout_vibe_memories: {
+        Row: {
+          id: string;
+          hangout_id: string;
+          user_id: string;
+          vibe_tags: string[];
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          hangout_id: string;
+          user_id: string;
+          vibe_tags?: string[];
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          hangout_id?: string;
+          user_id?: string;
+          vibe_tags?: string[];
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       dish_catalog: {
         Row: {
           dish_key: string;
@@ -818,6 +845,7 @@ export type HangoutParticipant = Database['public']['Tables']['hangout_participa
 export type HangoutSource = Database['public']['Tables']['hangout_sources']['Row'];
 export type HangoutItem = Database['public']['Tables']['hangout_items']['Row'];
 export type HangoutSummary = Database['public']['Tables']['hangout_summaries']['Row'];
+export type HangoutVibeMemory = Database['public']['Tables']['hangout_vibe_memories']['Row'];
 export type DishCatalog = Database['public']['Tables']['dish_catalog']['Row'];
 export type DishEntry = Database['public']['Tables']['dish_entries']['Row'];
 export type DishEntryParticipant = Database['public']['Tables']['dish_entry_participants']['Row'];
