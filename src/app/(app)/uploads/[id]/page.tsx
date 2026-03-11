@@ -1727,7 +1727,7 @@ export default function UploadDetailPage() {
   const showFromReceiptHint = draftOccurredAtSource === 'receipt';
   const creatorLabel =
     currentUserId && upload.user_id === currentUserId
-      ? 'You created'
+      ? 'You Created'
       : `Added by ${creatorProfile?.display_name || creatorProfile?.email?.split('@')[0] || 'a friend'}`;
   const participantCount = activeCrew.length;
   const dishCount = visibleFood.length;
@@ -1766,9 +1766,9 @@ export default function UploadDetailPage() {
     <div className="mx-auto w-full max-w-3xl space-y-5 pb-6">
       <div className="card-surface space-y-5 p-5">
         <div className="min-w-0 space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-start justify-between gap-2">
             {restaurantNameEditing ? (
-              <div className="flex min-w-0 items-center gap-2">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
                 <input
                   value={restaurantNameDraft}
                   onChange={(event) => setRestaurantNameDraft(event.target.value)}
@@ -1797,8 +1797,8 @@ export default function UploadDetailPage() {
                 </button>
               </div>
             ) : (
-              <>
-                <h1 className="truncate text-[2rem] font-semibold leading-9 tracking-tight text-app-text">{restaurant?.name ?? 'Restaurant not detected'}</h1>
+              <div className="flex min-w-0 items-center gap-2">
+                <h1 className="truncate text-[1.75rem] font-semibold leading-8 tracking-tight text-app-text">{restaurant?.name ?? 'Restaurant not detected'}</h1>
                 {canEditHangoutIdentity && restaurant?.id ? (
                   <button
                     type="button"
@@ -1813,7 +1813,7 @@ export default function UploadDetailPage() {
                     <Pencil size={14} strokeWidth={1.6} />
                   </button>
                 ) : null}
-              </>
+              </div>
             )}
             {isSavedHangout ? (
               <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300/60 bg-emerald-100/30 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
@@ -1823,7 +1823,6 @@ export default function UploadDetailPage() {
             ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm leading-5 text-app-muted">
-            <span>Visited</span>
             {visitDateEditing && canEditHangoutIdentity ? (
               <div className="flex items-center gap-1">
                 <input
@@ -1851,7 +1850,7 @@ export default function UploadDetailPage() {
             ) : (
               <>
                 <span>{visitDateLabel}</span>
-                {showFromReceiptHint ? <span className="text-[11px] text-app-muted">from receipt</span> : null}
+                {showFromReceiptHint ? <span className="text-sm leading-5 text-app-muted">from receipt</span> : null}
                 {canEditHangoutIdentity ? (
                   <button
                     type="button"
@@ -1864,7 +1863,9 @@ export default function UploadDetailPage() {
                 ) : null}
               </>
             )}
-            <span className="text-app-muted">· {creatorLabel}</span>
+            <span className="inline-flex items-center rounded-full border border-app-border/80 bg-app-card px-2 py-0.5 text-[11px] font-medium text-app-muted">
+              {creatorLabel}
+            </span>
           </div>
           <div className="flex flex-wrap items-center gap-2 pt-1">
             {activeCrew.map((participant) => {
@@ -1906,8 +1907,6 @@ export default function UploadDetailPage() {
           </div>
           {showUnsavedIndicator ? (
             <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">Unsaved changes</p>
-          ) : isSavedHangout ? (
-            <p className="text-[11px] text-app-muted">Last edited {formatDateTime(upload.processed_at ?? upload.created_at)}</p>
           ) : null}
         </div>
         <div className="space-y-1">
