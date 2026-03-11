@@ -2667,73 +2667,72 @@ export default function UploadDetailPage() {
                       <div className="flex items-center justify-end gap-2">
                         <div className="mr-auto flex min-w-0 items-center gap-2">
                           <span className="text-[11px] text-app-muted">Tried by</span>
-                          {triedBy.length > 0 ? (
-                            <button
-                              type="button"
-                              className="flex items-center rounded-full border border-transparent px-0.5 py-0.5 hover:border-app-border/70"
-                              onClick={() =>
-                                setTriedBySheet({
-                                  dishName,
-                                  entries: triedBy.map((entry) => {
-                                    const fallbackName = participants.find((row) => row.user_id === entry.user_id)?.display_name ?? 'User';
-                                    return {
-                                      ...entry,
-                                      display_name: entry.display_name ?? fallbackName,
-                                    };
-                                  }),
-                                })
-                              }
-                              aria-label={`View who tried ${dishName}`}
-                            >
-                              {triedBy.slice(0, 4).map((entry, index) => (
-                                <span
-                                  key={entry.id}
-                                  className={`inline-flex h-5 w-5 items-center justify-center overflow-hidden rounded-full border border-app-card bg-app-bg text-[10px] font-medium text-app-text ${index > 0 ? '-ml-1.5' : ''}`}
-                                  title={entry.display_name ?? participants.find((row) => row.user_id === entry.user_id)?.display_name ?? 'User'}
-                                >
-                                  {(
+                          <div className="flex min-w-0 items-center gap-2">
+                            {triedBy.length > 0 ? (
+                              <div className="flex items-center">
+                                {triedBy.slice(0, 4).map((entry, index) => {
+                                  const resolvedName = entry.display_name ?? participants.find((row) => row.user_id === entry.user_id)?.display_name ?? 'User';
+                                  const resolvedAvatar =
                                     entry.avatar_url ??
                                     participants.find((row) => row.user_id === entry.user_id)?.avatar_url ??
-                                    (entry.user_id === currentUserId ? currentUserAvatarUrl : null)
-                                  ) ? (
-                                    <Image
-                                      src={
-                                        entry.avatar_url ??
-                                        participants.find((row) => row.user_id === entry.user_id)?.avatar_url ??
-                                        (entry.user_id === currentUserId ? currentUserAvatarUrl : '')!
-                                      }
-                                      alt={entry.display_name ?? participants.find((row) => row.user_id === entry.user_id)?.display_name ?? 'User'}
-                                      width={20}
-                                      height={20}
-                                      className="h-5 w-5 object-cover"
-                                      unoptimized
-                                    />
-                                  ) : (
-                                    initialsFromName(entry.display_name ?? participants.find((row) => row.user_id === entry.user_id)?.display_name ?? 'User')
-                                  )}
-                                </span>
-                              ))}
-                              {triedBy.length > 4 ? <span className="ml-1 text-[11px] text-app-muted">+{triedBy.length - 4}</span> : null}
-                            </button>
-                          ) : (
-                            <span className="text-[11px] text-app-muted">No one marked yet</span>
-                          )}
-                          {dishEntryId ? (
-                            <button
-                              type="button"
-                              className={`ml-1 rounded-full border px-2 py-0.5 text-[11px] ${
-                                currentUserHadThis
-                                  ? 'border-app-primary/50 bg-app-primary/10 text-app-text'
-                                  : 'border-app-border text-app-muted'
-                              }`}
-                              onClick={() => void toggleMyDishHadIt(row, !currentUserHadThis)}
-                            >
-                              <span className="inline-flex items-center gap-1">
-                                {currentUserHadThis ? <Check size={11} strokeWidth={2} /> : <Plus size={11} strokeWidth={2} />}
-                                <span>{currentUserHadThis ? 'I had this' : 'Mark I had this'}</span>
-                              </span>
-                            </button>
-                          ) : null}
+                                    (entry.user_id === currentUserId ? currentUserAvatarUrl : null);
+                                  const isSelfAvatar = Boolean(currentUserId && entry.user_id === currentUserId);
+                                  return (
+                                    <button
+                                      key={entry.id}
+                                      type="button"
+                                      className={`inline-flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-app-card bg-app-bg text-[10px] font-medium text-app-text ${index > 0 ? '-ml-2' : ''}`}
+                                      title={isSelfAvatar ? 'Remove me from this dish' : resolvedName}
+                                      aria-label={isSelfAvatar ? `Remove yourself from ${dishName}` : `View who tried ${dishName}`}
+                                      onClick={() => {
+                                        if (isSelfAvatar) {
+                                          void toggleMyDishHadIt(row, false);
+                                          return;
+                                        }
+                                        setTriedBySheet({
+                                          dishName,
+                                          entries: triedBy.map((entryRow) => {
+                                            const fallbackName = participants.find((participant) => participant.user_id === entryRow.user_id)?.display_name ?? 'User';
+                                            return {
+                                              ...entryRow,
+                                              display_name: entryRow.display_name ?? fallbackName,
+                                            };
+                                          }),
+                                        });
+                                      }}
+                                    >
+                                      {resolvedAvatar ? (
+                                        <Image
+                                          src={resolvedAvatar}
+                                          alt={resolvedName}
+                                          width={32}
+                                          height={32}
+                                          className="h-8 w-8 object-cover"
+                                          unoptimized
+                                        />
+                                      ) : (
+                                        initialsFromName(resolvedName)
+                                      )}
+                                    </button>
+                                  );
+                                })}
+                                {triedBy.length > 4 ? <span className="ml-1 text-[11px] text-app-muted">+{triedBy.length - 4}</span> : null}
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-app-muted">No one yet</span>
+                            )}
+                            {dishEntryId && !currentUserHadThis ? (
+                              <button
+                                type="button"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-dashed border-app-border text-app-muted transition-colors hover:border-app-primary/50 hover:text-app-text"
+                                aria-label={`Mark I had ${dishName}`}
+                                title="Mark I had this"
+                                onClick={() => void toggleMyDishHadIt(row, true)}
+                              >
+                                <Plus size={15} strokeWidth={1.9} />
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
                     <DishActionBar
                       showPhotoAction={false}
