@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Check, CheckCircle2, ChevronDown, Clock3, FileText, Globe, MapPin, Navigation, Pencil, Phone, Plus, Trash2 } from 'lucide-react';
+import { Ban, Check, CheckCircle2, ChevronDown, Clock3, FileText, Flame, Gem, Globe, MapPin, Navigation, Pencil, Phone, Plus, Trash2, Users } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { PinMapPicker } from '@/components/maps/PinMapPicker';
@@ -1798,11 +1798,11 @@ export default function UploadDetailPage() {
     const topSkip = pickTop((entry) => entry.skipCount);
 
     const rows = [
-      topLoved ? { key: 'most_loved', icon: '🔥', text: `Most loved: ${topLoved.dishName}` } : null,
-      topHidden ? { key: 'hidden_gem', icon: '💎', text: `Hidden gem: ${topHidden.dishName}` } : null,
-      topCrowd ? { key: 'crowd_favorite', icon: '👥', text: `Everyone tried: ${topCrowd.dishName}` } : null,
-      topSkip ? { key: 'skip_next_time', icon: '🚫', text: `Skip next time: ${topSkip.dishName}` } : null,
-    ].filter((row): row is { key: string; icon: string; text: string } => Boolean(row));
+      topLoved ? { key: 'most_loved', icon: 'most_loved', text: `Most loved: ${topLoved.dishName}` } : null,
+      topHidden ? { key: 'hidden_gem', icon: 'hidden_gem', text: `Hidden gem: ${topHidden.dishName}` } : null,
+      topCrowd ? { key: 'crowd_favorite', icon: 'crowd_favorite', text: `Everyone tried: ${topCrowd.dishName}` } : null,
+      topSkip ? { key: 'skip_next_time', icon: 'skip_next_time', text: `Skip next time: ${topSkip.dishName}` } : null,
+    ].filter((row): row is { key: string; icon: 'most_loved' | 'hidden_gem' | 'crowd_favorite' | 'skip_next_time'; text: string } => Boolean(row));
 
     return rows.slice(0, 3);
   })();
@@ -2197,9 +2197,17 @@ export default function UploadDetailPage() {
             <span className="text-app-muted/70">·</span>
             <span><span className="font-semibold text-app-text">{dishCount}</span> dishes</span>
             <span className="text-app-muted/70">·</span>
-            <span className="font-semibold text-app-text">{statsSpendLabel}</span>
+            {hasSpendData ? (
+              <span><span className="font-semibold text-app-text">{statsSpendLabel}</span> total spend</span>
+            ) : (
+              <span>total spend unavailable</span>
+            )}
             <span className="text-app-muted/70">·</span>
-            <span className={ratedDishCount > 0 ? 'font-semibold text-app-text' : 'text-app-muted'}>{averageRatingLabel}</span>
+            {ratedDishCount > 0 ? (
+              <span><span className="font-semibold text-app-text">{ratedDishCount}/{dishCount}</span> rated</span>
+            ) : (
+              <span className="text-app-muted">{averageRatingLabel}</span>
+            )}
           </div>
         </div>
       </div>
@@ -2208,7 +2216,12 @@ export default function UploadDetailPage() {
           highlights.length > 0 ? (
             highlights.map((row) => (
               <p key={row.key} className="flex items-center gap-2 text-xs text-app-muted">
-                <span aria-hidden="true">{row.icon}</span>
+                <span aria-hidden="true" className="text-app-muted">
+                  {row.icon === 'most_loved' ? <Flame size={12} strokeWidth={1.7} /> : null}
+                  {row.icon === 'hidden_gem' ? <Gem size={12} strokeWidth={1.7} /> : null}
+                  {row.icon === 'crowd_favorite' ? <Users size={12} strokeWidth={1.7} /> : null}
+                  {row.icon === 'skip_next_time' ? <Ban size={12} strokeWidth={1.7} /> : null}
+                </span>
                 <span className="truncate">{row.text}</span>
               </p>
             ))
