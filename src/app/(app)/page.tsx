@@ -164,7 +164,11 @@ export default function HomePage() {
                   false,
               ),
             }
-          : null;
+          : {
+              id: user.id,
+              display_name: null,
+              onboarding_completed: false,
+            };
 
         setProfile(nextProfile);
 
@@ -217,6 +221,12 @@ export default function HomePage() {
             setProfile((current) => (current ? { ...current, onboarding_completed: true } : current));
           }
         }
+      } catch {
+        setHasFoodEntries(false);
+        setHasCreatedHangouts(false);
+        setInsight(null);
+        setHighlights(FALLBACK_HIGHLIGHTS);
+        setHangoutChips([]);
       } finally {
         setLoadingHome(false);
       }
@@ -246,24 +256,12 @@ export default function HomePage() {
 
   const skipDisplayNameSetup = () => {
     setSetupDismissed(true);
-    if (!profile) return;
-
-    const supabase = getBrowserSupabaseClient();
-    void supabase
-      .from('profiles')
-      .update({ onboarding_completed: true, onboarded: true, updated_at: new Date().toISOString() })
-      .eq('id', profile.id)
-      .then(({ error }) => {
-        if (!error) {
-          setProfile((current) => (current ? { ...current, onboarding_completed: true } : current));
-        }
-      });
   };
 
   const displayName = profile?.display_name?.trim() ?? '';
   const setupInitialValue = displayName || googleNameSuggestion;
-  const showDisplayNameGate = Boolean(profile) && !setupDismissed && (!displayName || !(profile?.onboarding_completed ?? true));
-  const isFirstTimeUser = Boolean(profile) && !(profile?.onboarding_completed ?? true) && !hasCreatedHangouts && !hasFoodEntries;
+  const showDisplayNameGate = Boolean(profile) && !setupDismissed && (!displayName || !(profile?.onboarding_completed ?? false));
+  const isFirstTimeUser = Boolean(profile) && !(profile?.onboarding_completed ?? false) && !hasCreatedHangouts && !hasFoodEntries;
   const showZeroStateHome = isFirstTimeUser;
 
   const heroHeading = useMemo(() => {
