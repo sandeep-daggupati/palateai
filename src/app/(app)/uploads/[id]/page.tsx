@@ -850,6 +850,7 @@ export default function UploadDetailPage() {
 
               const resolvePayload = (await resolveResponse.json().catch(() => null)) as {
                 autoResolved?: boolean;
+                source?: 'local' | 'local_fallback' | 'local_google' | 'google' | 'none';
                 restaurant?: RestaurantDirectory;
                 choices?: PlaceSuggestion[];
               } | null;
@@ -860,7 +861,30 @@ export default function UploadDetailPage() {
                   current ? { ...current, restaurant_id: resolvePayload.restaurant?.id ?? current.restaurant_id } : current,
                 );
                 setRestaurantQuery(resolvePayload.restaurant.name);
-                setDetectedRestaurantChoices([]);
+                const lacksDirectoryData = !hasDirectoryData(resolvePayload.restaurant);
+                const needsConfirmation = resolvePayload.source === 'local_fallback' || lacksDirectoryData || !resolvePayload.restaurant.place_id;
+
+                if (needsConfirmation) {
+                  const initialChoices = resolvePayload?.choices ?? [];
+                  if (initialChoices.length > 0) {
+                    setDetectedRestaurantChoices(initialChoices);
+                  } else {
+                    try {
+                      const query = [merchant.name, merchant.address].filter(Boolean).join(' ').trim() || merchant.name;
+                      const autocompleteResponse = await fetch(`/api/places/autocomplete?q=${encodeURIComponent(query)}`);
+                      const autocompletePayload = (await autocompleteResponse.json().catch(() => null)) as { results?: PlaceSuggestion[] } | null;
+                      if (autocompleteResponse.ok) {
+                        setDetectedRestaurantChoices((autocompletePayload?.results ?? []).slice(0, 5));
+                      } else {
+                        setDetectedRestaurantChoices([]);
+                      }
+                    } catch {
+                      setDetectedRestaurantChoices([]);
+                    }
+                  }
+                } else {
+                  setDetectedRestaurantChoices([]);
+                }
               } else {
                 setDetectedRestaurantChoices(resolvePayload?.choices ?? []);
               }
