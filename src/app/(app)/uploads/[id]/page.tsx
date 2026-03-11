@@ -1538,12 +1538,41 @@ export default function UploadDetailPage() {
       const supabase = getBrowserSupabaseClient();
       const preservedEntryIds = new Set<string>();
       const resolvedDishEntryIdsByRowId: Record<string, string> = {};
-      const effectiveRestaurantId = upload.restaurant_id;
+      let effectiveRestaurantId = restaurant?.id ?? upload.restaurant_id;
+
+      // Preserve a detected merchant as a fallback restaurant so the saved hangout
+      // does not regress to "Restaurant not detected" when auto-resolve is incomplete.
+      if (!effectiveRestaurantId) {
+        const fallbackName = detectedMerchant?.name?.trim() || restaurantQuery.trim();
+        const fallbackAddress = detectedMerchant?.address?.trim() || null;
+        if (fallbackName) {
+          const { data: fallbackRestaurant, error: fallbackRestaurantError } = await supabase
+            .from('restaurants')
+            .insert({
+              user_id: currentUserId,
+              place_type: 'google',
+              name: fallbackName,
+              address: fallbackAddress,
+              place_id: null,
+              lat: null,
+              lng: null,
+            })
+            .select('id,place_type,name,address,custom_name,approx_address,accuracy_meters,lat,lng,place_id,phone_number,website,maps_url,opening_hours,utc_offset_minutes,google_rating,price_level,business_status,last_place_sync')
+            .single();
+          if (!fallbackRestaurantError && fallbackRestaurant) {
+            effectiveRestaurantId = fallbackRestaurant.id;
+            setRestaurant((fallbackRestaurant ?? null) as RestaurantDirectory | null);
+            setRestaurantQuery(fallbackRestaurant.name ?? fallbackName);
+            setUpload((current) => (current ? { ...current, restaurant_id: fallbackRestaurant.id } : current));
+          }
+        }
+      }
 
       const effectiveOccurredAt = draftOccurredAt ?? upload.visited_at ?? upload.created_at ?? new Date().toISOString();
       const effectiveOccurredAtSource: VisitedAtSource =
         draftOccurredAtSource ?? (manualVisitDateEdited ? 'manual' : 'fallback');
-      const effectiveRestaurantName = restaurant?.name ?? 'unknown-restaurant';
+      const effectiveRestaurantName =
+        (restaurant?.name ?? detectedMerchant?.name ?? restaurantQuery.trim()) || 'unknown-restaurant';
 
       for (const row of activeFood) {
         const dishName = sanitizeText(row.hangoutItem.name_final || row.hangoutItem.name_raw);
@@ -1695,7 +1724,11 @@ export default function UploadDetailPage() {
     hasUnsavedChanges,
     savedFoodFingerprint,
     enrichDishCatalogForEntry,
+    detectedMerchant?.address,
+    detectedMerchant?.name,
+    restaurant?.id,
     restaurant?.name,
+    restaurantQuery,
     router,
     upload,
     vibeTags,
