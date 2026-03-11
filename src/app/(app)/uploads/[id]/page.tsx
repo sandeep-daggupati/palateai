@@ -1749,6 +1749,63 @@ export default function UploadDetailPage() {
     return photo.user_id === currentUserId || upload.user_id === currentUserId;
   };
   const unratedDishCount = dishCount - ratedDishCount;
+  const highlights = (() => {
+    const aggregate = new Map<
+      string,
+      {
+        dishName: string;
+        lovedCount: number;
+        hiddenGemCount: number;
+        skipCount: number;
+        triedCount: number;
+      }
+    >();
+
+    for (const row of visibleFood) {
+      const dishName = sanitizeText(row.hangoutItem.name_final || row.hangoutItem.name_raw);
+      if (!dishName) continue;
+      const key = dishName.toLowerCase();
+      const tag = row.myEntry?.identity_tag ?? null;
+      const triedCountForRow = row.myEntry?.id ? (dishTriedByByEntryId[row.myEntry.id]?.length ?? 0) : 0;
+      if (!aggregate.has(key)) {
+        aggregate.set(key, {
+          dishName,
+          lovedCount: 0,
+          hiddenGemCount: 0,
+          skipCount: 0,
+          triedCount: triedCountForRow,
+        });
+      }
+      const current = aggregate.get(key)!;
+      if (tag === 'go_to' || tag === 'hidden_gem' || tag === 'special_occasion') current.lovedCount += 1;
+      if (tag === 'hidden_gem') current.hiddenGemCount += 1;
+      if (tag === 'never_again') current.skipCount += 1;
+      current.triedCount = Math.max(current.triedCount, triedCountForRow);
+    }
+
+    const values = Array.from(aggregate.values());
+    const pickTop = (score: (entry: (typeof values)[number]) => number) => {
+      const ranked = values
+        .map((entry) => ({ entry, value: score(entry) }))
+        .filter((row) => row.value > 0)
+        .sort((a, b) => b.value - a.value);
+      return ranked[0]?.entry ?? null;
+    };
+
+    const topLoved = pickTop((entry) => entry.lovedCount);
+    const topHidden = pickTop((entry) => entry.hiddenGemCount);
+    const topCrowd = pickTop((entry) => entry.triedCount);
+    const topSkip = pickTop((entry) => entry.skipCount);
+
+    const rows = [
+      topLoved ? { key: 'most_loved', icon: '🔥', text: `Most loved: ${topLoved.dishName}` } : null,
+      topHidden ? { key: 'hidden_gem', icon: '💎', text: `Hidden gem: ${topHidden.dishName}` } : null,
+      topCrowd ? { key: 'crowd_favorite', icon: '👥', text: `Everyone tried: ${topCrowd.dishName}` } : null,
+      topSkip ? { key: 'skip_next_time', icon: '🚫', text: `Skip next time: ${topSkip.dishName}` } : null,
+    ].filter((row): row is { key: string; icon: string; text: string } => Boolean(row));
+
+    return rows.slice(0, 3);
+  })();
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5 pb-6">
@@ -2145,6 +2202,22 @@ export default function UploadDetailPage() {
             <span className={ratedDishCount > 0 ? 'font-semibold text-app-text' : 'text-app-muted'}>{averageRatingLabel}</span>
           </div>
         </div>
+      </div>
+      <div className="card-surface space-y-1.5 px-4 py-3">
+        {ratedDishCount > 0 ? (
+          highlights.length > 0 ? (
+            highlights.map((row) => (
+              <p key={row.key} className="flex items-center gap-2 text-xs text-app-muted">
+                <span aria-hidden="true">{row.icon}</span>
+                <span className="truncate">{row.text}</span>
+              </p>
+            ))
+          ) : (
+            <p className="text-xs text-app-muted">Rate dishes to see highlights</p>
+          )
+        ) : (
+          <p className="text-xs text-app-muted">Rate dishes to see highlights</p>
+        )}
       </div>
       <input
         ref={receiptReplaceUploadInputRef}
