@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Clock3, Repeat, Trophy } from 'lucide-react';
+import { BarChart, Compass, Repeat, Trophy } from 'lucide-react';
 import { HighlightCard } from '@/lib/home/getHighlights';
 
 const ICON_STROKE = 1.5;
@@ -7,7 +7,7 @@ const ICON_STROKE = 1.5;
 const HIGHLIGHT_ICON: Record<HighlightCard['key'], typeof Trophy> = {
   standout: Trophy,
   repeat: Repeat,
-  memory: Clock3,
+  memory: Compass,
 };
 
 function HighlightCardItem({ card }: { card: HighlightCard }) {
@@ -39,8 +39,11 @@ export function HighlightsCard({ highlights }: { highlights: HighlightCard[] }) 
     <section className="card-surface p-3 space-y-1.5">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="section-label">Your highlights</p>
-          <p className="text-xs text-app-muted">What your palate is into lately.</p>
+          <div className="inline-flex items-center gap-2">
+            <BarChart size={14} className="text-app-muted" />
+            <p className="section-label">Highlights</p>
+          </div>
+          <p className="text-xs text-app-muted">Standout, repeats, and new suggestions.</p>
         </div>
         <Link href="/food" className="text-xs font-medium text-app-link">
           View food
