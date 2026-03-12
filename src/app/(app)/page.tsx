@@ -1,16 +1,19 @@
 'use client';
 
 import Link from 'next/link';
+import { Flame } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { FlavorFingerprintCard } from '@/components/home/FlavorFingerprintCard';
+import { FoodCrewCard } from '@/components/home/FoodCrewCard';
 import { ForYouTodayCard } from '@/components/home/ForYouTodayCard';
 import { HighlightsCard } from '@/components/home/HighlightsCard';
 import { RecentHangoutsCard } from '@/components/home/RecentHangoutsCard';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
+import { FlavorFingerprint, FoodCrewRow, getHomeOverview, RecentHangoutRow, StreakSummary } from '@/lib/home/getHomeOverview';
+import { getHighlights, HighlightCard } from '@/lib/home/getHighlights';
 import { ensureProfile } from '@/lib/profile/ensureProfile';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
-import { getHighlights, HighlightCard } from '@/lib/home/getHighlights';
-import { getHangoutChips, HangoutChip } from '@/lib/home/getHangoutChips';
 
 type InsightPayload = {
   category?: 'palate' | 'explore' | 'spend' | 'wildcard';
@@ -33,29 +36,43 @@ type ProfileState = {
 const FALLBACK_HIGHLIGHTS: HighlightCard[] = [
   {
     key: 'standout',
-    title: 'Standout this week',
-    body: 'Log a hangout to unlock highlights.',
-    hint: 'Start with your first recap',
-    href: '/add',
+    title: 'Standout',
+    body: 'No top-rated dish yet this week.',
+    hint: 'Rate a dish to unlock your standout',
+    href: '/food',
     image_label: 'S',
   },
   {
     key: 'repeat',
-    title: 'On repeat',
-    body: 'Your repeats will show up here.',
-    hint: 'Patterns update as you log',
+    title: 'On Repeat',
+    body: 'No repeat pattern yet.',
+    hint: 'Log a dish twice this week to surface repeats',
     href: '/food',
     image_label: 'R',
   },
   {
     key: 'memory',
-    title: 'Still thinking about...',
-    body: 'Memories will show up here.',
-    hint: 'Keep logging hangouts',
-    href: '/hangouts',
-    image_label: 'M',
+    title: 'Try Something New',
+    body: "You haven't logged a new cuisine in 12 days.",
+    hint: 'Try one new spot this week',
+    href: '/add',
+    image_label: 'N',
   },
 ];
+
+const DEFAULT_STREAK: StreakSummary = {
+  days: 0,
+  subtext: null,
+};
+
+const DEFAULT_FINGERPRINT: FlavorFingerprint = {
+  bars: [
+    { label: 'Savory', value: 52 },
+    { label: 'Fresh', value: 34 },
+    { label: 'Spicy', value: 21 },
+  ],
+  tagline: 'Savory-heavy · Italian-leaning · Comfort seeker',
+};
 
 function DisplayNameGate({
   open,
@@ -115,7 +132,10 @@ export default function HomePage() {
   const [hasCreatedHangouts, setHasCreatedHangouts] = useState(false);
   const [insight, setInsight] = useState<InsightPayload | null>(null);
   const [highlights, setHighlights] = useState<HighlightCard[]>(FALLBACK_HIGHLIGHTS);
-  const [hangoutChips, setHangoutChips] = useState<HangoutChip[]>([]);
+  const [streak, setStreak] = useState<StreakSummary>(DEFAULT_STREAK);
+  const [fingerprint, setFingerprint] = useState<FlavorFingerprint>(DEFAULT_FINGERPRINT);
+  const [foodCrew, setFoodCrew] = useState<FoodCrewRow[]>([]);
+  const [recentHangouts, setRecentHangouts] = useState<RecentHangoutRow[]>([]);
   const [profile, setProfile] = useState<ProfileState | null>(null);
   const [googleNameSuggestion, setGoogleNameSuggestion] = useState('');
   const [setupDismissed, setSetupDismissed] = useState(false);
@@ -134,7 +154,10 @@ export default function HomePage() {
           setHasCreatedHangouts(false);
           setInsight(null);
           setHighlights(FALLBACK_HIGHLIGHTS);
-          setHangoutChips([]);
+          setStreak(DEFAULT_STREAK);
+          setFingerprint(DEFAULT_FINGERPRINT);
+          setFoodCrew([]);
+          setRecentHangouts([]);
           setProfile(null);
           setGoogleNameSuggestion('');
           setSetupDismissed(false);
@@ -196,10 +219,10 @@ export default function HomePage() {
           }
         }
 
-        const [highlightCards, chipPayload, entryProbe, createdHangoutProbe] = await Promise.all([
+        const [highlightCards, overview, entryProbe, createdHangoutProbe] = await Promise.all([
           getHighlights(supabase, user.id),
-          getHangoutChips(supabase, user.id),
-          supabase.from('dish_entries').select('id').eq('user_id', user.id).limit(1),
+          getHomeOverview(supabase, user.id),
+          supabase.from('personal_food_entries').select('id').eq('user_id', user.id).limit(1),
           supabase.from('receipt_uploads').select('id').eq('user_id', user.id).limit(1),
         ]);
 
@@ -207,7 +230,10 @@ export default function HomePage() {
         const createdHangoutCount = ((createdHangoutProbe.data ?? []) as Array<{ id: string }>).length;
 
         setHighlights(highlightCards.slice(0, 3));
-        setHangoutChips(chipPayload.chips);
+        setStreak(overview.streak);
+        setFingerprint(overview.fingerprint);
+        setFoodCrew(overview.crew);
+        setRecentHangouts(overview.recentHangouts);
         setHasFoodEntries(foodCount > 0);
         setHasCreatedHangouts(createdHangoutCount > 0);
 
@@ -226,7 +252,10 @@ export default function HomePage() {
         setHasCreatedHangouts(false);
         setInsight(null);
         setHighlights(FALLBACK_HIGHLIGHTS);
-        setHangoutChips([]);
+        setStreak(DEFAULT_STREAK);
+        setFingerprint(DEFAULT_FINGERPRINT);
+        setFoodCrew([]);
+        setRecentHangouts([]);
       } finally {
         setLoadingHome(false);
       }
@@ -265,10 +294,21 @@ export default function HomePage() {
   const showZeroStateHome = isFirstTimeUser;
 
   const heroHeading = useMemo(() => {
-    if (hasFoodEntries && displayName) return `Welcome back, ${displayName}.`;
+    if (displayName) return `Welcome back, ${displayName}.`;
     if (hasFoodEntries) return 'Welcome back.';
     return 'Welcome to PalateAI';
   }, [displayName, hasFoodEntries]);
+
+  const streakLabel = useMemo(() => {
+    if (streak.days <= 0) return 'Start your streak';
+    return `${streak.days}-day streak`;
+  }, [streak.days]);
+
+  const streakSubtext = useMemo(() => {
+    if (streak.subtext) return streak.subtext;
+    if (hasFoodEntries) return 'Welcome back.';
+    return 'Log today to begin your streak.';
+  }, [hasFoodEntries, streak.subtext]);
 
   if (loadingHome) {
     return (
@@ -322,25 +362,35 @@ export default function HomePage() {
           </>
         ) : (
           <>
-            <section className="space-y-1.5 py-1">
-              <h1 className="text-xl font-semibold text-app-text">{heroHeading}</h1>
-              <p className="text-sm text-app-muted">{hasFoodEntries ? 'What did you eat today?' : 'Start building your food story.'}</p>
-              <div className="pt-1">
-                <Link
-                  href="/add"
-                  className="inline-flex h-10 items-center justify-center rounded-xl border border-transparent bg-app-primary px-4 text-sm font-semibold text-app-primary-text"
-                >
-                  {hasFoodEntries ? 'Add a meal' : 'Add your first meal'}
-                </Link>
+            <section className="card-surface space-y-2 py-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <h1 className="text-xl font-semibold text-app-text">{heroHeading}</h1>
+                  <p className="text-sm text-app-muted">{hasFoodEntries ? 'What did you eat today?' : 'Start building your food story.'}</p>
+                </div>
+                <div className="rounded-xl border border-app-border bg-app-card px-2.5 py-1.5">
+                  <div className="inline-flex items-center gap-1.5 text-sm font-semibold text-app-text">
+                    <Flame size={14} className="text-app-accent" />
+                    <span>{streakLabel}</span>
+                  </div>
+                  <p className="mt-0.5 text-[11px] text-app-muted">{streakSubtext}</p>
+                </div>
               </div>
-              {!hasFoodEntries ? <p className="text-xs text-app-muted">Log a dish, scan a receipt, or add a photo.</p> : null}
             </section>
+
+            <FlavorFingerprintCard fingerprint={fingerprint} />
 
             <ForYouTodayCard insight={insight} />
 
             <HighlightsCard highlights={highlights} />
 
-            <RecentHangoutsCard chips={hangoutChips} />
+            <FoodCrewCard rows={foodCrew} />
+
+            <RecentHangoutsCard items={recentHangouts} />
+
+            {!hasFoodEntries ? (
+              <p className="px-1 text-xs text-app-muted">Use Add to log a dish, scan a receipt, or add a photo.</p>
+            ) : null}
           </>
         )}
       </div>

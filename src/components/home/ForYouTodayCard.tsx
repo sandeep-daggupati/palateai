@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { Sparkles } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 type InsightEvidenceType = 'dish' | 'restaurant' | 'hangout' | 'summary';
@@ -11,6 +12,12 @@ type InsightPayload = {
   insight_text: string;
   evidence_type?: InsightEvidenceType;
   evidence?: unknown;
+  metadata?: unknown;
+};
+
+type DailyStats = {
+  dish_count?: number;
+  top_dish?: { name?: string | null; count?: number };
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -18,6 +25,21 @@ function asRecord(value: unknown): Record<string, unknown> {
     return value as Record<string, unknown>;
   }
   return {};
+}
+
+function asStats(value: unknown): DailyStats {
+  const row = asRecord(value);
+  const topDishRow = asRecord(row.top_dish);
+  return {
+    dish_count: typeof row.dish_count === 'number' ? row.dish_count : undefined,
+    top_dish:
+      Object.keys(topDishRow).length > 0
+        ? {
+            name: typeof topDishRow.name === 'string' ? topDishRow.name : null,
+            count: typeof topDishRow.count === 'number' ? topDishRow.count : undefined,
+          }
+        : undefined,
+  };
 }
 
 function readCrewNames(evidence: Record<string, unknown>): string[] {
@@ -36,6 +58,29 @@ function resolveHangoutPath(type: InsightEvidenceType, evidence: Record<string, 
   return `/uploads/${raw}`;
 }
 
+function buildContextChips(metadata: unknown): string[] {
+  const meta = asRecord(metadata);
+  const stats7 = asStats(meta.stats_7d);
+  const stats30 = asStats(meta.stats_30d);
+
+  const chips: string[] = [];
+
+  if (typeof stats7.dish_count === 'number') {
+    chips.push(`This week: ${stats7.dish_count} dishes`);
+  }
+
+  if (typeof stats7.dish_count === 'number' && typeof stats30.dish_count === 'number') {
+    const weeklyAvg = stats30.dish_count / 4.3;
+    chips.push(`vs avg: ${weeklyAvg.toFixed(1)} dishes/week`);
+  }
+
+  if (stats30.top_dish?.name && typeof stats30.top_dish.count === 'number') {
+    chips.push(`30d record: ${stats30.top_dish.count}x ${stats30.top_dish.name}`);
+  }
+
+  return chips.slice(0, 3);
+}
+
 export function ForYouTodayCard({ insight }: { insight: InsightPayload | null }) {
   const [open, setOpen] = useState(false);
 
@@ -46,28 +91,42 @@ export function ForYouTodayCard({ insight }: { insight: InsightPayload | null })
     [evidence, insight],
   );
   const insightTypeLabel = insight?.insight_type ? insight.insight_type.replace(/_/g, ' ') : null;
+  const contextChips = useMemo(() => buildContextChips(insight?.metadata), [insight?.metadata]);
 
   if (!insight) {
     return (
-      <section className="card-surface p-3 space-y-1.5">
+      <section className="card-surface p-3 space-y-2">
         <div className="flex items-center justify-between gap-3">
-          <p className="section-label">For you today</p>
-          <span className="text-xs text-app-muted">Based on your logs</span>
+          <div className="inline-flex items-center gap-2">
+            <Sparkles size={14} className="text-app-muted" />
+            <p className="section-label">Today&apos;s Insight</p>
+          </div>
         </div>
-        <p className="text-sm text-app-muted">Your daily insight will show up after you log a few hangouts.</p>
+        <p className="text-sm text-app-muted">Your insight will appear after a few food logs.</p>
       </section>
     );
   }
 
   return (
     <>
-      <button type="button" className="card-surface w-full p-3 space-y-1.5 text-left" onClick={() => setOpen(true)}>
+      <button type="button" className="card-surface w-full p-3 space-y-2 text-left" onClick={() => setOpen(true)}>
         <div className="flex items-center justify-between gap-3">
-          <p className="section-label">For you today</p>
-          <span className="text-xs text-app-muted">{insightTypeLabel ?? 'See details'}</span>
+          <div className="inline-flex items-center gap-2">
+            <Sparkles size={14} className="text-app-muted" />
+            <p className="section-label">Today&apos;s Insight</p>
+          </div>
+          <span className="text-xs capitalize text-app-muted">{insightTypeLabel ?? 'Details'}</span>
         </div>
-        <p className="text-xs text-app-muted">Based on your logs</p>
         <p className="text-sm font-medium leading-5 text-app-text">{insight.insight_text}</p>
+        {contextChips.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {contextChips.map((chip) => (
+              <span key={chip} className="rounded-full border border-app-border bg-app-bg px-2 py-0.5 text-[11px] text-app-muted">
+                {chip}
+              </span>
+            ))}
+          </div>
+        ) : null}
       </button>
 
       {open && (
@@ -76,13 +135,23 @@ export function ForYouTodayCard({ insight }: { insight: InsightPayload | null })
 
           <div className="relative w-full max-w-3xl rounded-t-2xl border border-app-border bg-app-card p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-xl">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-app-text">Why this?</h2>
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-app-text">Today&apos;s Insight</h2>
               <button type="button" className="h-11 rounded-lg border border-app-border px-3 text-xs text-app-text" onClick={() => setOpen(false)}>
                 Close
               </button>
             </div>
 
             <p className="mb-2 text-sm text-app-text">{insight.insight_text}</p>
+
+            {contextChips.length > 0 ? (
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {contextChips.map((chip) => (
+                  <span key={chip} className="rounded-full border border-app-border bg-app-bg px-2 py-0.5 text-[11px] text-app-muted">
+                    {chip}
+                  </span>
+                ))}
+              </div>
+            ) : null}
 
             {insight.evidence_type === 'dish' && (
               <div className="space-y-2 rounded-xl border border-app-border p-3 text-sm text-app-text">
@@ -144,4 +213,3 @@ export function ForYouTodayCard({ insight }: { insight: InsightPayload | null })
     </>
   );
 }
-
